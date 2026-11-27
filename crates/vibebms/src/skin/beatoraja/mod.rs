@@ -21,6 +21,7 @@ use super::model::*;
 use super::options::*;
 use super::script::{self, ScriptKind};
 use super::state::SkinState;
+use super::style::*;
 use super::types::*;
 use crate::gfx::Rect;
 use crate::platform::vfs;

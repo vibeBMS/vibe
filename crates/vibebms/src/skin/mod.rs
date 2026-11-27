@@ -20,6 +20,7 @@ mod options;
 pub mod render;
 pub mod script;
 mod state;
+mod style;
 mod types;
 
 pub use eval::Frame;
@@ -31,6 +32,7 @@ pub(crate) use load::{read_media, read_text};
 pub use model::*;
 pub use options::*;
 pub use state::{Counts, SkinState};
+pub use style::*;
 pub use types::*;
 
 use std::collections::HashMap;

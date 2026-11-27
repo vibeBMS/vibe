@@ -24,6 +24,7 @@ use super::images::*;
 use super::load::*;
 use super::model::*;
 use super::options::*;
+use super::style::*;
 use super::types::*;
 use crate::gfx::Rect;
 use crate::platform::vfs;
