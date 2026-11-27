@@ -41,7 +41,7 @@ pub use mount::set_memory_limit;
 pub use mount::{is_ready, prepare, read, retain};
 #[cfg(test)]
 pub use unpack::times_opened;
-pub use unpack::{read_charts, Unpacked};
+pub use unpack::{read_charts, watched, Moved, Unpacked};
 
 use crate::platform::vfs;
 use mount::{Mount, Recent};

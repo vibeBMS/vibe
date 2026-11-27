@@ -4,10 +4,11 @@
 use super::safe_rel;
 use crate::platform::vfs;
 use bmseeker::fs::ReadSeek;
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
 use std::io::{self, Read, Seek, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 /// The largest chart file read by the scan (larger ones are no chart: the
 /// decoders' own limit).
@@ -52,6 +53,51 @@ pub fn times_opened(archive: &Path) -> usize {
     super::state().opened.get(archive).copied().unwrap_or(0)
 }
 
+/// What is told an archive's file is read on ([`watched`]).
+pub type Moved = Arc<dyn Fn() + Send + Sync>;
+
+thread_local! {
+    static WATCH: RefCell<Option<Moved>> = const { RefCell::new(None) };
+}
+
+/// `work()`, `moved` told as it reads on in the files of archives it reads
+/// on this thread (at each [`WATCHED_EVERY`] bytes; `moved` keeps its own
+/// pace): the scan tells a slow read from one that hangs.
+pub fn watched<T>(moved: Moved, work: impl FnOnce() -> T) -> T {
+    let before = WATCH.replace(Some(moved));
+    let out = work();
+    WATCH.set(before);
+    out
+}
+
+/// How many bytes read on of an archive's file tell [`watched`]'s `moved`.
+const WATCHED_EVERY: usize = 256 << 10;
+
+/// An archive's file, [`watched`].
+struct Watched {
+    r: Box<dyn ReadSeek + Send>,
+    moved: Moved,
+    read: usize,
+}
+
+impl Read for Watched {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let n = self.r.read(buf)?;
+        self.read += n;
+        if self.read >= WATCHED_EVERY {
+            self.read = 0;
+            (self.moved)();
+        }
+        Ok(n)
+    }
+}
+
+impl Seek for Watched {
+    fn seek(&mut self, to: io::SeekFrom) -> io::Result<u64> {
+        self.r.seek(to)
+    }
+}
+
 fn open(archive: &Path) -> io::Result<Box<dyn ReadSeek + Send>> {
     #[cfg(test)]
     {
@@ -61,14 +107,14 @@ fn open(archive: &Path) -> io::Result<Box<dyn ReadSeek + Send>> {
             .or_default() += 1;
     }
     #[cfg(not(target_arch = "wasm32"))]
-    {
-        Ok(Box::new(io::BufReader::new(std::fs::File::open(archive)?)))
-    }
+    let r: Box<dyn ReadSeek + Send> = Box::new(io::BufReader::new(std::fs::File::open(archive)?));
     // (in memory once read in: `vfs::Prefetch`)
     #[cfg(target_arch = "wasm32")]
-    {
-        Ok(Box::new(io::Cursor::new(vfs::read(archive)?)))
-    }
+    let r: Box<dyn ReadSeek + Send> = Box::new(io::Cursor::new(vfs::read(archive)?));
+    Ok(match WATCH.with_borrow(Option::clone) {
+        Some(moved) => Box::new(Watched { r, moved, read: 0 }),
+        None => r,
+    })
 }
 
 /// Where the files wanted go.
@@ -502,6 +548,32 @@ mod tests {
             .err()
             .unwrap();
         assert_eq!(e.kind(), io::ErrorKind::OutOfMemory);
+        std::fs::remove_dir_all(&d).ok();
+    }
+
+    /// An archive read under `watched` tells it as it reads on; one read
+    /// after it does not.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn reading_on_is_told() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let d = std::env::temp_dir().join(format!("vibebms-arcfs-watch-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let tar = d.join("p.tar");
+        let big = vec![b'x'; 3 * WATCHED_EVERY];
+        let files: [(&str, &[u8]); 2] = [("Song/s.wav", &big), ("Song/a.bms", b"#TITLE A")];
+        std::fs::write(&tar, bmseeker::testkit::tar(&files)).unwrap();
+        let told = Arc::new(AtomicUsize::new(0));
+        let t = told.clone();
+        let moved: Moved = Arc::new(move || {
+            t.fetch_add(1, Ordering::Relaxed);
+        });
+        let u = watched(moved, || read_charts(&tar, None)).unwrap();
+        assert_eq!(u.files.len(), 1);
+        let n = told.load(Ordering::Relaxed);
+        assert!(n >= 2, "{n}");
+        read_charts(&tar, None).unwrap();
+        assert_eq!(told.load(Ordering::Relaxed), n);
         std::fs::remove_dir_all(&d).ok();
     }
 
