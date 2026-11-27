@@ -413,7 +413,7 @@ impl Running {
         if let Some(m) = self.ctx.audio.mixer.keep_alive() {
             self.ctx.toast(m);
         }
-        let norm = crate::loudness::system_target(&self.ctx.config.audio);
+        let norm = crate::audio::loudness::system_target(&self.ctx.config.audio);
         self.ctx.audio.sounds.poll(&self.ctx.audio.mixer, norm);
         self.ctx.audio.loudness.poll();
         #[cfg(target_arch = "wasm32")]

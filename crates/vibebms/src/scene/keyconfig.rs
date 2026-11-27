@@ -20,6 +20,7 @@
 use super::keybind::{self, Learn, Learned, Slot};
 use super::skin_host::{NoHooks, SkinHost, Tap};
 use super::{skinned, skinvals};
+use crate::audio::sysound::Sound;
 use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{with_alpha, Draw, Gfx, Rect};
@@ -28,7 +29,6 @@ use crate::platform::Instant;
 use crate::scene::{Next, Scene};
 use crate::skin::render::Xf;
 use crate::skin::{SkinState, SkinType};
-use crate::sysound::Sound;
 use crate::theme;
 use crate::ui::{self, HitMap, ListView};
 use std::collections::HashMap;

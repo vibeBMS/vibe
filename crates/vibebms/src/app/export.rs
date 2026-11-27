@@ -447,7 +447,7 @@ pub fn export_video(
             return Err("while loading".into());
         }
         now = now.max(Instant::now());
-        let norm = crate::loudness::system_target(&ctx.config.audio);
+        let norm = crate::audio::loudness::system_target(&ctx.config.audio);
         ctx.audio.sounds.poll(&ctx.audio.mixer, norm);
         ctx.audio.loudness.poll();
         if !matches!(scene.update(&mut ctx, &mut off.gfx, now), Next::Stay) {

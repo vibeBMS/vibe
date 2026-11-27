@@ -47,7 +47,7 @@ enum Stage {
 }
 
 /// A preview's sound and its loudness.
-pub(super) type Preview = (Arc<Sample>, crate::loudness::Loudness);
+pub(super) type Preview = (Arc<Sample>, crate::audio::loudness::Loudness);
 
 /// The previews made, newest last, and the one being made.
 #[derive(Default)]
@@ -97,7 +97,7 @@ impl Generated {
             Stage::Files(f, plan) if f.finished() => {
                 Stage::Mix(Job::spawn("preview mix", move |_| {
                     let s = mix_plan(&plan, rate);
-                    let l = crate::loudness::measure_sound(&s, rate);
+                    let l = crate::audio::loudness::measure_sound(&s, rate);
                     Some((Arc::new(s), l))
                 }))
             }

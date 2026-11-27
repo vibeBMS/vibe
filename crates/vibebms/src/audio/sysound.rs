@@ -26,7 +26,7 @@
 //! stops (minutes of music are tens of MB decoded); the short sounds stay
 //! decoded.
 
-use crate::loudness::Loudness;
+use crate::audio::loudness::Loudness;
 use crate::platform::{vfs, Job};
 use crate::skin::guard;
 use crate::skin::lr2::lr2ss_header;
@@ -594,7 +594,7 @@ impl SystemSounds {
                 match decode(&p, rate, &budget) {
                     Ok(x) => {
                         let music = k.0.music(k.1);
-                        let l = music.then(|| crate::loudness::measure_sound(&x, rate));
+                        let l = music.then(|| crate::audio::loudness::measure_sound(&x, rate));
                         sounds.push((k, (Arc::new(x), l)))
                     }
                     Err(e) => log::warn!("sound set: {}: {e}", p.display()),
@@ -641,7 +641,7 @@ impl SystemSounds {
     /// The volume `s` plays at: its music brought to `norm` LUFS.
     fn volume(&self, k: (Sound, Form), norm: Option<f32>) -> f32 {
         match (norm, self.loudness.get(&k)) {
-            (Some(t), Some(l)) => crate::loudness::gain(l, t),
+            (Some(t), Some(l)) => crate::audio::loudness::gain(l, t),
             _ => 1.0,
         }
     }
@@ -685,7 +685,7 @@ impl SystemSounds {
         let job = Job::spawn("sound set music", move |_| {
             match decode(&p, rate, &set_budget(rate)) {
                 Ok(x) => {
-                    let l = measure.then(|| crate::loudness::measure_sound(&x, rate));
+                    let l = measure.then(|| crate::audio::loudness::measure_sound(&x, rate));
                     Some((x, l))
                 }
                 Err(e) => {

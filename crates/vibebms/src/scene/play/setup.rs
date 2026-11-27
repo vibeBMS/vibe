@@ -32,7 +32,7 @@ impl PlayScene {
             nonstop,
             section,
         } = *l;
-        crate::loudness::start_play(
+        crate::audio::loudness::start_play(
             &mut ctx.audio.loudness,
             &ctx.audio.mixer,
             &ctx.config.audio,

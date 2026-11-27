@@ -6,6 +6,7 @@ use super::input::PanelKey;
 use super::skin::{panel_of_op, PANELS, PANEL_TILES};
 use super::status::SIBLINGS;
 use super::{SelectScene, REFERENCE_BPMS};
+use crate::audio::sysound::Sound;
 use crate::config::{AudioSettings, PlayConfig};
 use crate::config::{
     Bpms, DifficultyFilter, HsFix, HsType, KeyFilter, RandomSelect, ReplayPick, SortMode, Versus,
@@ -21,7 +22,6 @@ use crate::scene::skin_host::Tap;
 use crate::scene::target::{self, Rival};
 use crate::scene::{cycle, onoff};
 use crate::scene::{option_panel, Next};
-use crate::sysound::Sound;
 use vibebms_audio::Bus;
 
 /// beatoraja: a held panel key repeats after 300 ms, every 50 ms.

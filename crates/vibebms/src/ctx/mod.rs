@@ -124,11 +124,11 @@ impl Net {
 /// The mixer, and the sound set's sounds played on it.
 pub struct Audio {
     pub mixer: Mixer,
-    pub sounds: crate::sysound::SystemSounds,
+    pub sounds: crate::audio::sysound::SystemSounds,
     /// Silenced while the app is not the one in use (`app::activity`).
     pub mute: Mute,
     /// The charts' loudness measured so far.
-    pub loudness: crate::loudness::LoudnessCache,
+    pub loudness: crate::audio::loudness::LoudnessCache,
 }
 
 impl Audio {
@@ -295,7 +295,7 @@ impl Ctx {
             pages: None,
             ir: crate::ir::IrService::new(&paths, crate::platform::unix_ms()),
         };
-        let loudness = crate::loudness::LoudnessCache::new(&paths.cache);
+        let loudness = crate::audio::loudness::LoudnessCache::new(&paths.cache);
         let streaming = crate::integrations::Integrations::new(&paths);
         let mut ctx = Ctx {
             paths,
@@ -770,13 +770,13 @@ impl Ctx {
 
     /// Play a system sound of the chosen sound set (loaded when the choice
     /// has changed: a string compare otherwise).
-    pub fn play_sound(&mut self, s: crate::sysound::Sound) {
+    pub fn play_sound(&mut self, s: crate::audio::sysound::Sound) {
         self.sync_sounds();
-        let norm = crate::loudness::system_target(&self.config.audio);
+        let norm = crate::audio::loudness::system_target(&self.config.audio);
         self.audio.sounds.play(&self.audio.mixer, s, norm);
     }
 
-    pub fn stop_sound(&mut self, s: crate::sysound::Sound) {
+    pub fn stop_sound(&mut self, s: crate::audio::sysound::Sound) {
         self.audio.sounds.stop(&self.audio.mixer, s);
     }
 
@@ -797,16 +797,16 @@ impl Ctx {
         self.sync_sounds();
         let rate = self.audio.mixer.sample_rate;
         self.audio.sounds.redraw(&self.paths.root, rate);
-        let norm = crate::loudness::system_target(&self.config.audio);
-        let s = crate::sysound::Sound::Select;
+        let norm = crate::audio::loudness::system_target(&self.config.audio);
+        let s = crate::audio::sysound::Sound::Select;
         self.audio.sounds.play_enter(&self.audio.mixer, s, norm);
     }
 
     /// A result comes: its music by outcome (`sounds`, in the order they
     /// are looked for).
-    pub fn play_result(&mut self, sounds: &[crate::sysound::Sound]) {
+    pub fn play_result(&mut self, sounds: &[crate::audio::sysound::Sound]) {
         self.sync_sounds();
-        let norm = crate::loudness::system_target(&self.config.audio);
+        let norm = crate::audio::loudness::system_target(&self.config.audio);
         self.audio
             .sounds
             .play_result(&self.audio.mixer, sounds, norm);

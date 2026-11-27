@@ -1,6 +1,7 @@
 //! Result screen: lamp, score, judge breakdown, gauge graph, timing histogram,
 //! saving best scores, and what became of the play at each IR.
 
+use crate::audio::sysound::Sound;
 use crate::config::SubmitPolicy;
 use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
@@ -15,7 +16,6 @@ use crate::scene::result_skin::{
 use crate::scene::skin_host::{SkinHost, Tap};
 use crate::scene::{skinned, Next, Scene};
 use crate::skin::SkinType;
-use crate::sysound::Sound;
 use crate::theme;
 use vibebms_core::gauge::GaugeType;
 use vibebms_core::judge::Judge;
@@ -367,7 +367,7 @@ impl ResultScene {
         let slot = Slot::Saved(n);
         match crate::replay::save(r, &ctx.paths.player, slot) {
             Ok(()) => {
-                ctx.play_sound(crate::sysound::Sound::OptionChange);
+                ctx.play_sound(crate::audio::sysound::Sound::OptionChange);
                 ctx.toast(tr!(
                     "{slot}: replay of {title} kept",
                     slot = slot.label(),

@@ -53,7 +53,7 @@ LAYERS = [
     ("drawing and input", ["gfx", "input", "perspective"]),
     ("looks and touch", ["theme", "video", "touch"]),
     ("skins", ["skin"]),
-    ("sound", ["loudness", "sysound"]),
+    ("sound", ["audio", "audio::loudness", "audio::sysound"]),
     ("services", ["net", "net::hosts", "profiles", "update", "ir", "integrations", "net::import", "net::events",
                   "net::songfetch", "net::bulk", "net::skinstore", "web"]),
     ("shared state", ["ctx"]),
@@ -85,9 +85,9 @@ CONDITIONS_AT_HOME = ["platform", "app", "browser"]
 # platform condition (conditions()), outside test code: a count may only go
 # down.
 CONDITIONS = {
-    "config": 1, "ctx": 11, "gfx": 12, "i18n": 3, "input": 13, "integrations": 28, "ir": 5, "lib": 2, "library": 12,
-    "loudness": 1, "net": 1, "net::links": 5, "paths": 2, "replay": 2, "scene": 40, "screenshot": 2, "skin": 2,
-    "update": 12, "video": 5,
+    "audio::loudness": 1, "config": 1, "ctx": 11, "gfx": 12, "i18n": 3, "input": 13, "integrations": 28, "ir": 5,
+    "lib": 2, "library": 12, "net": 1, "net::links": 5, "paths": 2, "replay": 2, "scene": 40, "screenshot": 2,
+    "skin": 2, "update": 12, "video": 5,
 }
 
 # What names a platform in a cfg: the target's predicates, and the groups

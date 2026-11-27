@@ -745,7 +745,7 @@ impl Scene for PlayScene {
         }
         ctx.audio.mixer.stop_bus(Bus::Bgm);
         ctx.audio.mixer.stop_bus(Bus::Key);
-        crate::loudness::end_play(&ctx.audio.mixer);
+        crate::audio::loudness::end_play(&ctx.audio.mixer);
         self.bga.free(gfx);
         ctx.save_config();
     }

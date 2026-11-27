@@ -3,11 +3,11 @@
 
 use super::bga::Files;
 use super::{PlayRequest, Versus};
+use crate::audio::loudness::Loudness;
 use crate::config::{BgaMode, PlayConfig};
 use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{with_alpha, Draw, Picture, Rect};
-use crate::loudness::Loudness;
 use crate::platform::vfs::{DirIndex, Prefetch};
 use crate::platform::{Instant, Job};
 use crate::theme;
@@ -111,7 +111,7 @@ impl Loading {
         let rate = ctx.audio.mixer.sample_rate;
         // the chart's loudness, measured once its sounds are decoded unless
         // known (or not wanted)
-        let normalize = crate::loudness::chart_target(&ctx.config.audio).is_some();
+        let normalize = crate::audio::loudness::chart_target(&ctx.config.audio).is_some();
         let known = ctx.audio.loudness.get(&req.song.sha256);
         let (p2, t2) = (progress.clone(), total_files.clone());
         let lanes = req.course.as_ref().and_then(|c| c.lanes());
@@ -146,7 +146,7 @@ impl Loading {
                 }
                 // (measured each time: the stages joined are not one chart)
                 if normalize {
-                    let m = crate::loudness::measure_chart(&l.chart, &l.bank, rate);
+                    let m = crate::audio::loudness::measure_chart(&l.chart, &l.bank, rate);
                     l.loudness = Some((m, false));
                 }
                 Ok(l)
@@ -197,7 +197,7 @@ impl Loading {
             let loudness = match known {
                 Some(l) => Some((l, false)),
                 None if normalize => Some((
-                    crate::loudness::measure_chart(&chart, &bank, rate),
+                    crate::audio::loudness::measure_chart(&chart, &bank, rate),
                     speed == 1.0 && practice.is_none(),
                 )),
                 None => None,
