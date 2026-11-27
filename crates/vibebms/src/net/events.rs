@@ -622,16 +622,19 @@ impl bmseeker::install::job::Job for Telling {
 }
 
 /// The player's files ([`crate::platform::Vfs`]) as a work is unpacked
-/// into them, each file it writes noted: what a work that fails takes back
-/// ([`take_back`]).
+/// into them, each file it makes noted (not one it writes over): what a
+/// work that fails takes back ([`take_back`]).
 #[derive(Default)]
 struct Noting(Mutex<Vec<PathBuf>>);
 
 const VFS: &crate::platform::Vfs = &crate::platform::Vfs;
 
 impl Noting {
-    fn note<T>(&self, p: &Path, r: std::io::Result<T>) -> std::io::Result<T> {
-        if r.is_ok() {
+    /// `write`, which makes the file `p`: noted if it was not there.
+    fn note<T>(&self, p: &Path, write: impl FnOnce() -> std::io::Result<T>) -> std::io::Result<T> {
+        let new = VFS.stamp(p).is_none();
+        let r = write();
+        if new && r.is_ok() {
             self.0
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -649,7 +652,7 @@ impl Fs for Noting {
         VFS.read_dir(p)
     }
     fn rename(&self, from: &Path, to: &Path) -> std::io::Result<()> {
-        self.note(to, VFS.rename(from, to))
+        self.note(to, || VFS.rename(from, to))
     }
     fn stamp(&self, p: &Path) -> Option<(i64, u64)> {
         VFS.stamp(p)
@@ -668,7 +671,7 @@ impl Store for Noting {
         p: &Path,
         mtime: Option<i64>,
     ) -> std::io::Result<Box<dyn std::io::Write + '_>> {
-        self.note(p, VFS.create(p, mtime))
+        self.note(p, || VFS.create(p, mtime))
     }
     fn remove_dir(&self, p: &Path) {
         VFS.remove_dir(p)
@@ -683,7 +686,7 @@ impl Store for Noting {
         VFS.create_new_dir(p)
     }
     fn copy(&self, from: &Path, to: &Path) -> std::io::Result<()> {
-        self.note(to, VFS.copy(from, to))
+        self.note(to, || VFS.copy(from, to))
     }
 }
 
@@ -1100,11 +1103,14 @@ mod tests {
             std::fs::remove_dir_all(&dir).unwrap();
             std::fs::create_dir_all(&dir).unwrap();
             std::fs::write(dir.join("mine.txt"), "mine").unwrap();
+            // (and one the archive has too: written over, not taken)
+            std::fs::write(dir.join("01.ogg"), "mine").unwrap();
             assert!(failed(fetch_into(&root, song(true), launch).0), "{how}");
-            let left: Vec<_> = (std::fs::read_dir(&dir).unwrap().flatten())
+            let mut left: Vec<_> = (std::fs::read_dir(&dir).unwrap().flatten())
                 .map(|e| e.file_name())
                 .collect();
-            assert_eq!(left, ["mine.txt"], "{how}");
+            left.sort();
+            assert_eq!(left, ["01.ogg", "mine.txt"], "{how}");
             assert!(fetch_into(&root, song(false), launch).0.is_ok(), "{how}");
             assert!(dir.join("readme.txt").is_file() && dir.join("mine.txt").is_file());
             std::fs::remove_dir_all(&root).ok();
