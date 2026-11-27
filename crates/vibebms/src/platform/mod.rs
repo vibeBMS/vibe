@@ -35,17 +35,29 @@ pub use time::{unix_ms, unix_now, Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub const IS_WEB: bool = cfg!(target_arch = "wasm32");
 
-/// Whether `url` is a link for a browser: `http://` or `https://` and no
-/// white space or control character. Links come from charts, tables,
-/// indexes and catalogs, and a browser or a web view given another scheme
-/// (`file:`, `javascript:`, an application's) would act on it.
+/// Whether `url` is a link for a browser: `http://` or `https://`, a
+/// host, and written as every URL parser reads it (BMSeeker's rule for a
+/// download's links): no user name or password before the host, no
+/// backslash, no white space or control character. Links come from
+/// charts, tables, indexes and catalogs: a browser or a web view given
+/// another scheme (`file:`, `javascript:`, an application's) would act on
+/// it, and one given `https://trusted.example@evil.example/` or a
+/// backslash goes to a host other than the one the link seems to name.
 pub fn is_web_url(url: &str) -> bool {
     let rest = ["http://", "https://"].iter().find_map(|scheme| {
         let head = url.get(..scheme.len())?;
         head.eq_ignore_ascii_case(scheme)
             .then(|| &url[scheme.len()..])
     });
-    rest.is_some_and(|r| !r.is_empty()) && !url.chars().any(|c| c.is_whitespace() || c.is_control())
+    let Some(rest) = rest else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    !authority.is_empty()
+        && !authority.contains('@')
+        && !url
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control() || c == '\\')
 }
 
 /// Open `url` (a web link: [`is_web_url`]) in the system browser (a new
@@ -75,6 +87,16 @@ mod tests {
             "https://example.com/a?b=c#d",
             "HTTPS://Example.com/",
             "http://127.0.0.1:8080/x",
+            // what honest links hold after the host
+            "https://host/a@b.zip",
+            "https://host/dl?mail=a@b",
+            "https://host/x#a@b",
+            "https://host:8443/x",
+            "http://[::1]:8080/x",
+            "https://[2001:db8::1]/x",
+            "https://host/%E6%97%A5%20x.zip",
+            "https://host/日本語.zip",
+            "https://日本.jp/x",
         ] {
             assert!(is_web_url(ok), "{ok}");
         }
@@ -100,6 +122,17 @@ mod tests {
             "https://a b",
             "https://a\nb",
             "https://a\u{7f}",
+            // not plainly written: another host than it seems
+            "https://user@host/x",
+            "https://user:pw@host/x",
+            "https://trusted.example@evil.example/x",
+            "https://@host/x",
+            "https://host\\x",
+            "https://host/x\\y",
+            "https://host/x\u{7}",
+            "https://host/x y",
+            "https:///x",
+            "https://?x",
         ] {
             assert!(!is_web_url(bad), "{bad}");
             // (refused before a browser is looked for)

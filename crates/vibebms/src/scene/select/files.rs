@@ -11,14 +11,11 @@ use crate::library::Song;
 use crate::platform::{open, vfs};
 use std::path::Path;
 
-/// A link that may be opened: http(s) only (a chart's `#URL` is the
-/// author's text).
+/// A link that may be opened ([`is_web_url`](crate::platform::is_web_url):
+/// a chart's `#URL` is the author's text).
 fn web_link(s: &str) -> Option<String> {
     let s = s.trim();
-    let lower = s.to_ascii_lowercase();
-    (lower.starts_with("http://") || lower.starts_with("https://"))
-        .then(|| s.to_string())
-        .filter(|s| s.len() > 8 && !s.chars().any(char::is_whitespace))
+    crate::platform::is_web_url(s).then(|| s.to_string())
 }
 
 /// The web page a chart's file names: a BMS `#URL` header, a bmson
