@@ -61,9 +61,6 @@ UPWARD = [
     ("i18n", "platform::android", ["locale"],
      "AUTO's language on Android is the Java locale; passing the system's locale in from the start instead "
      "would read it at every start, not only when AUTO is chosen"),
-    ("formats", "gfx", ["fits"], "the size every image decoder keeps to: it belongs in formats"),
-    ("gfx::text", "skin", ["read_font"], "the font reader is gfx's; the capped read belongs in platform::vfs"),
-    ("skin", "sysound", ["lr2ss_header"], "an LR2 file's header: it belongs in skin::lr2"),
 ]
 
 

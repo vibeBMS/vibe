@@ -29,6 +29,7 @@
 use crate::loudness::Loudness;
 use crate::platform::{vfs, Job};
 use crate::skin::guard;
+use crate::skin::lr2::lr2ss_header;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -205,21 +206,6 @@ pub struct SetInfo {
     pub path: PathBuf,
     pub name: String,
     pub author: String,
-}
-
-/// (name, author) of an LR2 sound set file (`#INFORMATION,10,...`).
-pub fn lr2ss_header(path: &Path) -> Option<(String, String)> {
-    let b = crate::skin::read_text(path).ok()?;
-    let text = vibebms_core::encoding::decode_text(&b);
-    text.lines().find_map(|l| {
-        let f: Vec<&str> = l.split(',').map(str::trim).collect();
-        (f[0].eq_ignore_ascii_case("#INFORMATION") && f.get(1) == Some(&"10")).then(|| {
-            (
-                f.get(2).unwrap_or(&"").to_string(),
-                f.get(3).unwrap_or(&"").to_string(),
-            )
-        })
-    })
 }
 
 /// The sound files in `dir`, by sound and form.

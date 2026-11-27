@@ -42,10 +42,10 @@ pub fn size(bytes: &[u8]) -> Option<(u32, u32)> {
 }
 
 /// RGBA8 pixels (`None` too for an image larger than is decoded:
-/// `gfx::fits`).
+/// [`super::fits`]).
 pub fn decode(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
     let (z, w, h, f) = header(bytes)?;
-    if !crate::gfx::fits(w, h) {
+    if !super::fits(w, h) {
         return None;
     }
     let n = w as usize * h as usize * bpp(f)?;

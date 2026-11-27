@@ -151,7 +151,7 @@ fn decode_within(bytes: &[u8], key: &dyn Fn(&mut [u8]), budget: usize) -> Option
     } else {
         return None;
     };
-    if !super::fits(w, h) {
+    if !crate::formats::fits(w, h) {
         return None;
     }
     let frame_bytes = (w as usize * h as usize * 4).max(1);

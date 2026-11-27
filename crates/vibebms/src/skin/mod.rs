@@ -144,42 +144,15 @@ fn no_panic<T>(
 const TEXT_MAX: u64 = 16 << 20;
 /// Bytes of an image or a sound a skin or a sound set names.
 const MEDIA_MAX: u64 = 256 << 20;
-/// Bytes of a TrueType / OpenType font a skin names (a CJK font of every
-/// weight is some 30 MB).
-pub(crate) const FONT_MAX: u64 = 64 << 20;
-
-/// A file a skin names can be read whole: it has at most `max` bytes and
-/// is no device or pipe (which have no end, whatever size they state).
-fn readable(p: &std::path::Path, max: u64) -> bool {
-    // (a file inside an archive or compiled in has no entry on the disk)
-    #[cfg(not(target_arch = "wasm32"))]
-    if std::fs::metadata(p).is_ok_and(|m| !m.is_file()) {
-        return false;
-    }
-    crate::platform::vfs::stamp(p).1 as u64 <= max
-}
-
-fn read_capped(p: &std::path::Path, max: u64) -> std::io::Result<Vec<u8>> {
-    if !readable(p, max) {
-        let why = format!("{}: too large, or no file", p.display());
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, why));
-    }
-    crate::platform::vfs::read(p)
-}
 
 /// Read a file a skin is written in ([`TEXT_MAX`]).
 pub(crate) fn read_text(p: &std::path::Path) -> std::io::Result<Vec<u8>> {
-    read_capped(p, TEXT_MAX)
+    crate::platform::vfs::read_capped(p, TEXT_MAX)
 }
 
 /// Read an image or a sound a skin names ([`MEDIA_MAX`]).
 pub(crate) fn read_media(p: &std::path::Path) -> std::io::Result<Vec<u8>> {
-    read_capped(p, MEDIA_MAX)
-}
-
-/// Read a font a skin names ([`FONT_MAX`]).
-pub(crate) fn read_font(p: &std::path::Path) -> std::io::Result<Vec<u8>> {
-    read_capped(p, FONT_MAX)
+    crate::platform::vfs::read_capped(p, MEDIA_MAX)
 }
 
 /// Bytes a skin load reads through `#INCLUDE` / `include` in all: the
@@ -236,7 +209,7 @@ fn within_limits(
 /// Pixel size of an image file (through the VFS).
 pub fn image_size(p: &std::path::Path) -> Option<(u32, u32)> {
     let video = crate::video::is_video(p);
-    if !readable(p, if video { u64::MAX } else { MEDIA_MAX }) {
+    if !crate::platform::vfs::readable(p, if video { u64::MAX } else { MEDIA_MAX }) {
         return None;
     }
     if video {
@@ -358,9 +331,7 @@ pub fn header(path: &std::path::Path, skins_root: &std::path::Path) -> Option<(S
         Ok(match format {
             SkinFormat::Lr2 => lr2::header(path),
             SkinFormat::Beatoraja => beatoraja::header(path, skins_root),
-            SkinFormat::SoundSet => {
-                crate::sysound::lr2ss_header(path).map(|h| (SkinType::SoundSet, h.0))
-            }
+            SkinFormat::SoundSet => lr2::lr2ss_header(path).map(|h| (SkinType::SoundSet, h.0)),
         })
     };
     let h = no_panic(path, read).unwrap_or_else(|e| {

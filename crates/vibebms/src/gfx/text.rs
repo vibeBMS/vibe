@@ -66,6 +66,10 @@ struct Glyph {
     advance: f32,
 }
 
+/// Bytes of a TrueType / OpenType font a skin names (a CJK font of every
+/// weight is some 30 MB).
+pub(crate) const FONT_MAX: u64 = 64 << 20;
+
 pub struct Text {
     /// The UI fonts in fallback order: a character is drawn with the first
     /// that has it.
@@ -293,12 +297,13 @@ impl Text {
         }
     }
 
-    /// A skin's font file as a face to draw with (`set_face`); read once.
+    /// A skin's font file as a face to draw with (`set_face`); read once,
+    /// if it has at most [`FONT_MAX`] bytes.
     pub fn face(&mut self, path: &std::path::Path) -> Option<u16> {
         if let Some(f) = self.face_of.get(path) {
             return *f;
         }
-        let font = match crate::skin::read_font(path) {
+        let font = match crate::platform::vfs::read_capped(path, FONT_MAX) {
             Ok(data) => {
                 let f = Font::new(Arc::new(Bytes::Owned(data)), 0);
                 if f.is_none() {
@@ -737,7 +742,7 @@ mod tests {
         // the same font, and zeros after it past the limit
         let path = font_file("large.otf");
         let mut data = EMBEDDED_FONT.to_vec();
-        data.resize(crate::skin::FONT_MAX as usize + 1, 0);
+        data.resize(FONT_MAX as usize + 1, 0);
         std::fs::write(&path, data).unwrap();
         assert_eq!(text.face(&path), None);
         std::fs::remove_file(&path).unwrap();
