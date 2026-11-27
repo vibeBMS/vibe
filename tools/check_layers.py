@@ -11,10 +11,15 @@ part of a group that LAYERS names on its own (`net::hosts` in `net/`), so
 that putting files in a folder hides none of these checks. What it uses
 is read from its text, with comments, strings and test code left out (an
 item under `#[cfg(test)]`, a file declared under it): its paths from
-`crate::`, `super::` and `self::`, the paths through a module it imports
-(`use crate::platform::vfs;` then `vfs::read`), and the crate's own macros
-(`tr!`). A path's target is its longest prefix that is a module, the rest
-the item. A use of a higher layer fails unless UPWARD lists it; a use
+`crate::`, `super::` and `self::`, and from a module of its own by that
+module's name (`scoredb::read` in `library/mod.rs`), the paths through a
+module it imports (`use crate::platform::vfs;` then `vfs::read`), and the
+crate's own macros (`tr!`). A path's target is its longest prefix that is a
+module, the rest the item; an item a module re-exports from another unit
+(`pub use courses::CourseStore;`) is the one of the module it is from,
+wherever it is used through. A glob import of a module with parts that are units of
+their own (`use crate::library::*;`) fails: what it brings cannot be told
+apart. A use of a higher layer fails unless UPWARD lists it; a use
 UPWARD lists that no longer exists fails too, so the list is shortened
 when one goes. Likewise a cycle: units that use each other, each reached
 from the others through uses between units, fail unless CYCLES lists
@@ -29,10 +34,14 @@ cannot be read from the text.
 
 It also counts, per unit but platform, app and browser, the lines of
 code (not tests) with a platform condition: a `cfg` that names a target
-(`target_os`, `target_arch`, `windows`, ...) or a group build.rs names
-(`desktop`, ...). A count above CONDITIONS fails, and so does one below
-it, so the number is lowered when a condition goes.
+(`target_os`, `target_arch`, any `target_…`, `windows`, `unix`) or a group
+build.rs names (`desktop`, ...), as an attribute, `cfg!` or `std::cfg!`.
+A count above CONDITIONS fails, and so does one below it, so the number is
+lowered when a condition goes. The lines that name a constant standing
+for one (STAND_INS: `platform::IS_WEB`, ...) are counted likewise, against
+STOOD_IN, so that a condition does not come back as one of them unseen.
 """
+import functools
 import os
 import re
 import sys
@@ -90,9 +99,19 @@ CONDITIONS = {
     "net::links": 5, "paths": 2, "scene": 40, "skin": 2, "update": 12,
 }
 
-# What names a platform in a cfg: the target's predicates, and the groups
-# build.rs names (read from it).
-TARGET_CFGS = ["target_os", "target_arch", "target_family", "target_env", "target_vendor", "windows", "unix"]
+# What names a platform in a cfg (as patterns): the target's predicates, and
+# the groups build.rs names (read from it).
+TARGET_CFGS = [r"target_\w+", "windows", "unix"]
+
+# The constants that stand for a platform condition (their value is one).
+STAND_INS = ["IS_WEB", "IN_APP_BROWSER"]
+
+# Lines of the other units, outside test code, that name one of STAND_INS
+# (stand_ins()): a count may only go down.
+STOOD_IN = {
+    "ctx": 1, "gfx": 1, "ir": 1, "library::replay": 1, "net::hosts": 1, "net::skinstore": 1, "paths": 1,
+    "profiles": 1, "scene": 7,
+}
 
 
 def blank(text):
@@ -252,6 +271,7 @@ def under(module, prefix):
     return module == prefix or module.startswith(prefix + "::")
 
 
+@functools.lru_cache(maxsize=None)
 def read(src):
     """The files under `src`, each as its text with comments and strings
     blanked ({file: text}), and the modules declared under #[cfg(test)]."""
@@ -290,13 +310,24 @@ def uses(src):
                 return "::".join(full[:k]), "::".join(full[k:]).split("::")[0]
         return "", (full or [""])[0]
 
+    def parts(m):
+        """The modules under `m` that are units of their own."""
+        return [x for x in modules if x != m and under(x, m) and unit_of(x) != unit_of(m)
+                and not any(under(x, t) for t in tests)]
+
     found = defaultdict(list)
     odd = []
+    reexports = {}  # (module, name) -> (module, item) it is
+    impls = []  # (module, (module, item) its type is, place)
     for f, text in texts.items():
         mod = module_of(src, f)
         if any(under(mod, t) for t in tests):
             continue
         here = mod.split("::") if mod else []
+        # (its own modules by their names; but the crate root's: the
+        # highest layer)
+        children = sorted({m.split("::")[-1] for m in modules if mod and m.startswith(mod + "::")
+                           and "::" not in m[len(mod) + 2:] and not any(under(m, t) for t in tests)})
         at = "%s:%%d" % os.path.relpath(f, src)
         # (a module's layer is read from where its file is)
         for m in re.finditer(r"#\s*\[\s*path\b", text):
@@ -317,16 +348,25 @@ def uses(src):
         aliases = {}
         named = {}  # item imported (or named by its path) -> its module
         spans = []
-        for start, end, line, p, alias in paths(text, ["crate", "super", "self"]):
-            spans.append((start, end))
+        for start, end, line, p, alias in paths(text, ["crate", "super", "self"] + children):
             inner = [name for a, b, name in inline if a <= start < b]
+            if p.split("::")[0] in children:
+                if inner:
+                    continue
+                p = "self::" + p
+            spans.append((start, end))
             t = target(here + inner, re.sub(r"::(self|\*)$", "", p))
+            if p.endswith("::*") and parts(t[0]):
+                odd.append(at % line + ": a glob import of %s, whose parts %s are units of their own: name what "
+                           "is used" % (t[0] or "lib", ", ".join(sorted(parts(t[0])))))
+            if t[1] and re.search(r"\bpub\s*(\([^)]*\))?\s*use\s+$", text[max(start - 80, 0) : start]):
+                reexports[(mod, alias or p.split("::")[-1])] = t
             if t[0] == mod:
                 continue
             if t[1]:
                 found[(mod, t[0], t[1])].append(at % line)
                 if p.split("::")[-1] == t[1]:
-                    named[alias or t[1]] = t[0]
+                    named[alias or t[1]] = t
             elif p.endswith("::*"):
                 found[(mod, t[0], "*")].append(at % line)
             else:
@@ -349,20 +389,40 @@ def uses(src):
             name = re.sub(r"\s+", "", m.group(1))
             first, _, rest = name.partition("::")
             if first in ("crate", "super", "self"):
-                to = target(here, name)[0]
+                to = target(here, name)
+            elif rest and first in children:
+                to = target(here, "self::" + name)
             elif rest and first in aliases:
-                to = target(aliases[first][0].split("::"), "self::" + rest)[0]
+                to = target(aliases[first][0].split("::"), "self::" + rest)
             else:
                 to = named.get(name)
-            if to is not None and unit_of(to) != unit_of(mod):
-                line = text.count("\n", 0, m.start()) + 1
-                odd.append(at % line + ": methods of %s's %s: write them in its module, or as functions here"
-                           % (to or "lib", name.split("::")[-1]))
+            if to is not None:
+                impls.append((mod, to, name, at % (text.count("\n", 0, m.start()) + 1)))
         for m in re.finditer(r"(?<![\w:])(\w+)!\s*[(\[{]", text):
             if macros.get(m.group(1), mod) != mod:
                 to = macros[m.group(1)]
                 found[(mod, to, m.group(1) + "!")].append(at % (text.count("\n", 0, m.start()) + 1))
-    return modules - {t for t in modules if any(under(t, x) for x in tests)}, found, odd
+
+    def defined(t):
+        """Where the item of `t` (module, item) is from: through what
+        re-exports it from another unit."""
+        for _ in range(len(reexports) + 1):
+            if t not in reexports or unit_of(reexports[t][0]) == unit_of(t[0]):
+                break
+            t = reexports[t]
+        return t
+
+    resolved = defaultdict(list)
+    for (a, b, i), at in found.items():
+        b, i = defined((b, i))
+        if b != a:
+            resolved[(a, b, i)] += at
+    for mod, to, name, at in impls:
+        to = defined(to)[0]
+        if unit_of(to) != unit_of(mod):
+            odd.append(at + ": methods of %s's %s: write them in its module, or as functions here"
+                       % (to or "lib", name.split("::")[-1]))
+    return modules - {t for t in modules if any(under(t, x) for x in tests)}, resolved, odd
 
 
 def groups(build_rs):
@@ -375,11 +435,11 @@ def groups(build_rs):
 
 def conditions(src, names):
     """The lines with a platform condition (a `cfg(…)`, `cfg_attr(…, …)` or
-    `cfg!(…)` whose condition names one of `names`) outside test code, by
-    unit: {unit: ["file:line", ...]} (an attribute or a
-    `cfg!` over several lines is the line it starts on)."""
+    `cfg!(…)`, `std::cfg!(…)` too, whose condition names one of `names`,
+    patterns) outside test code, by unit: {unit: ["file:line", ...]} (an
+    attribute or a `cfg!` over several lines is the line it starts on)."""
     texts, tests = read(src)
-    named = re.compile(r"(?<![\w:])(%s)(?!\w)" % "|".join(map(re.escape, names)))
+    named = re.compile(r"(?<![\w:])(%s)(?!\w)" % "|".join(names))
     out = defaultdict(list)
     for f, text in texts.items():
         mod = module_of(src, f)
@@ -387,7 +447,7 @@ def conditions(src, names):
             continue
         text = cut_tests(text)
         lines = set()
-        for m in re.finditer(r"(?<![\w:])cfg(_attr)?\s*(!\s*)?\(", text):
+        for m in re.finditer(r"(?<![\w:])(?:\w+\s*::\s*)*cfg(_attr)?\s*(!\s*)?\(", text):
             # (a plain `cfg(…)`: an attribute's, or in another's condition)
             before = text[max(m.start() - 64, 0) : m.start()]
             if not m.group(1) and not m.group(2) and not re.search(r"#!?\s*\[\s*$|[(,]\s*$", before):
@@ -410,19 +470,35 @@ def conditions(src, names):
     return out
 
 
-def condition_problems(found, listed):
-    """What is wrong with the lines of `found` (conditions()) against
-    `listed` (CONDITIONS)."""
+def stand_ins(src):
+    """The lines outside test code that name one of STAND_INS (but in a
+    `use`, and where it is defined), by unit as conditions() counts."""
+    texts, tests = read(src)
+    named = re.compile(r"(?<!\w)(?<!const )(%s)(?!\w)" % "|".join(STAND_INS))
+    out = defaultdict(list)
+    for f, text in texts.items():
+        mod = module_of(src, f)
+        top = unit_of(mod) or "lib"
+        if any(under(mod, t) for t in tests) or top in CONDITIONS_AT_HOME:
+            continue
+        text = re.sub(r"\buse\s[^;]*;", lambda m: re.sub(r"[^\n]", " ", m.group(0)), cut_tests(text))
+        lines = {text.count("\n", 0, m.start()) + 1 for m in named.finditer(text)}
+        out[top] += ["%s:%d" % (os.path.relpath(f, src), n) for n in sorted(lines)]
+    return {k: v for k, v in out.items() if v}
+
+
+def condition_problems(found, listed, what="lines with a platform condition", table="CONDITIONS"):
+    """What is wrong with the `what` of `found` (conditions(), stand_ins())
+    against `listed` (`table`)."""
     bad = []
     for mod in sorted(set(found) | set(listed)):
         n, most = len(found.get(mod, [])), listed.get(mod, 0)
         if n > most:
-            bad.append("%s: %d lines with a platform condition, more than the %d CONDITIONS allows in "
-                       "tools/check_layers.py: put the difference behind platform/ (%s)"
-                       % (mod, n, most, " ".join(found[mod])))
+            bad.append("%s: %d %s, more than the %d %s allows in tools/check_layers.py: put the difference "
+                       "behind platform/ (%s)" % (mod, n, what, most, table, " ".join(found[mod])))
         elif n < most:
-            bad.append("%s: %d lines with a platform condition, fewer than the %d CONDITIONS allows: lower it "
-                       "in tools/check_layers.py" % (mod, n, most))
+            bad.append("%s: %d %s, fewer than the %d %s allows: lower it in tools/check_layers.py"
+                       % (mod, n, what, most, table))
     return bad
 
 
@@ -525,16 +601,19 @@ def main():
     if not named:
         bad.append("%s: its platform groups (`let groups = [...]`) not found: change groups() in "
                    "tools/check_layers.py" % build_rs)
-    conds = conditions(src, TARGET_CFGS + named)
+    conds = conditions(src, TARGET_CFGS + [re.escape(g) for g in named])
     bad += condition_problems(conds, CONDITIONS)
+    stood = stand_ins(src)
+    bad += condition_problems(stood, STOOD_IN, "lines with %s" % " or ".join(STAND_INS), "STOOD_IN")
     for line in bad:
         print(line)
     if bad:
         return 1
     print("layers: %d modules, %d upward uses (at %d places), %d cycles between units, each listed; "
-          "%d lines with a platform condition outside %s"
+          "%d lines with a platform condition outside %s, %d with a constant that stands for one"
           % (len(modules), len(upward), sum(len(at) for at in upward.values()), n_cycles,
-             sum(len(at) for at in conds.values()), ", ".join(CONDITIONS_AT_HOME)))
+             sum(len(at) for at in conds.values()), ", ".join(CONDITIONS_AT_HOME),
+             sum(len(at) for at in stood.values())))
     return 0
 
 
