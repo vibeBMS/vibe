@@ -388,7 +388,7 @@ impl SelectScene {
         let root = ctx.paths.root.clone();
         // its own links, then the others known for the chart; its separate
         // chart's links; add-ons each after
-        let want = crate::net::bulk::Wanted {
+        let want = crate::net::songfetch::Wanted {
             title: title.clone(),
             artist: artist.clone(),
             md5: md5.clone(),

@@ -134,21 +134,20 @@ class CheckLayers(unittest.TestCase):
         self.assertIn("screenshot -> replay::dir at screenshot.rs:", out)
 
     def test_a_listed_cycle_that_grows_fails(self):
-        code, out = self.run_on({"net/hosts.rs": "pub fn b() {\n    crate::net::bulk::tick();\n}\n",
-                                 "net/bulk.rs": "pub fn h() {\n    crate::net::hosts::fetch();\n}\n"})
+        code, out = self.run_on({"platform/mod.rs": "pub fn b() {\n    crate::formats::f();\n}\n",
+                                 "formats/mod.rs": "pub fn h() {\n    crate::i18n::get(\"x\");\n}\n"})
         self.assertEqual(code, 1, out)
-        self.assertIn("a cycle between units: net::bulk, net::hosts, net::songfetch (", out)
-        self.assertIn("the cycle net::bulk, net::songfetch has grown: net::hosts joined it", out)
+        self.assertIn("a cycle between units: formats, i18n, platform (", out)
+        self.assertIn("the cycle i18n, platform has grown: formats joined it", out)
         self.assertNotIn("no longer", out)
 
     def test_a_listed_cycle_closes_only_through_its_listed_uses(self):
-        code, out = self.run_on({"net/songfetch.rs": "pub fn t() {\n    crate::net::bulk::tick();\n}\n"})
+        code, out = self.run_on({"i18n.rs": "pub fn t() {\n    crate::platform::unix_now();\n}\n"})
         self.assertEqual(code, 1, out)
-        self.assertIn("net::songfetch uses net::bulk::tick (net/songfetch.rs:", out)
-        self.assertIn("closes the cycle net::bulk, net::songfetch", out)
+        self.assertIn("i18n uses platform::unix_now (i18n.rs:", out)
+        self.assertIn("closes the cycle i18n, platform", out)
         # the other way, more is fine
-        self.assertEqual(self.run_on({"net/bulk.rs": "pub fn t() {\n    crate::net::songfetch::poll();\n}\n"})[0],
-                         0)
+        self.assertEqual(self.run_on({"platform/mod.rs": "pub fn t() {\n    crate::i18n::current();\n}\n"})[0], 0)
         listed = [(["a", "b", "c"], [("c", "a", ["x"])], "")]
         found = {("a", "b", "u"): ["a.rs:1"], ("b", "c", "v"): ["b.rs:2"], ("c::d", "a", "x"): ["c/d.rs:3"]}
         self.assertEqual(check_layers.cycle_problems(found, listed), ([], 1))

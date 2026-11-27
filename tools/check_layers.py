@@ -74,9 +74,6 @@ UPWARD = [
 # (from module or the modules under it, to module, items), why they stay)
 CYCLES = [
     (["i18n", "platform"], [("i18n", "platform::android", ["locale"])], "the use listed in UPWARD"),
-    (["net::bulk", "net::songfetch"], [("net::songfetch", "net::bulk", ["Wanted"])],
-     "songfetch fetches a bulk::Wanted, the song a table asks for, and bulk downloads through songfetch; Wanted "
-     "is to move to songfetch when the top-level files are regrouped"),
 ]
 
 

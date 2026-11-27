@@ -935,7 +935,7 @@ mod tests {
             md5: md5.clone(),
             ..Default::default()
         }]);
-        let held = crate::net::bulk::Wanted {
+        let held = crate::net::songfetch::Wanted {
             title: "held".into(),
             md5,
             ..Default::default()

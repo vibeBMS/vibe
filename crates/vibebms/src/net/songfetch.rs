@@ -11,6 +11,19 @@ use std::sync::Arc;
 
 pub use bmseeker::install::{Done, Failure};
 
+/// A chart a table lists, as its entry has it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Wanted {
+    pub title: String,
+    pub artist: String,
+    pub md5: String,
+    pub org_md5: Vec<String>,
+    /// The table's level label ("★12").
+    pub level: String,
+    pub url: String,
+    pub url_diff: String,
+}
+
 /// A song as a table names it: its title and artist (two songs of one
 /// title are two downloads).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -110,7 +123,7 @@ impl Outcome {
 /// known for the chart (`known`), then `more`.
 pub fn entry(
     known: &crate::net::links::LinkLists,
-    w: &crate::net::bulk::Wanted,
+    w: &Wanted,
     more: Vec<String>,
 ) -> bmseeker::install::Entry {
     let e = bmseeker::table::TableEntry {

@@ -5,7 +5,7 @@
 //! cancel. Politeness: at most `AT_ONCE` downloads at a time, and a new one
 //! started `SPACING` after the last.
 
-use crate::net::songfetch::{Outcome, SongFetch};
+use crate::net::songfetch::{Outcome, SongFetch, Wanted};
 use crate::platform::{Duration, Instant};
 
 /// Downloads at once.
@@ -48,19 +48,6 @@ impl State {
             State::Cancelled => "CANCELLED",
         }
     }
-}
-
-/// A chart a table lists, as its entry has it.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Wanted {
-    pub title: String,
-    pub artist: String,
-    pub md5: String,
-    pub org_md5: Vec<String>,
-    /// The table's level label ("★12").
-    pub level: String,
-    pub url: String,
-    pub url_diff: String,
 }
 
 #[derive(Clone, Debug)]
