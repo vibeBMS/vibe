@@ -162,8 +162,10 @@ jobs:
             --fonts "$RUNNER_TEMP/inter/usr/share/fonts/opentype/inter"
       # the checks the Toolchain pins workflow makes of what it found, which
       # updates the Dependabot merge workflow holds, and how latest.json is
-      # signed and checked (sign-update, verify-update)
+      # signed and checked (sign-update, verify-update); and that the app's
+      # modules use only the layers below their own (docs/BUILDING.md)
       - run: python3 tools/repro_pins_test.py
+      - run: python3 tools/check_layers.py
       - run: python3 .github/dependabot_merge_test.py
       - run: python3 .github/update_signing_test.py
       - run: cargo fmt --all --check
