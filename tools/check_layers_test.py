@@ -125,13 +125,14 @@ class CheckLayers(unittest.TestCase):
 
     def test_a_cycle_between_top_level_modules_fails(self):
         # (two modules of one layer: neither use is upward)
-        one = {"replay.rs": "pub fn s() {\n    crate::app::screenshot::dir();\n}\n"}
+        one = {"library/replay.rs": "pub fn s() {\n    crate::app::screenshot::dir();\n}\n"}
         self.assertEqual(self.run_on(one)[0], 0)
-        code, out = self.run_on(dict(one, **{"app/screenshot.rs": "pub fn r() {\n    crate::replay::dir();\n}\n"}))
+        two = {"app/screenshot.rs": "pub fn r() {\n    crate::library::replay::dir();\n}\n"}
+        code, out = self.run_on(dict(one, **two))
         self.assertEqual(code, 1, out)
-        self.assertIn("a cycle between units: app::screenshot, replay "
-                      "(app::screenshot -> replay::dir at app/screenshot.rs:", out)
-        self.assertIn("replay -> app::screenshot::dir at replay.rs:", out)
+        self.assertIn("a cycle between units: app::screenshot, library::replay "
+                      "(app::screenshot -> library::replay::dir at app/screenshot.rs:", out)
+        self.assertIn("library::replay -> app::screenshot::dir at library/replay.rs:", out)
 
     def test_a_listed_cycle_that_grows_fails(self):
         code, out = self.run_on({"platform/mod.rs": "pub fn b() {\n    crate::formats::f();\n}\n",

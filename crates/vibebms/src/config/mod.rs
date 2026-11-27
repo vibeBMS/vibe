@@ -288,8 +288,8 @@ pub struct Config {
     #[serde(skip_serializing_if = "PracticeConfig::is_default")]
     pub practice: PracticeConfig,
     /// RANDOM MIX's settings (written once changed).
-    #[serde(skip_serializing_if = "crate::courses::RandomMix::is_default")]
-    pub random_mix: crate::courses::RandomMix,
+    #[serde(skip_serializing_if = "crate::library::courses::RandomMix::is_default")]
+    pub random_mix: crate::library::courses::RandomMix,
     /// Discord Rich Presence (desktop; written once changed).
     #[serde(skip_serializing_if = "DiscordConfig::is_default")]
     pub discord: DiscordConfig,
@@ -797,8 +797,8 @@ mod tests {
         assert!(d.as_object().unwrap().keys().all(|k| set.get(k).is_some()));
         let back: Config = toml::from_str(&c.to_toml().unwrap()).unwrap();
         assert_eq!(back, c);
-        let r = crate::replay::Replay {
-            version: crate::replay::VERSION,
+        let r = crate::library::replay::Replay {
+            version: crate::library::replay::VERSION,
             sha256: String::new(),
             md5: String::new(),
             title: String::new(),
@@ -812,7 +812,7 @@ mod tests {
             ops: Vec::new(),
             course: None,
         };
-        let back = crate::replay::Replay::decode(&r.encode().unwrap()).unwrap();
+        let back = crate::library::replay::Replay::decode(&r.encode().unwrap()).unwrap();
         assert_eq!(back.play, c.play);
     }
 

@@ -5,6 +5,12 @@
 //! plays) so it works identically on every platform, including the web
 //! build. Scanning runs in the background.
 
+pub mod charts;
+pub mod courses;
+pub mod lr2db;
+pub mod replay;
+pub mod scoredb;
+
 use crate::platform::{arcfs, vfs};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};

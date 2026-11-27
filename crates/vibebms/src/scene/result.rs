@@ -107,7 +107,7 @@ pub struct ResultData {
     /// A battle's other side.
     pub p2: Option<SideResult>,
     /// The play's replay (a play of its own, not one watched).
-    pub replay: Option<crate::replay::Replay>,
+    pub replay: Option<crate::library::replay::Replay>,
     /// What the play was: its rules, devices and end time among them.
     pub record: PlayRecord,
     /// An expert or class course's own result (its stages' totals).
@@ -181,7 +181,7 @@ impl ResultScene {
         // every play of its own keeps its replay as the chart's latest
         // (a BATTLE play's would replace a single play's: it is not kept)
         if let Some(r) = d.replay.as_ref().filter(|r| r.keepable()) {
-            if let Err(e) = crate::replay::save(r, &ctx.paths.player, Slot::Last) {
+            if let Err(e) = crate::library::replay::save(r, &ctx.paths.player, Slot::Last) {
                 log::warn!("replay: {e}");
                 // (none is kept as the best either)
                 if e == vibebms_core::replay::TOO_LONG {
@@ -196,7 +196,7 @@ impl ResultScene {
             note = match (d.assist, ctx.lib.db.as_mut()) {
                 (Assist::None, Some(lib)) => {
                     let key = RecordKey::new(&song.sha256, key.ln, key.rule);
-                    let b = crate::courses::save_stage(lib, &key, &d.score, d.clear);
+                    let b = crate::library::courses::save_stage(lib, &key, &d.score, d.clear);
                     ctx.lib.scores.insert(key, b.clone());
                     after = Some(b);
                     tr!("COURSE STAGE: best score and FULL COMBO kept").into()
@@ -210,7 +210,7 @@ impl ResultScene {
             if let Some(lib) = ctx.lib.db.as_mut() {
                 let play_ms = d.record.result.play_ms;
                 let b = if d.course.is_some() && ranked {
-                    crate::courses::save_course(lib, &key, &d.score, d.clear, play_ms)
+                    crate::library::courses::save_course(lib, &key, &d.score, d.clear, play_ms)
                 } else if ranked {
                     lib.record_play(&key, &d.score, d.clear, play_ms)
                 } else {
@@ -230,7 +230,7 @@ impl ResultScene {
                 .as_ref()
                 .filter(|r| r.keepable() && ranked && d.score.ex_score() > best_before)
             {
-                if let Err(e) = crate::replay::save(r, &ctx.paths.player, Slot::Best) {
+                if let Err(e) = crate::library::replay::save(r, &ctx.paths.player, Slot::Best) {
                     log::warn!("replay: {e}");
                 }
             }
@@ -365,7 +365,7 @@ impl ResultScene {
             return;
         };
         let slot = Slot::Saved(n);
-        match crate::replay::save(r, &ctx.paths.player, slot) {
+        match crate::library::replay::save(r, &ctx.paths.player, slot) {
             Ok(()) => {
                 ctx.play_sound(crate::audio::sysound::Sound::OptionChange);
                 ctx.toast(tr!(
@@ -851,8 +851,8 @@ mod tests {
             ..Default::default()
         };
         let mut d = played(&song, None);
-        d.replay = Some(crate::replay::Replay {
-            version: crate::replay::VERSION,
+        d.replay = Some(crate::library::replay::Replay {
+            version: crate::library::replay::VERSION,
             sha256: song.sha256.clone(),
             md5: String::new(),
             title: "x".repeat(vibebms_core::replay::MAX_JSON),

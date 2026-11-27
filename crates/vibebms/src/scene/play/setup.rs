@@ -137,7 +137,7 @@ impl PlayScene {
         // the best play's ghost: MY BEST's pacemaker at the same note
         let best_ex = match (&self.req.replay, practice) {
             (Some(_), _) | (_, Some(_)) => None,
-            _ => crate::replay::load_filed(
+            _ => crate::library::replay::load_filed(
                 &ctx.paths.player,
                 &self.req.replay_key(),
                 score_ln as i32,

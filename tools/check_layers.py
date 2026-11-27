@@ -44,11 +44,11 @@ sys.dont_write_bytecode = True
 LAYERS = [
     ("base", ["formats", "i18n"]),
     ("platform", ["platform"]),
-    ("library", ["library", "lr2db", "net::links"]),
-    ("placement", ["net::placement", "charts"]),
-    ("courses and scores", ["courses", "scoredb"]),
+    ("library", ["library", "library::lr2db", "net::links"]),
+    ("placement", ["net::placement", "library::charts"]),
+    ("courses and scores", ["library::courses", "library::scoredb"]),
     ("settings", ["config"]),
-    ("kept files", ["replay", "app::screenshot"]),
+    ("kept files", ["library::replay", "app::screenshot"]),
     ("paths", ["paths"]),
     ("drawing and input", ["gfx", "input", "perspective"]),
     ("looks and touch", ["gfx::theme", "gfx::video", "touch"]),
@@ -86,8 +86,8 @@ CONDITIONS_AT_HOME = ["platform", "app", "browser"]
 # down.
 CONDITIONS = {
     "app::screenshot": 2, "audio::loudness": 1, "config": 1, "ctx": 11, "gfx": 12, "gfx::video": 5, "i18n": 3,
-    "input": 13, "integrations": 28, "ir": 5, "lib": 1, "library": 12, "net": 1, "net::links": 5, "paths": 2,
-    "replay": 2, "scene": 40, "skin": 2, "update": 12,
+    "input": 13, "integrations": 28, "ir": 5, "lib": 1, "library": 12, "library::replay": 2, "net": 1,
+    "net::links": 5, "paths": 2, "scene": 40, "skin": 2, "update": 12,
 }
 
 # What names a platform in a cfg: the target's predicates, and the groups

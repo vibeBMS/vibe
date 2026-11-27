@@ -58,7 +58,7 @@ pub struct Ctx {
 pub struct Lib {
     pub db: Option<Library>,
     /// The player's courses.
-    pub courses: crate::courses::CourseStore,
+    pub courses: crate::library::courses::CourseStore,
     /// Sorted by title, then level.
     pub songs: Arc<Vec<Song>>,
     /// How many charts `songs` are, a chart in several folders once.
@@ -395,9 +395,9 @@ impl Ctx {
         self.lib.db = Some(Library::open(
             &self.paths.cache,
             &self.paths.scores,
-            |sha, ln| crate::replay::rule_of_old(&player, sha, ln, Slot::Best),
+            |sha, ln| crate::library::replay::rule_of_old(&player, sha, ln, Slot::Best),
         ));
-        self.lib.courses = crate::courses::CourseStore::open(&self.paths.scores);
+        self.lib.courses = crate::library::courses::CourseStore::open(&self.paths.scores);
     }
 
     /// `lib.scores` from the database, the charts as they are.
@@ -630,7 +630,7 @@ impl Ctx {
             let mut songs = lib.songs();
             lib.merge_fixed_ln(&songs);
             songs.sort_by_cached_key(|s| (s.title.to_lowercase(), s.level_num()));
-            self.lib.charts = crate::charts::Charts::new(&songs).count();
+            self.lib.charts = crate::library::charts::Charts::new(&songs).count();
             self.lib.songs = Arc::new(songs);
             self.lib.scores = lib.scores();
         }

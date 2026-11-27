@@ -179,7 +179,7 @@ pub fn run() {
         let replays = app.paths.replays();
         let skins = app.paths.skins.clone();
         let root = &app.paths.root;
-        let root_replays = crate::replay::dir(root);
+        let root_replays = crate::library::replay::dir(root);
         crate::platform::opfs::start(root, root_replays, crate::platform::vfs::mount, move |n| {
             if n > 0 {
                 log::info!("library: {n} files kept in the browser");

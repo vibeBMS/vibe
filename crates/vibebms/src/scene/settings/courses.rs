@@ -4,8 +4,8 @@
 
 use super::row::{Act, Row, Rows};
 use super::{Sub, TextField};
-use crate::courses::Course;
 use crate::ctx::Ctx;
+use crate::library::courses::Course;
 use crate::scene::cycle;
 use vibebms_core::course::{CourseKind, Join, MAX_STAGES};
 use vibebms_core::PlayMode;
@@ -96,12 +96,12 @@ pub(super) fn import(c: &mut Ctx, path: &str) {
     let Some(bytes) = candidates
         .iter()
         .filter(|f| !f.is_dir())
-        .find_map(|f| crate::lr2db::read_file(f).ok())
+        .find_map(|f| crate::library::lr2db::read_file(f).ok())
     else {
         c.toast(tr!("No LR2 song.db at {path}", path = p.display()));
         return;
     };
-    match crate::lr2db::courses(&bytes) {
+    match crate::library::lr2db::courses(&bytes) {
         Ok(list) => {
             let n = list.len();
             let songs = c.lib.songs.clone();
@@ -127,7 +127,7 @@ fn browse(c: &mut Ctx, _: usize) {
     }
 }
 
-fn mix(c: &mut Ctx) -> &mut crate::courses::RandomMix {
+fn mix(c: &mut Ctx) -> &mut crate::library::courses::RandomMix {
     &mut c.config.random_mix
 }
 

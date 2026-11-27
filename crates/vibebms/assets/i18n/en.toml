@@ -126,6 +126,13 @@
 "play time does not fit the chart" = "play time does not fit the chart"
 "no {gauge} gauge there" = "no {gauge} gauge there"
 
+# library/replay.rs
+"G-BATTLE needs a 5 or 7 key chart" = "G-BATTLE needs a 5 or 7 key chart"
+"the replay is a BATTLE play" = "the replay is a BATTLE play"
+"the replay has no inputs" = "the replay has no inputs"
+"the replay is a LEGACY NOTE play" = "the replay is a LEGACY NOTE play"
+"the replay was played in another LN mode" = "the replay was played in another LN mode"
+
 # net/events.rs
 "Added {name} ({n} files)" = "Added {name} ({n} files)"
 "No direct download: opening its page" = "No direct download: opening its page"
@@ -175,13 +182,6 @@ Using them is your own responsibility: follow each site's terms and respect the 
 "There is a profile named {name} already" = "There is a profile named {name} already"
 "The default profile is not deleted (its data is the root's)" = "The default profile is not deleted (its data is the root's)"
 "The profile in use is not deleted: switch to another first" = "The profile in use is not deleted: switch to another first"
-
-# replay.rs
-"G-BATTLE needs a 5 or 7 key chart" = "G-BATTLE needs a 5 or 7 key chart"
-"the replay is a BATTLE play" = "the replay is a BATTLE play"
-"the replay has no inputs" = "the replay has no inputs"
-"the replay is a LEGACY NOTE play" = "the replay is a LEGACY NOTE play"
-"the replay was played in another LN mode" = "the replay was played in another LN mode"
 
 # scene/keyconfig.rs
 "Keyboard" = "Keyboard"

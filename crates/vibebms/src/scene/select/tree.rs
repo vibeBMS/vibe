@@ -1339,10 +1339,10 @@ mod tests {
             }],
             ..Default::default()
         }];
-        ctx.lib.courses.list.push(crate::courses::Course {
+        ctx.lib.courses.list.push(crate::library::courses::Course {
             id: 1,
             title: "C".into(),
-            stages: vec![crate::courses::Stage {
+            stages: vec![crate::library::courses::Stage {
                 md5: "md5 of sx".into(),
                 ..Default::default()
             }],

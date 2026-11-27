@@ -4,7 +4,7 @@ use super::session::Role;
 use super::{single_mode, CourseRun, PlayRequest, PlayScene, Versus};
 use crate::config::PlayConfig;
 use crate::ctx::Ctx;
-use crate::replay::Replay;
+use crate::library::replay::Replay;
 use crate::scene::result::{ResultData, ResultScene, SideResult};
 use crate::scene::Next;
 use vibebms_core::gauge::GaugeAutoShift;
@@ -202,7 +202,7 @@ impl PlayScene {
             course,
             p2: self.opponent_result(),
             replay: (!e.recorded().is_empty()).then(|| Replay {
-                version: crate::replay::VERSION,
+                version: crate::library::replay::VERSION,
                 sha256: self.req.replay_key(),
                 md5: self.req.song.md5.clone(),
                 title: self.session.chart.meta.title.clone(),

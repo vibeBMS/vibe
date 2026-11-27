@@ -75,7 +75,7 @@ pub struct SelectScene {
     /// Up / down held: the cursor moves on.
     held_nav: Option<Repeat<Nav>>,
     /// The library's charts by hash, copies of one chart as one.
-    charts: crate::charts::Charts,
+    charts: crate::library::charts::Charts,
     /// The library's charts by the folder of their file (a song's charts).
     song_dirs: HashMap<String, Vec<usize>>,
     /// The selected chart's replay and text files.
@@ -194,7 +194,7 @@ impl SelectScene {
     /// The library's charts by hash and folder, and the course bars'
     /// facts, again.
     fn index(&mut self, ctx: &Ctx) {
-        self.charts = crate::charts::Charts::new(&ctx.lib.songs);
+        self.charts = crate::library::charts::Charts::new(&ctx.lib.songs);
         self.song_dirs.clear();
         self.courses.get_mut().clear();
         for (i, s) in ctx.lib.songs.iter().enumerate() {

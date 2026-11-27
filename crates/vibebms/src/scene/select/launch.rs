@@ -5,7 +5,7 @@ use super::tree::{event, table, Bar, BulkBar, CourseBar, Missing, Node};
 use super::SelectScene;
 use crate::config::Versus;
 use crate::ctx::Ctx;
-use crate::replay;
+use crate::library::replay;
 use crate::scene::play::{self, CourseRun, PlayRequest, PlayScene};
 use crate::scene::practice::PracticeScene;
 use crate::scene::Next;
@@ -100,7 +100,7 @@ impl SelectScene {
                         }
                         ctx.toast(tr!(
                             "{name}: a new course",
-                            name = crate::courses::RANDOM_MIX
+                            name = crate::library::courses::RANDOM_MIX
                         ));
                     }
                     Err(e) => ctx.toast(e),
@@ -143,7 +143,7 @@ impl SelectScene {
         let Some((_, song)) = self.selected_song(ctx) else {
             return;
         };
-        let stage = crate::courses::Stage::of(song);
+        let stage = crate::library::courses::Stage::of(song);
         let st = &mut ctx.lib.courses;
         let Some(c) = st.editing.and_then(|id| st.get_mut(id)) else {
             ctx.toast(tr!("No course open in the editor (settings, COURSES)"));
@@ -630,7 +630,7 @@ impl SelectScene {
                     tc.map(|c| c.name.clone()).unwrap_or_default(),
                 )
             }
-            CourseBar::RandomMix(kind) => (*kind, None, crate::courses::RANDOM_MIX.into()),
+            CourseBar::RandomMix(kind) => (*kind, None, crate::library::courses::RANDOM_MIX.into()),
         };
         let course = course_of(ctx, c).ok();
         let songs = (course.as_ref())

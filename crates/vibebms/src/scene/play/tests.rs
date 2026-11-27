@@ -62,7 +62,7 @@ fn play_and_watch(keys: usize, play: &RuleOptions) -> (u64, u32) {
     bot::drive(&mut e, &inputs, chart.length() + 2_000_000);
     // the replay as saved and loaded
     let r = Replay {
-        version: crate::replay::VERSION,
+        version: crate::library::replay::VERSION,
         sha256: String::new(),
         md5: String::new(),
         title: String::new(),
@@ -378,7 +378,7 @@ fn a_replay_plays_again_as_the_opponent() {
         e.record();
         bot::drive(&mut e, &bot::inputs(&sp, None, 5), sp.length() + 2_000_000);
         let r = Arc::new(Replay {
-            version: crate::replay::VERSION,
+            version: crate::library::replay::VERSION,
             sha256: String::new(),
             md5: String::new(),
             title: String::new(),
@@ -461,7 +461,7 @@ fn bot_replay() {
     e.record();
     bot::drive(&mut e, &bot::inputs(&c, None, 3), c.length() + 2_000_000);
     let r = Replay {
-        version: crate::replay::VERSION,
+        version: crate::library::replay::VERSION,
         sha256: song.sha256.clone(),
         md5: song.md5.clone(),
         title: song.title.clone(),
@@ -475,8 +475,8 @@ fn bot_replay() {
         ops: e.recorded().to_vec(),
         course: None,
     };
-    crate::replay::save(&r, &root, vibebms_core::replay::Slot::Best).unwrap();
-    crate::replay::save(&r, &root, vibebms_core::replay::Slot::Last).unwrap();
+    crate::library::replay::save(&r, &root, vibebms_core::replay::Slot::Best).unwrap();
+    crate::library::replay::save(&r, &root, vibebms_core::replay::Slot::Last).unwrap();
     println!("EX {} of {}", r.ex_score, e.score.max_ex());
 }
 
@@ -518,14 +518,14 @@ fn vs_players_have_their_own_voices_and_controls() {
 
 #[test]
 fn only_fitting_replays_are_opponents() {
-    use crate::replay::ghost_refusal;
+    use crate::library::replay::ghost_refusal;
     let song = crate::library::Song {
         mode: PlayMode::Beat7K,
         has_ln: true,
         ..Default::default()
     };
     let r = Replay {
-        version: crate::replay::VERSION,
+        version: crate::library::replay::VERSION,
         sha256: String::new(),
         md5: String::new(),
         title: String::new(),

@@ -420,9 +420,15 @@ pub fn export_video(
             let ln = song.score_ln(p.ln_pref()) as i32;
             let fixed = song.fixed_ln() && !p.ln_force;
             let player = &ctx.paths.player;
-            let r =
-                crate::replay::load_filed(player, &song.sha256, ln, p.judge_preset, fixed, slot)
-                    .ok_or_else(|| format!("no {} replay of {}", slot.label(), song.title))?;
+            let r = crate::library::replay::load_filed(
+                player,
+                &song.sha256,
+                ln,
+                p.judge_preset,
+                fixed,
+                slot,
+            )
+            .ok_or_else(|| format!("no {} replay of {}", slot.label(), song.title))?;
             Some(std::sync::Arc::new(r))
         }
         None => None,
@@ -762,8 +768,8 @@ mod tests {
         eng.record();
         let inputs = vibebms_core::bot::inputs(&built.chart, None, 3);
         vibebms_core::bot::drive(&mut eng, &inputs, built.chart.length() + 2_000_000);
-        let r = crate::replay::Replay {
-            version: crate::replay::VERSION,
+        let r = crate::library::replay::Replay {
+            version: crate::library::replay::VERSION,
             sha256: song.sha256.clone(),
             md5: song.md5.clone(),
             title: song.title.clone(),
@@ -777,7 +783,7 @@ mod tests {
             ops: eng.recorded().to_vec(),
             course: None,
         };
-        crate::replay::save(&r, &root, Slot::Best).unwrap();
+        crate::library::replay::save(&r, &root, Slot::Best).unwrap();
         let out = root.join("replay.mkv");
         let opts = VideoExport {
             replay: Some(Slot::Best),

@@ -302,7 +302,7 @@ impl SelectScene {
         };
         if !self.files.borrow().key.as_ref().is_some_and(of) {
             let ln = song.score_ln(p.ln_pref()) as i32;
-            let replay = crate::replay::exists(
+            let replay = crate::library::replay::exists(
                 &ctx.paths.player,
                 &song.sha256,
                 ln,

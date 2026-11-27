@@ -3,7 +3,7 @@
 //! `<root>/scores/courses.json`. The difficulty tables' dan courses are
 //! played as class courses beside them.
 
-use crate::charts::Charts;
+use crate::library::charts::Charts;
 use crate::library::{RecordKey, Song};
 use crate::platform::vfs;
 use serde::{Deserialize, Serialize};
@@ -202,7 +202,11 @@ impl CourseStore {
 
     /// Add LR2's courses (`lr2db::courses`, newest first) that are not
     /// here yet (by identity): how many were added.
-    pub fn import(&mut self, courses: Vec<crate::lr2db::Lr2Course>, songs: &[Song]) -> usize {
+    pub fn import(
+        &mut self,
+        courses: Vec<crate::library::lr2db::Lr2Course>,
+        songs: &[Song],
+    ) -> usize {
         let have: Vec<String> = self.list.iter().map(|c| c.def().id()).collect();
         let charts = Charts::new(songs);
         let mut added = 0;
@@ -441,7 +445,7 @@ mod tests {
         // LR2's courses: one already here (same identity) is not added
         // again; stages found in the library
         let lr2 = vec![
-            crate::lr2db::Lr2Course {
+            crate::library::lr2db::Lr2Course {
                 title: "LR2".into(),
                 def: CourseDef {
                     kind: CourseKind::Expert,
@@ -450,7 +454,7 @@ mod tests {
                 },
                 ir: false,
             },
-            crate::lr2db::Lr2Course {
+            crate::library::lr2db::Lr2Course {
                 title: "SAME".into(),
                 def,
                 ir: false,

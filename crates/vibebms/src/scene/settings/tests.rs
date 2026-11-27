@@ -1,7 +1,7 @@
 use super::*;
 use crate::config::IrAccount;
-use crate::courses::{Course, Stage};
 use crate::gfx::Rect;
+use crate::library::courses::{Course, Stage};
 use crate::net::skinstore::{SkinEntry, Source};
 use crate::platform::Instant;
 use crate::scene::keybind::Slot;
