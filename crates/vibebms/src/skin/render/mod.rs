@@ -40,6 +40,32 @@ impl Xf {
     }
 }
 
+/// A side's gauge as a skin shows it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GaugeView {
+    /// 0..100.
+    pub value: f32,
+    /// Where it clears (a groove gauge's 80).
+    pub border: f32,
+    /// A survival gauge: all of it is above the border.
+    pub survival: bool,
+    /// The gauge type, in beatoraja's order (assist, easy, normal, hard,
+    /// ex-hard, hazard).
+    pub kind: usize,
+}
+
+impl Default for GaugeView {
+    /// An empty NORMAL gauge.
+    fn default() -> GaugeView {
+        GaugeView {
+            value: 0.0,
+            border: 80.0,
+            survival: false,
+            kind: 2,
+        }
+    }
+}
+
 /// Scene-specific pieces the generic renderer cannot draw itself. Every
 /// method has a no-op default so a scene implements only what it shows.
 #[allow(unused_variables)]
@@ -49,10 +75,9 @@ pub trait Hooks {
     fn ref_image(&self, id: i32) -> Option<TexId> {
         None
     }
-    /// A side's gauge: (value, border, survival, gauge type in beatoraja
-    /// order).
-    fn gauge(&self, side: usize) -> (f32, f32, bool, usize) {
-        (0.0, 80.0, false, 2)
+    /// A side's gauge.
+    fn gauge(&self, side: usize) -> GaugeView {
+        GaugeView::default()
     }
     /// Current judgement for a side: (judge 0..5, combo).
     fn judge(&self, side: usize) -> Option<(usize, u32)> {

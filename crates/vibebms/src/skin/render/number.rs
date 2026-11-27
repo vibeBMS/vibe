@@ -5,21 +5,24 @@ use crate::gfx::{Draw, Rect};
 use crate::skin::*;
 
 impl LoadedSkin {
-    #[allow(clippy::too_many_arguments)]
+    /// `value` in `font`, its places side by side from `fr`'s rect
+    /// (screen px; a place is as wide as it).
     pub fn number(
         &self,
         d: &mut Draw,
-        src: &Src,
-        digits: usize,
-        keta: usize,
-        align: i32,
-        pad: Option<usize>,
+        font: &NumberFont,
         value: i64,
         now: i64,
         st: &dyn SkinState,
-        r: Rect,
         fr: &Frame,
     ) {
+        let (src, r) = (&font.src, fr.rect);
+        let NumberStyle {
+            digits,
+            keta,
+            align,
+            pad,
+        } = font.style;
         // (none while its timer is off)
         if src.frame(now, st).is_none() {
             return;
@@ -47,9 +50,9 @@ impl LoadedSkin {
         }
         let blanks = slots.iter().filter(|s| s.is_none()).count() as f32;
         let shift = match align {
-            1 => r.w * blanks,
-            2 => r.w * blanks * 0.5,
-            _ => 0.0,
+            Align::Right => r.w * blanks,
+            Align::Center => r.w * blanks * 0.5,
+            Align::Left => 0.0,
         };
         // animated digit sets: frames are grouped by `digits` (x2 when signed)
         let group = if signed { 24 } else { digits };

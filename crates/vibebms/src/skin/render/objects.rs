@@ -1,6 +1,6 @@
 //! A skin's objects drawn, each by its kind.
 
-use super::{Hooks, LoadedSkin, Xf};
+use super::{GaugeView, Hooks, LoadedSkin, Xf};
 use crate::gfx::{Draw, Rect, TexId};
 use crate::skin::*;
 
@@ -28,25 +28,25 @@ fn value(st: &dyn SkinState, id: i32, minmax: Option<(f32, f32)>) -> f32 {
     }
 }
 
-/// Where an image of `w` x `h` goes in `r` under beatoraja stretch type
-/// `mode`, and whether it is cut off at `r`.
-pub fn stretched(mode: i32, r: Rect, w: f32, h: f32) -> (Rect, bool) {
+/// Where an image of `w` x `h` goes in `r` as `mode` fits it, and
+/// whether it is cut off at `r`.
+fn stretched(mode: Stretch, r: Rect, w: f32, h: f32) -> (Rect, bool) {
     if w <= 0.0 || h <= 0.0 {
         return (r, false);
     }
     let (fx, fy) = (r.w / w, r.h / h);
     let (scale, trim) = match mode {
-        1 => (fx.min(fy), false),
-        2 => (fx.max(fy), false),
-        3 => (fx.max(fy), true),
-        4 => (fx, false),
-        5 => (fx, true),
-        6 => (fy, false),
-        7 => (fy, true),
-        8 => (fx.min(fy).min(1.0), false),
-        9 => (1.0, false),
-        10 => (1.0, true),
-        _ => return (r, false),
+        Stretch::Fit => (fx.min(fy), false),
+        Stretch::Cover => (fx.max(fy), false),
+        Stretch::CoverCut => (fx.max(fy), true),
+        Stretch::Width => (fx, false),
+        Stretch::WidthCut => (fx, true),
+        Stretch::Height => (fy, false),
+        Stretch::HeightCut => (fy, true),
+        Stretch::FitDown => (fx.min(fy).min(1.0), false),
+        Stretch::Own => (1.0, false),
+        Stretch::OwnCut => (1.0, true),
+        Stretch::Full => return (r, false),
     };
     let (sw, sh) = (w * scale, h * scale);
     (
@@ -56,20 +56,18 @@ pub fn stretched(mode: i32, r: Rect, w: f32, h: f32) -> (Rect, bool) {
 }
 
 impl LoadedSkin {
-    /// A stacked bar of lamp counts (best lamps first, as beatoraja draws
-    /// them) or rank counts (AAA first).
-    #[allow(clippy::too_many_arguments)]
+    /// `counts` as `bar` stacks them into `fr`'s rect (screen px): lamps
+    /// best first, as beatoraja draws them, or ranks AAA first.
     pub fn distribution(
         &self,
         d: &mut Draw,
-        src: Option<&Src>,
+        bar: &CountBar,
         counts: &[u32],
-        rank: bool,
         now: i64,
         st: &dyn SkinState,
-        r: Rect,
         fr: &Frame,
     ) {
+        let (src, rank, r) = (bar.src.as_ref(), bar.rank, fr.rect);
         let total: u32 = counts.iter().sum();
         if total == 0 {
             return;
@@ -174,7 +172,7 @@ impl LoadedSkin {
             match &o.kind {
                 Kind::Image(src) | Kind::JudgeLine(src) => {
                     let size = src.frames.first().map(|f| (f[2] * xf.sx, f[3] * xf.sy));
-                    match size.filter(|_| o.dst.stretch != 0) {
+                    match size.filter(|_| o.dst.stretch != Stretch::Full) {
                         Some((w, h)) => {
                             let (rr, trim) = stretched(o.dst.stretch, r, w, h);
                             if trim {
@@ -188,9 +186,10 @@ impl LoadedSkin {
                         None => self.blit(d, src, now, st, r, &fr),
                     }
                 }
-                Kind::Distribution { src, rank } => {
-                    if let Some(counts) = st.distribution(*rank) {
-                        self.distribution(d, src.as_ref(), &counts, *rank, now, st, r, &fr);
+                Kind::Distribution(bar) => {
+                    if let Some(counts) = st.distribution(bar.rank) {
+                        let at = Frame { rect: r, ..fr };
+                        self.distribution(d, bar, &counts, now, st, &at);
                     }
                 }
                 // beatoraja's plain black / white
@@ -223,36 +222,23 @@ impl LoadedSkin {
                         part(d, t, r, [0.0, 0.0, 1.0, 1.0], &fr, r);
                     }
                 }
-                Kind::Number {
-                    src,
-                    digits,
-                    id,
-                    align,
-                    keta,
-                    pad,
-                } => {
+                Kind::Number { id, font } => {
                     if let Some(v) = st.number(*id) {
-                        self.number(d, src, *digits, *keta, *align, *pad, v, now, st, r, &fr);
+                        self.number(d, font, v, now, st, &Frame { rect: r, ..fr });
                     }
                 }
                 Kind::Text {
                     id,
-                    font,
-                    align,
-                    overflow,
                     constant,
-                    face,
-                    fx,
-                    size,
+                    style,
                 } => {
                     if let Some(s) = constant.clone().or_else(|| st.text(*id)) {
                         // texts follow the selection (timer 11), else the scene
                         let shown = now - st.timer(11).unwrap_or(0);
-                        let f = face.as_deref().and_then(|p| d.text.face(p));
+                        let f = style.face.as_deref().and_then(|p| d.text.face(p));
                         d.text.set_face(f.unwrap_or(0));
-                        let (al, of, c) = (*align, *overflow, fr.color);
-                        let sh = Some(shown);
-                        self.text(d, &s, r, al, of, c, *font, sh, fx, *size, xf.sy);
+                        let at = Frame { rect: r, ..fr };
+                        self.text(d, &s, style, &at, Some(shown), xf.sy);
                         d.text.set_face(0);
                     }
                 }
@@ -266,8 +252,7 @@ impl LoadedSkin {
                     let Some(f) = src.frame(now, st) else {
                         continue;
                     };
-                    // direction 1 fills bottom-to-top
-                    let (rr, ff) = if *dir == 1 {
+                    let (rr, ff) = if *dir == Dir::Up {
                         (
                             Rect::new(r.x, r.bottom() - r.h * v, r.w, r.h * v),
                             [f[0], f[1] + f[3] * (1.0 - v), f[2], f[3] * v],
@@ -291,10 +276,10 @@ impl LoadedSkin {
                 } => {
                     let off = value(st, *id, *minmax) * range;
                     let (dx, dy) = match dir {
-                        0 => (0.0, -off),
-                        1 => (off, 0.0),
-                        2 => (0.0, off),
-                        _ => (-off, 0.0),
+                        Dir::Up => (0.0, -off),
+                        Dir::Right => (off, 0.0),
+                        Dir::Down => (0.0, off),
+                        Dir::Left => (-off, 0.0),
                     };
                     let rr = Rect::new(r.x + dx * xf.sx, r.y + dy * xf.sy, r.w, r.h);
                     self.blit(d, src, now, st, rr, &fr);
@@ -307,7 +292,12 @@ impl LoadedSkin {
                     side,
                     ..
                 } => {
-                    let (value, border, survival, ty) = hooks.gauge(*side);
+                    let GaugeView {
+                        value,
+                        border,
+                        survival,
+                        kind: ty,
+                    } = hooks.gauge(*side);
                     let n = *parts as f32;
                     let per = 100.0 / n;
                     // as beatoraja: whole cells, at least one while alive,
@@ -394,9 +384,10 @@ impl LoadedSkin {
         let combo_part = (j <= 2 && combo > 0)
             .then(|| js.combo[j.min(5)].as_ref())
             .flatten();
-        if let Some((csrc, cdst, keta)) = combo_part {
-            if let Some(cf) = cdst.eval(now, st) {
-                let digits = combo.to_string().len().min(*keta);
+        if let Some(c) = combo_part {
+            if let Some(cf) = c.dst.eval(now, st) {
+                let keta = c.font.style.keta;
+                let digits = combo.to_string().len().min(keta);
                 let cw = cf.rect.w * xf.sx * digits as f32;
                 if js.shift {
                     jr.x -= cw * 0.5;
@@ -408,15 +399,9 @@ impl LoadedSkin {
                     cf.rect.w * xf.sx,
                     cf.rect.h * xf.sy,
                 );
-                let n = if csrc.frames.len() % 24 == 0 {
-                    12
-                } else if csrc.frames.len() % 11 == 0 {
-                    11
-                } else {
-                    10
-                };
-                let cr = Rect::new(cr.x - cr.w * (*keta - digits) as f32, cr.y, cr.w, cr.h);
-                self.number(d, csrc, n, *keta, 0, None, combo as i64, now, st, cr, &cf);
+                let cr = Rect::new(cr.x - cr.w * (keta - digits) as f32, cr.y, cr.w, cr.h);
+                let at = Frame { rect: cr, ..cf };
+                self.number(d, &c.font, combo as i64, now, st, &at);
             }
         }
         self.blit(d, src, now, st, jr, &fr);

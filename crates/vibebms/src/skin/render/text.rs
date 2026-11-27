@@ -1,7 +1,7 @@
 //! Texts: in the UI's fonts, or in the skin's bitmap fonts.
 
 use super::LoadedSkin;
-use crate::gfx::text::{Align, TextStyle};
+use crate::gfx::text as screen;
 use crate::gfx::{Draw, Rect};
 use crate::skin::*;
 
@@ -29,100 +29,104 @@ pub fn bmfont_scale(f: &BitmapFont, h: f32, size: Option<f32>) -> f32 {
 }
 
 impl LoadedSkin {
-    /// Draw a text into `r` (font size = height; see `Kind::Text` overflow),
-    /// with an LR2 bitmap font when one is given. `shown_ms`: how long the
-    /// text has been the current one, for a marquee (overflow 3; `None`
-    /// keeps it still). `fx`: its outline and shadow as beatoraja draws
-    /// them (see `TextFx`); `size`: the beatoraja font size (skin px),
-    /// which sizes `.fnt` glyphs; `scale`: screen px per skin px.
-    #[allow(clippy::too_many_arguments)]
+    /// Draw text `s` in `style` into `fr`'s rect (screen px; font size =
+    /// its height), in `fr`'s colour. `shown_ms`: how long the text has
+    /// been the current one, for a marquee (`None` keeps it still);
+    /// `scale`: screen px per skin px (the font size and the shadow's
+    /// offset are in skin px).
     pub fn text(
         &self,
         d: &mut Draw,
         s: &str,
-        r: Rect,
-        align: i32,
-        overflow: i32,
-        color: crate::gfx::Color,
-        font: Option<usize>,
+        style: &TextStyle,
+        fr: &Frame,
         shown_ms: Option<i64>,
-        fx: &TextFx,
-        size: Option<f32>,
         scale: f32,
     ) {
-        let args = (align, overflow, font, shown_ms, size.map(|s| s * scale));
-        if font
+        let size = style.size.map(|s| s * scale);
+        let fx = &style.fx;
+        if (style.font)
             .and_then(|i| self.skin.fonts.get(i))
             .is_some_and(|f| f.sdf)
         {
             // the shader draws the outline and shadow
             d.b.set_sdf(Some(fx.sdf()));
-            self.text_plain(d, s, r, color, args);
+            self.text_plain(d, s, style, fr, shown_ms, size);
             d.b.set_sdf(None);
             return;
         }
         if fx.has_shadow() {
+            let (r, color) = (fr.rect, fr.color);
             let (dx, dy) = (fx.shadow_offset.0 * scale, fx.shadow_offset.1 * scale);
-            let half = [color[0] * 0.5, color[1] * 0.5, color[2] * 0.5, color[3]];
-            self.text_plain(d, s, Rect::new(r.x + dx, r.y + dy, r.w, r.h), half, args);
+            let shadow = Frame {
+                rect: Rect::new(r.x + dx, r.y + dy, r.w, r.h),
+                color: [color[0] * 0.5, color[1] * 0.5, color[2] * 0.5, color[3]],
+                ..*fr
+            };
+            self.text_plain(d, s, style, &shadow, shown_ms, size);
         }
-        self.text_plain(d, s, r, color, args);
+        self.text_plain(d, s, style, fr, shown_ms, size);
     }
 
-    /// `text` without outline or shadow; `args`: align, overflow, font,
-    /// shown_ms, font size (screen px).
+    /// `text` without outline or shadow; `size`: the font size (screen
+    /// px) if it has one.
     fn text_plain(
         &self,
         d: &mut Draw,
         s: &str,
-        r: Rect,
-        color: crate::gfx::Color,
-        args: (i32, i32, Option<usize>, Option<i64>, Option<f32>),
+        style: &TextStyle,
+        fr: &Frame,
+        shown_ms: Option<i64>,
+        size: Option<f32>,
     ) {
-        let (align, overflow, font, shown_ms, size) = args;
+        let (r, color) = (fr.rect, fr.color);
         // lines one under the other (beatoraja's fonts: 1.2 sizes apart)
         if s.contains('\n') {
             for (i, line) in s.split('\n').enumerate() {
                 let y = r.y + r.h * 1.2 * i as f32;
-                let lr = Rect::new(r.x, y, r.w, r.h);
-                self.text_plain(d, line, lr, color, args);
+                let lr = Frame {
+                    rect: Rect::new(r.x, y, r.w, r.h),
+                    ..*fr
+                };
+                self.text_plain(d, line, style, &lr, shown_ms, size);
             }
             return;
         }
-        if let Some(f) = font.and_then(|i| self.skin.fonts.get(i)) {
-            self.bitmap_text(d, f, s, r, align, color, size);
+        if let Some(f) = style.font.and_then(|i| self.skin.fonts.get(i)) {
+            self.bitmap_text(d, f, s, fr, style.align, size);
             return;
         }
-        let (x, al) = match align {
-            1 => (r.x + r.w * 0.5, Align::Center),
-            2 => (r.right(), Align::Right),
-            _ => (r.x, Align::Left),
+        let (x, al) = match style.align {
+            Align::Center => (r.x + r.w * 0.5, screen::Align::Center),
+            Align::Right => (r.right(), screen::Align::Right),
+            Align::Left => (r.x, screen::Align::Left),
         };
         let size = r.h.max(4.0);
-        match overflow {
-            1 if r.w > 1.0 => {
-                d.text(s, x, r.y, TextStyle::new(size, color, al).fit(r.w));
+        let look = |a| screen::TextStyle::new(size, color, a);
+        match style.overflow {
+            Overflow::Shrink if r.w > 1.0 => {
+                d.text(s, x, r.y, look(al).fit(r.w));
             }
-            2 if r.w > 1.0 => {
+            Overflow::Cut if r.w > 1.0 => {
                 d.b.set_clip(Some(Rect::new(r.x, r.y - size, r.w, size * 3.0)));
-                d.text(s, x, r.y, TextStyle::new(size, color, al));
+                d.text(s, x, r.y, look(al));
                 d.b.set_clip(None);
             }
-            // vibeBMS: a long text shows its start, cut off; while it is
-            // the current one it scrolls to its end and back (a marquee)
-            3 if r.w > 1.0 => {
+            // a long text shows its start, cut off; while it is the
+            // current one it scrolls to its end and back
+            Overflow::Marquee if r.w > 1.0 => {
                 let w = d.measure(s, size);
                 if w <= r.w {
-                    d.text(s, x, r.y, TextStyle::new(size, color, al));
+                    d.text(s, x, r.y, look(al));
                     return;
                 }
                 let off = shown_ms.map_or(0.0, |t| marquee_offset(t, w - r.w, size));
                 d.b.set_clip(Some(Rect::new(r.x, r.y - size, r.w, size * 3.0)));
-                d.text(s, r.x - off, r.y, TextStyle::new(size, color, Align::Left));
+                d.text(s, r.x - off, r.y, look(screen::Align::Left));
                 d.b.set_clip(None);
             }
             _ => {
-                d.text(s, x, r.y, TextStyle::new(size, color, al));
+                d.text(s, x, r.y, look(al));
             }
         }
     }
@@ -130,17 +134,16 @@ impl LoadedSkin {
     /// LR2 bitmap text as beatoraja draws it: glyphs scaled to the rect
     /// height, the line shrunk to the rect width if wider, aligned around
     /// the anchor (left edge / centre / right edge of the rect).
-    #[allow(clippy::too_many_arguments)]
     fn bitmap_text(
         &self,
         d: &mut Draw,
         f: &BitmapFont,
         s: &str,
-        r: Rect,
-        align: i32,
-        color: crate::gfx::Color,
+        fr: &Frame,
+        align: Align,
         size: Option<f32>,
     ) {
+        let (r, color) = (fr.rect, fr.color);
         let chars: Vec<char> = s.chars().filter(|c| f.glyphs.contains_key(c)).collect();
         let glyphs: Vec<&(usize, [f32; 4])> =
             chars.iter().filter_map(|c| f.glyphs.get(c)).collect();
@@ -149,7 +152,7 @@ impl LoadedSkin {
         }
         let k = r.h / f.size;
         if !f.metrics.is_empty() {
-            self.bmfont_text(d, f, &chars, r, align, color, size);
+            self.bmfont_text(d, f, &chars, fr, align, size);
             return;
         }
         let width = glyphs.iter().map(|g| g.1[2]).sum::<f32>() * k + f.margin * glyphs.len() as f32;
@@ -158,7 +161,7 @@ impl LoadedSkin {
         } else {
             1.0
         };
-        let a = align.clamp(0, 2) as f32 * 0.5;
+        let a = align.share();
         let mut x = r.x + r.w * a - width * scale * a;
         for (img, g) in glyphs {
             let tw = g[2] * scale * k;
@@ -176,17 +179,16 @@ impl LoadedSkin {
     /// A BMFont text: glyphs placed by their offsets and advances, scaled
     /// as beatoraja does by the text's font size over the font's own (else
     /// so a line fills the rect's height).
-    #[allow(clippy::too_many_arguments)]
     fn bmfont_text(
         &self,
         d: &mut Draw,
         f: &BitmapFont,
         chars: &[char],
-        r: Rect,
-        align: i32,
-        color: crate::gfx::Color,
+        fr: &Frame,
+        align: Align,
         size: Option<f32>,
     ) {
+        let (r, color) = (fr.rect, fr.color);
         let k = bmfont_scale(f, r.h, size);
         let adv = |c: &char| f.metrics.get(c).map(|m| m[2]).unwrap_or(0.0);
         let width = chars.iter().map(adv).sum::<f32>() * k;
@@ -195,7 +197,7 @@ impl LoadedSkin {
         } else {
             1.0
         };
-        let a = align.clamp(0, 2) as f32 * 0.5;
+        let a = align.share();
         let mut x = r.x + r.w * a - width * scale * a;
         for c in chars {
             let (Some((img, g)), Some(m)) = (f.glyphs.get(c), f.metrics.get(c)) else {

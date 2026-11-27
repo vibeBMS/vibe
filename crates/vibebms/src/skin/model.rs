@@ -3,7 +3,7 @@
 
 use super::graph::Graph;
 use super::options::CustomOption;
-use super::types::{SkinSelectInfo, SkinType};
+use super::types::{Acc, Align, Dir, Overflow, SkinSelectInfo, SkinType, Stretch};
 use super::{guard, script};
 use crate::gfx::Rect;
 use std::collections::HashMap;
@@ -47,17 +47,16 @@ pub struct Key {
 #[derive(Clone, Debug, Default)]
 pub struct Dst {
     pub keys: Vec<Key>,
-    pub acc: i32,
-    pub blend: i32,
+    pub acc: Acc,
+    pub blend: crate::gfx::Blend,
     pub center: usize,
     pub loop_ms: i64,
     pub timer: i32,
     pub ops: Vec<i32>,
     /// beatoraja offsets added from game state (`SkinState::offset`).
     pub offsets: Vec<i32>,
-    /// How an image fits the destination (beatoraja `stretch`, LR2
-    /// `#STRETCH`): 0 stretches, 1 fits inside keeping the aspect ratio...
-    pub stretch: i32,
+    /// How an image fits the destination.
+    pub stretch: Stretch,
     /// Drawn only while the mouse is over this rect (relative to the
     /// destination, y down; LR2 `#SRC_ONMOUSE`, beatoraja `mouseRect`).
     pub hover: Option<Rect>,
@@ -82,37 +81,19 @@ pub enum Kind {
     /// Image supplied by the game (stagefile 100, backbmp 101, banner 102 ...).
     RefImage(i32),
     Number {
-        src: Src,
-        digits: usize,
         id: i32,
-        align: i32,
-        keta: usize,
-        /// Glyph drawn in leading positions (`None` = blank).
-        pad: Option<usize>,
+        font: NumberFont,
     },
     Text {
         id: i32,
-        /// LR2 bitmap font (index into `Skin::fonts`), else the UI font.
-        font: Option<usize>,
-        align: i32,
-        /// Text wider than the destination: 0 overflows (LR2, beatoraja
-        /// default), 1 shrinks to fit, 2 is cut off, 3 (vibeBMS) is cut
-        /// off and scrolls while it is the current one (a marquee).
-        overflow: i32,
         /// A fixed text (beatoraja `constantText`) instead of text `id`.
         constant: Option<String>,
-        /// The skin's own font file (beatoraja TrueType / OpenType fonts).
-        face: Option<PathBuf>,
-        /// beatoraja outline and shadow (none in LR2).
-        fx: TextFx,
-        /// beatoraja font size (skin px): `.fnt` glyphs are scaled by it
-        /// over the font's own size. `None`: by the destination height.
-        size: Option<f32>,
+        style: TextStyle,
     },
     Bar {
         src: Src,
         id: i32,
-        dir: i32,
+        dir: Dir,
         /// `id` is a number scaled from this range (beatoraja
         /// `#SRC_BARGRAPH_REFNUMBER`), not a 0..1 rate.
         minmax: Option<(f32, f32)>,
@@ -120,7 +101,7 @@ pub enum Kind {
     Slider {
         src: Src,
         id: i32,
-        dir: i32,
+        dir: Dir,
         range: f32,
         /// As for `Bar` (`#SRC_SLIDER_REFNUMBER`).
         minmax: Option<(f32, f32)>,
@@ -152,10 +133,7 @@ pub enum Kind {
     /// Clear lamp (`rank` false) or DJ rank distribution of a folder as a
     /// horizontal stacked bar (beatoraja graph type -1 / -2); `src` frames
     /// are the segment images per lamp.
-    Distribution {
-        src: Option<Src>,
-        rank: bool,
-    },
+    Distribution(CountBar),
     /// beatoraja hidden / lift cover: an image clipped above `line` (y down,
     /// skin pixels; the line rises with LIFT when `link_lift`).
     Cover {
@@ -199,13 +177,49 @@ pub const BAR_EVENT: usize = 10;
 pub const BAR_FAVORITE: usize = 11;
 pub const BAR_VIRTUAL: usize = 12;
 
-/// A number font: source frames, glyph count (10/11/12), digits, align.
+/// How a number is set.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct NumberStyle {
+    /// Images of a set: 10 (0-9), 11 (and padding), 12 (signed: 24, a
+    /// positive and a negative set of 0-9, padding, sign).
+    pub digits: usize,
+    /// Places.
+    pub keta: usize,
+    pub align: Align,
+    /// Glyph drawn in leading places (`None` = blank).
+    pub pad: Option<usize>,
+}
+
+/// A number font: its digit images and how they are set.
 #[derive(Clone, Debug)]
 pub struct NumberFont {
     pub src: Src,
-    pub digits: usize,
-    pub keta: usize,
-    pub align: i32,
+    pub style: NumberStyle,
+}
+
+/// How a text is set.
+#[derive(Clone, Debug, Default)]
+pub struct TextStyle {
+    pub align: Align,
+    pub overflow: Overflow,
+    /// Bitmap font (index into `Skin::fonts`: LR2, BMFont), else the UI
+    /// font.
+    pub font: Option<usize>,
+    /// The skin's own font file (beatoraja TrueType / OpenType fonts).
+    pub face: Option<PathBuf>,
+    /// beatoraja outline and shadow (none in LR2).
+    pub fx: TextFx,
+    /// beatoraja font size (skin px): `.fnt` glyphs are scaled by it
+    /// over the font's own size. `None`: by the destination height.
+    pub size: Option<f32>,
+}
+
+/// A folder's clear lamp (`rank` false) or DJ rank counts as a stacked
+/// bar; `src` frames are the segment images per lamp.
+#[derive(Clone, Debug, Default)]
+pub struct CountBar {
+    pub src: Option<Src>,
+    pub rank: bool,
 }
 
 /// `SongListSkin::label`'s kinds (LR2 `BAR_LABEL` indices).
@@ -229,16 +243,11 @@ pub struct SongListSkin {
     pub off: Vec<Option<Dst>>,
     /// Bar body per bar type (`BAR_*`).
     pub body: Vec<Option<Src>>,
-    /// Title: destination, align, overflow (as in `Kind::Text`), bitmap
-    /// font.
-    pub text: Option<(Dst, i32, i32, Option<usize>)>,
+    /// Title.
+    pub text: Option<SongTitle>,
     /// vibeBMS `foldertext`: the title's destination on bars other than
     /// charts (folders, courses, commands), else `text`'s.
     pub folder_text: Option<Dst>,
-    /// The title's font file and outline / shadow (beatoraja).
-    pub text_face: Option<PathBuf>,
-    pub text_fx: TextFx,
-    pub text_size: Option<f32>,
     /// Level number per difficulty (0..=6).
     pub level: Vec<Option<(NumberFont, Dst)>>,
     /// Clear lamp per clear type (beatoraja order, 0..=10).
@@ -249,7 +258,7 @@ pub struct SongListSkin {
     pub my_lamp: Vec<Option<(Src, Dst)>>,
     pub rival_lamp: Vec<Option<(Src, Dst)>>,
     /// Lamp / rank distribution on folder bars.
-    pub graph: Option<(Dst, Option<Src>, bool)>,
+    pub graph: Option<FolderGraph>,
     /// Labels on chart and course bars (LR2 `BAR_LABEL`), by `BAR_LABEL_*`:
     /// long notes, `#RANDOM`, mines, CN, HCN.
     pub label: Vec<Option<(Src, Dst)>>,
@@ -260,12 +269,33 @@ pub struct SongListSkin {
     pub count: Option<(NumberFont, Dst)>,
 }
 
+/// The title of a bar of the select list.
+#[derive(Clone, Debug, Default)]
+pub struct SongTitle {
+    pub dst: Dst,
+    pub style: TextStyle,
+}
+
+/// The lamp / rank counts on a folder bar.
+#[derive(Clone, Debug, Default)]
+pub struct FolderGraph {
+    pub dst: Dst,
+    pub bar: CountBar,
+}
+
 /// Per-judgement image + combo number of a `NOWJUDGE` group.
 #[derive(Clone, Debug, Default)]
 pub struct JudgeSkin {
     pub judge: [Option<(Src, Dst)>; 6],
-    pub combo: [Option<(Src, Dst, usize)>; 6],
+    pub combo: [Option<ComboSkin>; 6],
     pub shift: bool,
+}
+
+/// A combo number beside a judgement (its position relative to it).
+#[derive(Clone, Debug)]
+pub struct ComboSkin {
+    pub font: NumberFont,
+    pub dst: Dst,
 }
 
 /// Note sprites for one lane.
@@ -432,12 +462,12 @@ impl Skin {
             match &o.kind {
                 Kind::Image(s)
                 | Kind::JudgeLine(s)
-                | Kind::Number { src: s, .. }
                 | Kind::Bar { src: s, .. }
                 | Kind::Slider { src: s, .. }
                 | Kind::Gauge { src: s, .. }
                 | Kind::Cover { src: s, .. }
-                | Kind::Distribution { src: Some(s), .. } => mark(s),
+                | Kind::Distribution(CountBar { src: Some(s), .. }) => mark(s),
+                Kind::Number { font, .. } => mark(&font.src),
                 Kind::ImageSet { srcs, .. } => srcs.iter().for_each(&mut mark),
                 _ => {}
             }
@@ -463,7 +493,7 @@ impl Skin {
         }
         for j in &self.judges {
             j.judge.iter().flatten().for_each(|(s, _)| mark(s));
-            j.combo.iter().flatten().for_each(|(s, ..)| mark(s));
+            j.combo.iter().flatten().for_each(|c| mark(&c.font.src));
         }
         self.bar_lines.iter().for_each(|(s, _)| mark(s));
         if let Some(sl) = &self.songlist {
@@ -472,7 +502,7 @@ impl Skin {
             (sl.lamp.iter().chain(&sl.my_lamp).chain(&sl.rival_lamp))
                 .flatten()
                 .for_each(|(s, _)| mark(s));
-            if let Some((_, Some(s), _)) = &sl.graph {
+            if let Some(s) = sl.graph.as_ref().and_then(|g| g.bar.src.as_ref()) {
                 mark(s);
             }
         }

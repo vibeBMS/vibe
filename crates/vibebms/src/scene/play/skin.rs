@@ -12,7 +12,7 @@ use crate::scene::play_skin::{
     PERSPECTIVE,
 };
 use crate::scene::skinvals::*;
-use crate::skin::render::{Hooks, LoadedSkin, Xf};
+use crate::skin::render::{GaugeView, Hooks, LoadedSkin, Xf};
 use crate::skin::{SkinState, OFFSET_HIDDEN_COVER, OFFSET_LANECOVER, OFFSET_LIFT};
 use std::cell::OnceCell;
 use vibebms_core::course::CourseKind;
@@ -794,14 +794,18 @@ impl Hooks for PlayHooks<'_> {
         }
     }
 
-    fn gauge(&self, side: usize) -> (f32, f32, bool, usize) {
+    fn gauge(&self, side: usize) -> GaugeView {
         match self.st.s.session.side(side).map(|s| &s.engine) {
             Some(e) => {
                 let g = e.gauge.current();
-                let ty = crate::scene::skinvals::skin_gauge(g.ty);
-                (g.value(), g.elem.border, g.ty.is_survival(), ty)
+                GaugeView {
+                    value: g.value(),
+                    border: g.elem.border,
+                    survival: g.ty.is_survival(),
+                    kind: crate::scene::skinvals::skin_gauge(g.ty),
+                }
             }
-            None => (0.0, 80.0, false, 2),
+            None => GaugeView::default(),
         }
     }
 

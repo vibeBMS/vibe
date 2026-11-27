@@ -107,7 +107,7 @@ impl<'a> Ctx<'a> {
     /// beatoraja destinations are y-up; ours are y-down.
     pub(super) fn dst(&self, d: &Value) -> Dst {
         let mut out = Dst {
-            blend: i(d, "blend", 0) as i32,
+            blend: crate::gfx::Blend::from_skin(i(d, "blend", 0) as i32),
             center: i(d, "center", 0).clamp(0, 9) as usize,
             loop_ms: i(d, "loop", 0),
             timer: self.dyn_id(d.get("timer"), ScriptKind::Timer).unwrap_or(0),
@@ -159,7 +159,7 @@ impl<'a> Ctx<'a> {
                 .unwrap_or(out.keys.last().map(|k| k.angle as f64).unwrap_or(0.0))
                 as f32;
             if out.keys.is_empty() {
-                out.acc = cur[5] as i32;
+                out.acc = Acc::of(cur[5] as i64);
             }
             let (x, y, w, h) = (cur[1] as f32, cur[2] as f32, cur[3] as f32, cur[4] as f32);
             let c = |n: f64| n.clamp(0.0, 255.0) as f32 / 255.0;
@@ -237,18 +237,22 @@ impl<'a> Ctx<'a> {
             return None;
         };
         Some(Kind::Number {
-            src,
-            digits,
             id: self.value_id(def, ScriptKind::Int),
-            align: i(def, "align", 0) as i32,
-            keta: i(def, "digit", 1).clamp(1, 32) as usize,
-            // beatoraja zeropadding: 0 = none, 1 = '0', 2 = the padding image
-            // (the 11th; '0' for fonts without one)
-            pad: match i(def, "zeropadding", 0) {
-                1 => Some(0),
-                2 if digits > 10 => Some(10),
-                2 => Some(0),
-                _ => None,
+            font: NumberFont {
+                src,
+                style: NumberStyle {
+                    digits,
+                    keta: i(def, "digit", 1).clamp(1, 32) as usize,
+                    align: Align::of_number(i(def, "align", 0)),
+                    // beatoraja zeropadding: 0 = none, 1 = '0', 2 = the
+                    // padding image (the 11th; '0' for fonts without one)
+                    pad: match i(def, "zeropadding", 0) {
+                        1 => Some(0),
+                        2 if digits > 10 => Some(10),
+                        2 => Some(0),
+                        _ => None,
+                    },
+                },
             },
         })
     }
@@ -511,12 +515,14 @@ fn text(cx: &mut Ctx, skin: &mut Skin, _: &Value, id: &str, _: &mut Dst) -> Opti
     let t = cx.find("text", id)?;
     Some(Some(Kind::Text {
         id: cx.value_id(t, ScriptKind::Str),
-        font: cx.bitmap_font(t, &mut skin.fonts),
-        align: i(t, "align", 0) as i32,
-        overflow: i(t, "overflow", 0) as i32,
-        face: cx.face(t),
-        fx: text_fx(t),
-        size: text_size(t),
+        style: TextStyle {
+            font: cx.bitmap_font(t, &mut skin.fonts),
+            align: Align::of_text(i(t, "align", 0)),
+            overflow: Overflow::of(i(t, "overflow", 0)),
+            face: cx.face(t),
+            fx: text_fx(t),
+            size: text_size(t),
+        },
         constant: t.get("constantText").and_then(|c| {
             c.as_str()
                 .map(String::from)
@@ -534,7 +540,7 @@ fn slider(cx: &mut Ctx, _: &mut Skin, _: &Value, id: &str, _: &mut Dst) -> Optio
             Some(v) => cx.dyn_id(Some(v), ScriptKind::Float).unwrap_or(0),
             None => i(sl, "type", 0) as i32,
         },
-        dir: i(sl, "angle", 0) as i32,
+        dir: Dir::of_slider(i(sl, "angle", 0)),
         range: i(sl, "range", 0) as f32,
     }))
 }
@@ -560,10 +566,10 @@ fn graph_obj(cx: &mut Ctx, _: &mut Skin, _: &Value, id: &str, _: &mut Dst) -> Op
 fn bar_graph(cx: &mut Ctx, _: &mut Skin, _: &Value, id: &str, _: &mut Dst) -> Option<Option<Kind>> {
     let g = cx.find("graph", id)?;
     Some(match i(g, "type", 0) {
-        t @ (-1 | -2) => Some(Kind::Distribution {
+        t @ (-1 | -2) => Some(Kind::Distribution(CountBar {
             src: cx.src(g),
             rank: t == -2,
-        }),
+        })),
         _ => cx.src(g).map(|src| Kind::Bar {
             minmax: ref_num(g),
             src,
@@ -571,7 +577,7 @@ fn bar_graph(cx: &mut Ctx, _: &mut Skin, _: &Value, id: &str, _: &mut Dst) -> Op
                 Some(v) => cx.dyn_id(Some(v), ScriptKind::Float).unwrap_or(0),
                 None => i(g, "type", 0) as i32,
             },
-            dir: i(g, "angle", 1) as i32,
+            dir: Dir::of_bar(i(g, "angle", 1)),
         }),
     })
 }
@@ -736,7 +742,7 @@ fn judge(cx: &mut Ctx, skin: &mut Skin, _: &Value, id: &str, _: &mut Dst) -> Opt
         .map(|k| k.rect.h)
         .unwrap_or(0.0);
     for (k, nm) in arr(j.get("numbers")).iter().enumerate().take(6) {
-        if let Some(Kind::Number { src, keta, .. }) =
+        if let Some(Kind::Number { font, .. }) =
             cx.find("value", &id_of(nm)).and_then(|v| cx.number_kind(v))
         {
             let mut nd = cx.dst(nm);
@@ -745,7 +751,18 @@ fn judge(cx: &mut Ctx, skin: &mut Skin, _: &Value, id: &str, _: &mut Dst) -> Opt
                 let y_up = cx.h - (key.rect.y + key.rect.h);
                 key.rect.y = jh - y_up - key.rect.h;
             }
-            js.combo[k] = Some((src, nd, keta));
+            let style = NumberStyle {
+                align: Align::Left,
+                pad: None,
+                ..font.style
+            };
+            js.combo[k] = Some(ComboSkin {
+                font: NumberFont {
+                    src: font.src,
+                    style,
+                },
+                dst: nd,
+            });
         }
     }
     Some(Some(Kind::Judge { side }))
@@ -761,8 +778,8 @@ pub(super) fn add_object(cx: &mut Ctx, skin: &mut Skin, d: &Value) {
     };
     // beatoraja anchors centred text at x and right-aligned text at x + 0
     // (the box is x - w/2 .. x + w/2, x - w .. x)
-    if let Kind::Text { align, .. } = &kind {
-        let k = (*align).clamp(0, 2) as f32 * 0.5;
+    if let Kind::Text { style, .. } = &kind {
+        let k = style.align.share();
         for key in &mut dst.keys {
             key.rect.x -= key.rect.w * k;
         }

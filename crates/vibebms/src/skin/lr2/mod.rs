@@ -125,8 +125,8 @@ fn add_dst_signed(dst: &mut Dst, v: &[i64; 22], mirror: bool) {
         h = -h;
     }
     if dst.keys.is_empty() {
-        dst.acc = v[7] as i32;
-        dst.blend = v[12] as i32;
+        dst.acc = Acc::of(v[7]);
+        dst.blend = crate::gfx::Blend::from_skin(v[12] as i32);
         dst.center = v[15].clamp(0, 9) as usize;
         dst.loop_ms = v[16];
         dst.timer = v[17] as i32;
@@ -176,7 +176,7 @@ struct Loader<'a> {
     /// beatoraja `#IMAGESET` images, chosen from by `#SRC_IMAGESET`.
     imagesets: Vec<Option<Src>>,
     /// beatoraja `#STRETCH` for the images that follow.
-    stretch: i32,
+    stretch: Stretch,
     /// User values of `#CUSTOMOFFSET`s, by name.
     user_offsets: HashMap<String, [i32; 6]>,
     /// The user's `#CUSTOMFILE` choices, by name.
@@ -419,7 +419,7 @@ pub fn load_with(
         cur: None,
         pending_line: None,
         imagesets: Vec::new(),
-        stretch: 0,
+        stretch: Stretch::Full,
         user_offsets: user_offsets.clone(),
         user_files: user.files.clone(),
         panel_ops: Vec::new(),
@@ -448,19 +448,19 @@ pub fn load_with(
         turn_lanes(&mut skin);
     }
     // text is anchored at x: its left edge, centre or right edge by align
-    let anchor = |d: &mut Dst, align: i32| {
-        let k = align.clamp(0, 2) as f32 * 0.5;
+    let anchor = |d: &mut Dst, align: Align| {
+        let k = align.share();
         for key in &mut d.keys {
             key.rect.x -= key.rect.w * k;
         }
     };
     for o in &mut skin.objects {
-        if let Kind::Text { align, .. } = o.kind {
-            anchor(&mut o.dst, align);
+        if let Kind::Text { style, .. } = &o.kind {
+            anchor(&mut o.dst, style.align);
         }
     }
-    if let Some((d, align, ..)) = skin.songlist.as_mut().and_then(|s| s.text.as_mut()) {
-        anchor(d, *align);
+    if let Some(t) = skin.songlist.as_mut().and_then(|s| s.text.as_mut()) {
+        anchor(&mut t.dst, t.style.align);
     }
     // beatoraja's own key config skin is empty: its screen draws the rows
     if skin.objects.is_empty() && skin.kind != SkinType::KeyConfig {

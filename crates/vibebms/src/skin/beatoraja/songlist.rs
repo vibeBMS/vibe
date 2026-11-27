@@ -60,11 +60,22 @@ pub(super) fn songlist(cx: &Ctx, sl: &Value, h: f32) -> SongListSkin {
         let def = cx.find("text", &id_of(t));
         let get = |k: &str| def.map(|d| i(d, k, 0) as i32).unwrap_or(0);
         let mut d = rel(t);
-        let k = get("align").clamp(0, 2) as f32 * 0.5;
+        let align = Align::of_text(get("align") as i64);
+        let k = align.share();
         for key in &mut d.keys {
             key.rect.x -= key.rect.w * k; // anchored like other beatoraja text
         }
-        out.text = Some((d, get("align"), get("overflow"), None));
+        out.text = Some(SongTitle {
+            dst: d,
+            style: TextStyle {
+                align,
+                overflow: Overflow::of(get("overflow") as i64),
+                font: None,
+                face: def.and_then(|t| cx.face(t)),
+                fx: def.map(text_fx).unwrap_or_default(),
+                size: def.and_then(text_size),
+            },
+        });
         out.folder_text = arr(sl.get("foldertext")).first().map(|t| {
             let mut d = rel(t);
             for key in &mut d.keys {
@@ -72,25 +83,17 @@ pub(super) fn songlist(cx: &Ctx, sl: &Value, h: f32) -> SongListSkin {
             }
             d
         });
-        out.text_face = def.and_then(|t| cx.face(t));
-        out.text_fx = def.map(text_fx).unwrap_or_default();
-        out.text_size = def.and_then(text_size);
     }
     let number = |d: &Value| {
         let v = cx.find("value", &id_of(d))?;
         match cx.number_kind(v)? {
-            Kind::Number {
-                src,
-                digits,
-                keta,
-                align,
-                ..
-            } => Some((
+            Kind::Number { font, .. } => Some((
                 NumberFont {
-                    src,
-                    digits,
-                    keta,
-                    align,
+                    style: NumberStyle {
+                        pad: None,
+                        ..font.style
+                    },
+                    ..font
                 },
                 rel(d),
             )),
@@ -101,7 +104,13 @@ pub(super) fn songlist(cx: &Ctx, sl: &Value, h: f32) -> SongListSkin {
     out.count = sl.get("count").filter(|c| c.is_object()).and_then(number);
     if let Some(g) = sl.get("graph").filter(|g| g.is_object()) {
         if let Some(def) = cx.find("graph", &id_of(g)) {
-            out.graph = Some((rel(g), cx.src(def), i(def, "type", -1) == -2));
+            out.graph = Some(FolderGraph {
+                dst: rel(g),
+                bar: CountBar {
+                    src: cx.src(def),
+                    rank: i(def, "type", -1) == -2,
+                },
+            });
         }
     }
     let lamps = |key: &str| {

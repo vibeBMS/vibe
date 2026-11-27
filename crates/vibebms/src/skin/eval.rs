@@ -2,6 +2,7 @@
 
 use super::model::{Dst, Key, Src};
 use super::state::SkinState;
+use super::types::Acc;
 use crate::gfx::Rect;
 
 impl Src {
@@ -77,12 +78,12 @@ impl Dst {
         let i = self.keys.partition_point(|k| k.time <= t).saturating_sub(1);
         let a = &self.keys[i];
         let (rect, color, angle) = match self.keys.get(i + 1) {
-            Some(b) if self.acc != 3 && b.time > a.time => {
+            Some(b) if self.acc != Acc::Hold && b.time > a.time => {
                 let mut r = (t - a.time) as f32 / (b.time - a.time) as f32;
                 match self.acc {
-                    1 => r *= r,
-                    2 => r = 1.0 - (r - 1.0) * (r - 1.0),
-                    _ => {}
+                    Acc::Accelerate => r *= r,
+                    Acc::Decelerate => r = 1.0 - (r - 1.0) * (r - 1.0),
+                    Acc::Linear | Acc::Hold => {}
                 }
                 (
                     a.rect.lerp(b.rect, r),
@@ -109,7 +110,7 @@ impl Dst {
             rect,
             color,
             angle,
-            blend: crate::gfx::Blend::from_skin(self.blend),
+            blend: self.blend,
             center: (CENTER_X[c], CENTER_Y[c]),
         })
     }
@@ -202,7 +203,7 @@ mod tests {
         d.ops = vec![-5];
         assert!(d.eval(10, &St).is_none());
         d.ops.clear();
-        d.acc = 1;
+        d.acc = Acc::Accelerate;
         assert_eq!(d.eval(500, &St).unwrap().rect.x, 25.0);
         // a single keyframe at 30 ms, loop 0: shown from 30 ms on (LR2)
         let mut one = Dst {

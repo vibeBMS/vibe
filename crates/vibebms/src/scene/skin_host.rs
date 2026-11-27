@@ -5,7 +5,7 @@
 use super::skinvals::ms_since;
 use crate::gfx::{Draw, Gfx, Rect, TexId};
 use crate::platform::Instant;
-use crate::skin::render::{Hooks, LoadedSkin, Xf};
+use crate::skin::render::{GaugeView, Hooks, LoadedSkin, Xf};
 use crate::skin::{Graph, SkinState};
 use crate::ui::HitMap;
 use std::cell::RefCell;
@@ -218,7 +218,7 @@ impl Hooks for Collect<'_, '_> {
     fn ref_image(&self, id: i32) -> Option<TexId> {
         self.inner.ref_image(id)
     }
-    fn gauge(&self, side: usize) -> (f32, f32, bool, usize) {
+    fn gauge(&self, side: usize) -> GaugeView {
         self.inner.gauge(side)
     }
     fn judge(&self, side: usize) -> Option<(usize, u32)> {

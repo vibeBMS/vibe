@@ -981,9 +981,10 @@ impl Hooks for SelectHooks<'_> {
                     (xf.rect(rr), f)
                 })
             };
-            if let Some((t, align, overflow, font)) = sl.text.as_ref() {
+            if let Some(title) = sl.text.as_ref() {
                 let chart = matches!(info.base, BAR_SONG | BAR_NOSONG);
-                let t = sl.folder_text.as_ref().filter(|_| !chart).unwrap_or(t);
+                let t = sl.folder_text.as_ref().filter(|_| !chart);
+                let t = t.unwrap_or(&title.dst);
                 if let Some((tr, f)) = sub(t) {
                     let mut c = f.color;
                     c[3] *= fr.color[3];
@@ -993,10 +994,15 @@ impl Hooks for SelectHooks<'_> {
                     }
                     // the selected bar's title scrolls when it is too long
                     let shown = selected.then(|| now - st.timer(11).unwrap_or(0));
-                    let face = sl.text_face.as_deref().and_then(|p| d.text.face(p));
+                    let style = &title.style;
+                    let face = style.face.as_deref().and_then(|p| d.text.face(p));
                     d.text.set_face(face.unwrap_or(0));
-                    let (al, of, fx, size) = (*align, *overflow, &sl.text_fx, sl.text_size);
-                    skin.text(d, &info.title, tr, al, of, c, *font, shown, fx, size, xf.sy);
+                    let at = Frame {
+                        rect: tr,
+                        color: c,
+                        ..f
+                    };
+                    skin.text(d, &info.title, style, &at, shown, xf.sy);
                     d.text.set_face(0);
                 }
             }
@@ -1009,26 +1015,14 @@ impl Hooks for SelectHooks<'_> {
             ];
             for (n, (font, dst)) in numbers.iter().filter_map(|(n, f)| n.zip(*f)) {
                 if let Some((lr, f)) = sub(dst) {
-                    skin.number(
-                        d,
-                        &font.src,
-                        font.digits,
-                        font.keta,
-                        font.align,
-                        None,
-                        n,
-                        now,
-                        st,
-                        lr,
-                        &f,
-                    );
+                    skin.number(d, font, n, now, st, &Frame { rect: lr, ..f });
                 }
             }
-            if let Some((dst, gsrc, rank)) = sl.graph.as_ref() {
+            if let Some(g) = sl.graph.as_ref() {
                 if let Some((l, r)) = self.st.s.folder_distribution(self.st.ctx, idx) {
-                    if let Some((gr, f)) = sub(dst) {
-                        let counts: &[u32] = if *rank { &r } else { &l };
-                        skin.distribution(d, gsrc.as_ref(), counts, *rank, now, st, gr, &f);
+                    if let Some((gr, f)) = sub(&g.dst) {
+                        let counts: &[u32] = if g.bar.rank { &r } else { &l };
+                        skin.distribution(d, &g.bar, counts, now, st, &Frame { rect: gr, ..f });
                     }
                 }
             }

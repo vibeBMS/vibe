@@ -1,4 +1,5 @@
-//! What kind of skin a file is.
+//! What kind of skin a file is, and the modes its objects take: how they
+//! move between keyframes, fit an image, align and run over.
 
 /// The format of a skin file, by its extension.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -166,4 +167,166 @@ pub struct SkinSelectInfo {
     /// Option rows the skin shows (`customPropertyCount`; 0: as many as
     /// it has buttons 220-229 for).
     pub custom_property_count: usize,
+}
+
+/// How a destination moves from one keyframe to the next (`acc`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Acc {
+    #[default]
+    Linear,
+    /// Slow first (1).
+    Accelerate,
+    /// Fast first (2).
+    Decelerate,
+    /// Each keyframe as it is until the next (3).
+    Hold,
+}
+
+impl Acc {
+    pub fn of(v: i64) -> Acc {
+        match v {
+            1 => Acc::Accelerate,
+            2 => Acc::Decelerate,
+            3 => Acc::Hold,
+            _ => Acc::Linear,
+        }
+    }
+}
+
+/// How an image fits its destination (beatoraja `stretch`, LR2
+/// `#STRETCH`); the image keeps its aspect ratio but in `Full`, and is
+/// centred.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Stretch {
+    /// Stretched over the destination (0).
+    #[default]
+    Full,
+    /// As large as fits inside (1).
+    Fit,
+    /// As small as covers it (2), cut off at it (3).
+    Cover,
+    CoverCut,
+    /// As wide as it (4), cut off at it (5).
+    Width,
+    WidthCut,
+    /// As high as it (6), cut off at it (7).
+    Height,
+    HeightCut,
+    /// As `Fit`, but never larger than the image (8).
+    FitDown,
+    /// The image's own size (9), cut off at it (10).
+    Own,
+    OwnCut,
+}
+
+impl Stretch {
+    pub fn of(v: i64) -> Stretch {
+        match v {
+            1 => Stretch::Fit,
+            2 => Stretch::Cover,
+            3 => Stretch::CoverCut,
+            4 => Stretch::Width,
+            5 => Stretch::WidthCut,
+            6 => Stretch::Height,
+            7 => Stretch::HeightCut,
+            8 => Stretch::FitDown,
+            9 => Stretch::Own,
+            10 => Stretch::OwnCut,
+            _ => Stretch::Full,
+        }
+    }
+}
+
+/// Where a text or a number sits across its destination.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Align {
+    #[default]
+    Left,
+    Center,
+    Right,
+}
+
+impl Align {
+    /// A text's `align`: 0 left, 1 centre, 2 right (others the nearest).
+    pub fn of_text(v: i64) -> Align {
+        match v {
+            1 => Align::Center,
+            2.. => Align::Right,
+            _ => Align::Left,
+        }
+    }
+
+    /// A number's `align`: 0 left, 1 right, 2 centre (others left).
+    pub fn of_number(v: i64) -> Align {
+        match v {
+            1 => Align::Right,
+            2 => Align::Center,
+            _ => Align::Left,
+        }
+    }
+
+    /// The share of the width that is left of the anchor: 0, ½, 1.
+    pub fn share(self) -> f32 {
+        match self {
+            Align::Left => 0.0,
+            Align::Center => 0.5,
+            Align::Right => 1.0,
+        }
+    }
+}
+
+/// What a text wider than its destination does (`overflow`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Overflow {
+    /// Runs over it (0: LR2, beatoraja's default).
+    #[default]
+    Spill,
+    /// Shrinks to fit (1).
+    Shrink,
+    /// Is cut off (2).
+    Cut,
+    /// vibeBMS (3): is cut off, and scrolls to its end and back while it
+    /// is the current one (a marquee).
+    Marquee,
+}
+
+impl Overflow {
+    pub fn of(v: i64) -> Overflow {
+        match v {
+            1 => Overflow::Shrink,
+            2 => Overflow::Cut,
+            3 => Overflow::Marquee,
+            _ => Overflow::Spill,
+        }
+    }
+}
+
+/// The way a bar graph fills or a slider moves.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Dir {
+    Up,
+    #[default]
+    Right,
+    Down,
+    Left,
+}
+
+impl Dir {
+    /// A slider's direction: 0 up, 1 right, 2 down, others left.
+    pub fn of_slider(v: i64) -> Dir {
+        match v {
+            0 => Dir::Up,
+            1 => Dir::Right,
+            2 => Dir::Down,
+            _ => Dir::Left,
+        }
+    }
+
+    /// A bar graph's direction: 1 fills upwards, others to the right.
+    pub fn of_bar(v: i64) -> Dir {
+        match v {
+            1 => Dir::Up,
+            _ => Dir::Right,
+        }
+    }
 }
