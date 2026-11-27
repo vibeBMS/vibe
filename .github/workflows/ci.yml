@@ -3,14 +3,15 @@ name: CI
 on:
   push:
     # Dependabot's branches run as pull requests (and publish no web preview);
-    # fdroid-repo is the F-Droid repository the nightly job publishes; e2e/
+    # fdroid-repo is the F-Droid repository the fdroid job publishes; e2e/
     # branches try the comparison tests (e2e.yml) and run only those
     branches-ignore: ['dependabot/**', 'fdroid-repo', 'e2e/**']
   pull_request:
   workflow_dispatch:
 
 # what a job's token may do, whatever the repository's default is: read the
-# repository. The jobs that need more say so (cache-prune, pages, nightly).
+# repository. The jobs that need more say so (cache-prune, pages, nightly,
+# fdroid).
 permissions:
   contents: read
 
@@ -791,11 +792,12 @@ jobs:
     env:
       OWN_KEY: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     outputs:
-      # "repository" (ANDROID_KEYSTORE) or "throwaway": the nightly job
+      # "repository" (ANDROID_KEYSTORE) or "throwaway": the fdroid job
       # publishes the F-Droid repository only for the first, as an APK signed
       # by another key cannot update the installed one
       signing: ${{ steps.sign.outputs.signing }}
-      # the signed APK's SHA-256: the nightly job publishes only this file
+      # the signed APK's SHA-256: the nightly job publishes only this file,
+      # and the fdroid job puts only it in the F-Droid repository
       sha256: ${{ steps.sign.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v7
@@ -984,7 +986,7 @@ jobs:
   # of the repository's: no checkout, no action but the artifacts' own, and
   # the runner's ssh-keygen. The key exists for the one step, and the
   # environment is this job's alone: no job that runs a script or a
-  # downloaded tool (the nightly's, in `release`) is given the key. It signs
+  # downloaded tool (the fdroid job's, in `release`) is given the key. It signs
   # only the latest.json whose SHA-256 update-manifest gave. Without
   # tools/update_key.pub in the repository it does nothing, and latest.json
   # is published unsigned, as the builds without a key expect.
@@ -1092,7 +1094,7 @@ jobs:
   # as it is (no zip but the web build's), published only when every build
   # passed. Of the artifacts it takes only the files it names, and only the
   # ones the jobs that made them gave as their SHA-256 (the "check the files"
-  # steps).
+  # steps). The F-Droid repository is the fdroid job's, after this one.
   # The run's downloads (a summary with each build's artifact link, on every
   # run) and, for a push to the default branch, the rolling nightly release
   # (or a run started by hand on it: Actions > CI > Run workflow, e.g. after
@@ -1102,8 +1104,9 @@ jobs:
     needs: [test, cross-check, build-linux-x64, build-linux-arm64, build-windows-x64, build-windows-arm64, build-linux-x64-portable, build-linux-arm64-portable, macos, macos-dmg, macos-dmg-check, android, android-sign, ios, web, update-manifest, sign-update, verify-update]
     if: always()
     runs-on: ubuntu-latest
-    # (the F-Droid repository's key, as android-sign's)
-    environment: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 'release' || '' }}
+    outputs:
+      # "true" once the release is published: the fdroid job runs only then
+      released: ${{ steps.release.outputs.published }}
     env:
       # released only when every build passed (the Flatpaks included); the
       # downloads summary is written either way
@@ -1140,17 +1143,14 @@ jobs:
         with:
           pattern: vibeBMS-*
           path: art
-      # the scripts (the web build's zip, the F-Droid repository), and the
-      # commit's time for the zip
+      # the scripts (the web build's zip, whether the branch moved on), and
+      # the commit's time for the zip
       - uses: actions/checkout@v7
         if: env.RELEASE == 'true'
         with:
           path: src
           persist-credentials: false
-          sparse-checkout: |
-            tools
-            platform/android/fdroid
-            assets/logo
+          sparse-checkout: tools
       # the version the builds were given (tools/ci_version.sh)
       - name: version
         if: env.RELEASE == 'true'
@@ -1266,9 +1266,10 @@ jobs:
       # each file in out/ is the one its maker gave as its SHA-256 output: a
       # job (any job of the run can upload an artifact, but only that job sets
       # its outputs) or a step of this job, which made it of such a file. A
-      # file that no maker names stops the release too. Before anything is
-      # signed (the F-Droid index) or published; the same check runs again
-      # right before the upload ("check the files again")
+      # file that no maker names stops the release too. Before builds.json
+      # reads them (it hashes what is inside the app's zip and the APK); the
+      # same check runs again right before the upload ("check the files
+      # again"), for the file builds.json adds
       - name: check the files
         if: env.RELEASE == 'true'
         env: &check-files-env
@@ -1301,11 +1302,8 @@ jobs:
             row latest.json.sig "$(job sign-update sha256)" "the job sign-update"
           row vibeBMS-web.zip "$(step files web-zip)" "this job's step files (of the job web's build)"
           row altstore.json "$(step files altstore)" "this job's step files"
-          # (made after the first check, and fdroid.txt only when the F-Droid
-          # repository is built)
+          # (made after the first check)
           row builds.json "$(step builds sha256)" "this job's step builds.json" optional
-          row fdroid.txt "$(step fdroid sha256-txt)" "this job's step F-Droid repository" optional
-          row fdroid-qr.png "$(step fdroid sha256-qr)" "this job's step F-Droid repository" optional
           bad=false
           refuse() { echo "::error::$1: nothing is published"; bad=true; }
           for name in $(printf '%s\n' "${!want[@]}" | LC_ALL=C sort); do
@@ -1373,85 +1371,9 @@ jobs:
           ' prev/builds.json > out/builds.json
           jq -c '.builds[-1]' out/builds.json
           echo "sha256=$(sha256sum < out/builds.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-      # the F-Droid repository (tools/fdroid_repo.sh, docs/BUILDING.md): the
-      # APK as uploaded, the only version, in an index signed with
-      # FDROID_KEYSTORE (else ANDROID_KEYSTORE). Built here, so fdroid.txt
-      # (address, fingerprint, link) goes up with the release; pushed to the
-      # fdroid-repo branch once the release is published. Only an APK signed
-      # with the repository's key goes in: one signed by a throwaway key could
-      # not update the installed app. A failure here holds back nothing else:
-      # the job's last step reports it, once the rest is published.
-      # First fdroidserver, in a step that has no key: installing runs the
-      # packages' code (four are built from their sources). Each file is
-      # pinned by SHA-256 (tools/fdroidserver.txt), so the next step, which
-      # has the key, runs what was there when the pins were made.
-      # (the Python tools/fdroidserver.txt's files were chosen for: another
-      # version takes other wheels, which no hash there covers)
-      - if: env.RELEASE == 'true'
-        continue-on-error: true
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-      - name: F-Droid tools
-        id: fdroid-tools
-        if: env.RELEASE == 'true'
-        continue-on-error: true
-        env:
-          APK_SIGNING: ${{ needs.android-sign.outputs.signing }}
-          HAVE_KEY: ${{ secrets.FDROID_KEYSTORE != '' || secrets.ANDROID_KEYSTORE != '' }}
-        run: |
-          skip() {
-            echo "F-Droid repository not updated: $1"
-            printf '### F-Droid repository\n\nNot updated: %s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          }
-          [ -f out/vibeBMS.apk ] || skip "this run built no APK (the repository keeps the previous one)."
-          secrets="(docs/BUILDING.md, \"F-Droid repository\")"
-          [ "$APK_SIGNING" = repository ] ||
-            skip "the APK was signed with a throwaway key, so it could not update an installed one. Add the secrets \`ANDROID_KEYSTORE\` (the keystore, base64) and \`ANDROID_KEYSTORE_PASSWORD\` $secrets."
-          # a key that stays: one made per run would change the fingerprint
-          # the clients pinned
-          [ "$HAVE_KEY" = true ] ||
-            skip "no key to sign its index: add the secrets \`FDROID_KEYSTORE\` and \`FDROID_KEYSTORE_PASSWORD\`, or \`ANDROID_KEYSTORE\` and \`ANDROID_KEYSTORE_PASSWORD\` $secrets."
-          python3 -m venv "$RUNNER_TEMP/fdroidserver"
-          pip="$RUNNER_TEMP/fdroidserver/bin/pip"
-          "$pip" install -q --require-hashes --only-binary :all: -r src/tools/fdroidserver-build.txt
-          "$pip" install -q --require-hashes --no-build-isolation -r src/tools/fdroidserver.txt
-          echo "ready=true" >> "$GITHUB_OUTPUT"
-      - name: F-Droid repository
-        id: fdroid
-        if: env.RELEASE == 'true' && steps.fdroid-tools.outputs.ready == 'true'
-        continue-on-error: true
-        env:
-          # (the APK's key only when the repository has none of its own)
-          KEYSTORE_B64: ${{ secrets.FDROID_KEYSTORE || secrets.ANDROID_KEYSTORE }}
-          FDROID_KEYSTORE_PASS: ${{ secrets.FDROID_KEYSTORE && secrets.FDROID_KEYSTORE_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD }}
-          FDROID_REPO_URL: https://raw.githubusercontent.com/${{ github.repository }}/fdroid-repo/repo
-        run: |
-          export FDROID_KEYSTORE_FILE="$RUNNER_TEMP/fdroid.keystore"
-          echo "$KEYSTORE_B64" | base64 -d > "$FDROID_KEYSTORE_FILE"
-          # the index for older clients is signed with SHA1withRSA: an EC key (as the APK's may be)
-          # would leave it unsigned
-          if ! keytool -list -v -keystore "$FDROID_KEYSTORE_FILE" -storepass:env FDROID_KEYSTORE_PASS |
-            grep -q '^Subject Public Key Algorithm: .*RSA'; then
-            rm "$FDROID_KEYSTORE_FILE"
-            why="its key is not an RSA key, which F-Droid's index needs: add the secrets \`FDROID_KEYSTORE\` and \`FDROID_KEYSTORE_PASSWORD\` with an RSA key (docs/BUILDING.md, \"F-Droid repository\")."
-            echo "F-Droid repository not updated: $why"
-            printf '### F-Droid repository\n\nNot updated: %s\n' "$why" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          PATH="$RUNNER_TEMP/fdroidserver/bin:$PATH" src/tools/fdroid_repo.sh build out/vibeBMS.apk "$RUNNER_TEMP/fdroid"
-          rm "$FDROID_KEYSTORE_FILE"
-          # (their SHA-256 first: the check before the upload publishes them
-          # only with these)
-          echo "sha256-txt=$(sha256sum < "$RUNNER_TEMP/fdroid/fdroid.txt" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-          echo "sha256-qr=$(sha256sum < "$RUNNER_TEMP/fdroid/fdroid-qr.png" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-          cp "$RUNNER_TEMP/fdroid/fdroid.txt" "$RUNNER_TEMP/fdroid/fdroid-qr.png" out/
-          echo "built=true" >> "$GITHUB_OUTPUT"
-      # the same check again, the last step before the upload: the steps since
-      # the first check (builds.json, the F-Droid tools and repository: the
-      # pinned fdroidserver's code) could have changed out/. The same text,
-      # from the workflow, not a file the steps before could change
+      # the same check again, the last step before the upload, for what the
+      # step since the first check (builds.json) wrote to out/. The same text,
+      # from the workflow, not a file a step before could change
       - name: check the files again
         if: env.RELEASE == 'true'
         env: *check-files-env
@@ -1515,11 +1437,127 @@ jobs:
           [ ! -f out/latest.json.sig ] || gh release upload nightly out/latest.json.sig --clobber
           gh release upload nightly out/latest.json --clobber
           echo "published=true" >> "$GITHUB_OUTPUT"
+
+  # the F-Droid repository (tools/fdroid_repo.sh, docs/BUILDING.md): the
+  # nightly's APK, the only version, in an index signed with FDROID_KEYSTORE
+  # (else ANDROID_KEYSTORE), pushed to the branch fdroid-repo, and fdroid.txt
+  # (address, fingerprint, link) and fdroid-qr.png added to the release. In a
+  # job of its own, which starts once the nightly job has published the
+  # release and the pages job has deployed the site: the pinned fdroidserver
+  # it runs can then change neither. Only an APK signed with the repository's
+  # key goes in: one signed by a throwaway key could not update the installed
+  # app. A failure here fails this job alone; the release and the site are
+  # out by then.
+  fdroid:
+    name: F-Droid repository
+    needs: [nightly, pages, android-sign, update-manifest]
+    # (whatever the site's deploy did: it has ended)
+    if: ${{ !cancelled() && needs.nightly.outputs.released == 'true' }}
+    runs-on: ubuntu-latest
+    # (the F-Droid repository's key, as android-sign's; this job runs last
+    # of the jobs in it)
+    environment: release
+    # one run's repository at a time, the newest winning (as the nightly's)
+    concurrency:
+      group: fdroid-repo
+      cancel-in-progress: true
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.update-manifest.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: vibeBMS-android
+          path: apk
+      # the APK android-sign signed, the one the release has; again right
+      # before the key is written ("check the APK again": the same text),
+      # after the F-Droid tools' code has run
+      - name: check the APK
+        env: &check-apk-env
+          APK_SHA256: ${{ needs.android-sign.outputs.sha256 }}
+        run: &check-apk |
+          f=apk/vibeBMS.apk
+          if [ ! -f "$f" ] || [ -L "$f" ] || [ -z "$APK_SHA256" ] ||
+            [ "$(sha256sum < "$f" | cut -d' ' -f1)" != "$APK_SHA256" ]; then
+            echo "::error::the artifact vibeBMS-android is not the APK the job android-sign signed (its SHA-256 differs): the F-Droid repository is not updated"
+            exit 1
+          fi
+      # the scripts, the metadata and the repository's icon
+      - uses: actions/checkout@v7
+        with:
+          path: src
+          persist-credentials: false
+          sparse-checkout: |
+            tools
+            platform/android/fdroid
+            assets/logo
+      # First fdroidserver, in a step that has no key: installing runs the
+      # packages' code (four are built from their sources). Each file is
+      # pinned by SHA-256 (tools/fdroidserver.txt), so the steps after it,
+      # one of which has the key, run what was there when the pins were made.
+      # (the Python tools/fdroidserver.txt's files were chosen for: another
+      # version takes other wheels, which no hash there covers)
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: F-Droid tools
+        id: fdroid-tools
+        env:
+          APK_SIGNING: ${{ needs.android-sign.outputs.signing }}
+          HAVE_KEY: ${{ secrets.FDROID_KEYSTORE != '' || secrets.ANDROID_KEYSTORE != '' }}
+        run: |
+          skip() {
+            echo "F-Droid repository not updated: $1"
+            printf '### F-Droid repository\n\nNot updated: %s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          }
+          secrets="(docs/BUILDING.md, \"F-Droid repository\")"
+          [ "$APK_SIGNING" = repository ] ||
+            skip "the APK was signed with a throwaway key, so it could not update an installed one. Add the secrets \`ANDROID_KEYSTORE\` (the keystore, base64) and \`ANDROID_KEYSTORE_PASSWORD\` $secrets."
+          # a key that stays: one made per run would change the fingerprint
+          # the clients pinned
+          [ "$HAVE_KEY" = true ] ||
+            skip "no key to sign its index: add the secrets \`FDROID_KEYSTORE\` and \`FDROID_KEYSTORE_PASSWORD\`, or \`ANDROID_KEYSTORE\` and \`ANDROID_KEYSTORE_PASSWORD\` $secrets."
+          python3 -m venv "$RUNNER_TEMP/fdroidserver"
+          pip="$RUNNER_TEMP/fdroidserver/bin/pip"
+          "$pip" install -q --require-hashes --only-binary :all: -r src/tools/fdroidserver-build.txt
+          "$pip" install -q --require-hashes --no-build-isolation -r src/tools/fdroidserver.txt
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+      - name: check the APK again
+        if: steps.fdroid-tools.outputs.ready == 'true'
+        env: *check-apk-env
+        run: *check-apk
+      - name: F-Droid repository
+        id: fdroid
+        if: steps.fdroid-tools.outputs.ready == 'true'
+        env:
+          # (the APK's key only when the repository has none of its own)
+          KEYSTORE_B64: ${{ secrets.FDROID_KEYSTORE || secrets.ANDROID_KEYSTORE }}
+          FDROID_KEYSTORE_PASS: ${{ secrets.FDROID_KEYSTORE && secrets.FDROID_KEYSTORE_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD }}
+          FDROID_REPO_URL: https://raw.githubusercontent.com/${{ github.repository }}/fdroid-repo/repo
+        run: |
+          export FDROID_KEYSTORE_FILE="$RUNNER_TEMP/fdroid.keystore"
+          echo "$KEYSTORE_B64" | base64 -d > "$FDROID_KEYSTORE_FILE"
+          # the index for older clients is signed with SHA1withRSA: an EC key (as the APK's may be)
+          # would leave it unsigned
+          if ! keytool -list -v -keystore "$FDROID_KEYSTORE_FILE" -storepass:env FDROID_KEYSTORE_PASS |
+            grep -q '^Subject Public Key Algorithm: .*RSA'; then
+            rm "$FDROID_KEYSTORE_FILE"
+            why="its key is not an RSA key, which F-Droid's index needs: add the secrets \`FDROID_KEYSTORE\` and \`FDROID_KEYSTORE_PASSWORD\` with an RSA key (docs/BUILDING.md, \"F-Droid repository\")."
+            echo "F-Droid repository not updated: $why"
+            printf '### F-Droid repository\n\nNot updated: %s\n' "$why" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          PATH="$RUNNER_TEMP/fdroidserver/bin:$PATH" src/tools/fdroid_repo.sh build apk/vibeBMS.apk "$RUNNER_TEMP/fdroid"
+          rm "$FDROID_KEYSTORE_FILE"
+          echo "built=true" >> "$GITHUB_OUTPUT"
       # the F-Droid repository's branch: one commit, replaced each time (the
-      # older APKs are not kept). The release's concurrency group lets one run
-      # at a time get here, and only the branch's head is published.
+      # older APKs are not kept), then fdroid.txt and fdroid-qr.png in the
+      # release. The concurrency group lets one run at a time get here, and
+      # only the branch's head is published.
       - name: publish the F-Droid repository
-        if: env.RELEASE == 'true' && steps.release.outputs.published == 'true' && steps.fdroid.outputs.built == 'true'
+        if: steps.fdroid.outputs.built == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -1534,6 +1572,7 @@ jobs:
           export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
             GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
           src/tools/fdroid_repo.sh push "$RUNNER_TEMP/fdroid" "https://github.com/$GH_REPO.git" fdroid-repo
+          gh release upload nightly "$RUNNER_TEMP/fdroid/fdroid.txt" "$RUNNER_TEMP/fdroid/fdroid-qr.png" --clobber
           url="https://raw.githubusercontent.com/$GH_REPO/fdroid-repo/repo"
           fp="$(cat "$RUNNER_TEMP/fdroid/fingerprint")"
           {
@@ -1547,13 +1586,9 @@ jobs:
             echo
             echo "The release has these in \`fdroid.txt\` and the link as a QR code in \`fdroid-qr.png\`."
           } >> "$GITHUB_STEP_SUMMARY"
-      # (a red run: the release would else lack fdroid.txt, and the
-      # repository stay at an older APK, with nobody told)
       - name: F-Droid repository failed
-        if: env.RELEASE == 'true' && (steps.fdroid-tools.outcome == 'failure' || steps.fdroid.outcome == 'failure')
+        if: failure()
         run: |
-          printf '### F-Droid repository\n\nNot updated: building it failed (see the steps "F-Droid tools" and "F-Droid repository").\n' >> "$GITHUB_STEP_SUMMARY"
-          echo "::error::the F-Droid repository was not updated (the steps \"F-Droid tools\" and \"F-Droid repository\"); the rest of the release is published"
-          exit 1
+          printf '### F-Droid repository\n\nNot updated: a step of this job failed (the release and the site are published).\n' >> "$GITHUB_STEP_SUMMARY"
 
   # links to the executables in the run summary, once the builds are done

@@ -2,9 +2,10 @@
 """Tests of how .github/workflows/ci.yml writes, signs, checks and publishes latest.json, the site and the
 other files of the nightly (the steps "write latest.json" of update-manifest, "sign latest.json" of
 sign-update, "check the signature" of verify-update, "the web build's SHA-256" of web, "check the web
-build" of pages and the nightly job, and "files", "check the files", "builds.json" and "release" of the
-nightly job), run as the workflow runs them,
-with the runner's ssh-keygen, a key made for the test and stand-ins for gh and git:
+build" of pages and the nightly job, "files", "check the files", "builds.json" and "release" of the
+nightly job, and "check the APK", "F-Droid tools" and "publish the F-Droid repository" of the fdroid job), run
+as the workflow runs them,
+with the runner's ssh-keygen, a key made for the test and stand-ins for gh, git and the repository's scripts:
 python3 .github/update_signing_test.py (CI's test job runs it)."""
 import hashlib
 import json
@@ -85,6 +86,9 @@ FILES_STEP = step("files")
 FILES = step("check the files")
 BUILDS = step("builds.json")
 RELEASE = step("release")
+CHECK_APK = step("check the APK")
+FDROID_TOOLS = step("F-Droid tools")
+FDROID_PUBLISH = step("publish the F-Droid repository")
 
 # the executables update-manifest takes: (artifact, file in it, name in the release, the job that
 # builds it, the output it gives its SHA-256 as)
@@ -629,8 +633,8 @@ class Outputs(unittest.TestCase):
         self.assertEqual(key_of("check the files", "if"), key_of("check the files again", "if"))
         _, end = step_at("check the files again")
         self.assertEqual(LINES[end].strip(), "- name: release")
-        # and after the steps that write to out/ since the first
-        self.assertLess(step_at("F-Droid repository")[0], step_at("check the files again")[0])
+        # and after the step that writes to out/ since the first
+        self.assertLess(step_at("check the files")[0], step_at("builds.json")[0])
         self.assertLess(step_at("builds.json")[0], step_at("check the files again")[0])
 
 
@@ -710,20 +714,18 @@ class Nightly(ManifestJob):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.steps["builds"] = {"outputs": r.outputs}
 
-    def fdroid(self):
-        """What the step "F-Droid repository" puts in out/ (and gives as its outputs)."""
-        out = self.nightly / "out"
-        (out / "fdroid.txt").write_text("address\n")
-        (out / "fdroid-qr.png").write_bytes(b"png")
-        self.steps["fdroid"] = {"outputs": {"built": "true", "sha256-txt": sha256(out / "fdroid.txt"),
-                                            "sha256-qr": sha256(out / "fdroid-qr.png")}}
-
-    def release_uploads(self):
+    def run_release(self):
         log = self.dir / "gh.log"
         log.write_text("")
         r = run(RELEASE, self.nightly, GH_TOKEN="x", GH_REPO="o/r", SHA="abc", VERSION="v", GITHUB_REF_NAME="main")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        return [l.split()[3:-1] for l in log.read_text().splitlines() if l.startswith("release upload")]
+        return r, [l.split()[3:-1] for l in log.read_text().splitlines() if l.startswith("release upload")]
+
+    def release_uploads(self):
+        r, uploads = self.run_release()
+        # (the nightly job's output `released`, which the fdroid job waits for)
+        self.assertEqual(r.outputs.get("published"), "true")
+        return uploads
 
     def assert_ok(self, r):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
@@ -737,13 +739,11 @@ class Nightly(ManifestJob):
         self.assert_ok(self.files())
         self.assert_ok(self.check_files())
         self.builds()
-        self.fdroid()
         self.assert_ok(self.check_files())
         out = self.nightly / "out"
         published = {f.name for f in out.iterdir()}
         self.assertEqual(published, {n for _, _, n, _, _ in EXECUTABLES} | {n for _, n, _, _ in PACKAGES} | {
-            "vibeBMS-web.zip", "altstore.json", "latest.json", "latest.json.sig", "builds.json", "fdroid.txt",
-            "fdroid-qr.png"})
+            "vibeBMS-web.zip", "altstore.json", "latest.json", "latest.json.sig", "builds.json"})
         self.assertEqual(sha256(out / "latest.json"), self.manifest_sha)
         self.assertEqual(sha256(out / "latest.json.sig"), self.sig_sha)
         # the zip has the web job's build as the artifact holds it (no hidden files, the link's file)
@@ -763,7 +763,7 @@ class Nightly(ManifestJob):
         self.assertFalse((self.nightly / "out" / "latest.json.sig").exists())
         shutil.copy(self.sign / "manifest" / "latest.json.sig", self.nightly / "out")
         self.assert_refused(self.check_files(), "latest.json.sig")
-        # (nor without the F-Droid repository, or before builds.json)
+        # (nor before builds.json)
         (self.nightly / "out" / "latest.json.sig").unlink()
         self.builds()
         self.assert_ok(self.check_files())
@@ -844,25 +844,27 @@ class Nightly(ManifestJob):
                 r = self.check_files()
                 self.assertNotEqual(r.returncode, 0)
                 self.assertIn(f"::error::{name} is not the file of any job", r.stdout)
-        # the F-Droid repository's files only with the SHA-256s that step gave, builds.json with its step's
+        # the F-Droid repository's files are the fdroid job's, after the release: none goes up with it
+        for name in ("fdroid.txt", "fdroid-qr.png"):
+            with self.subTest(name):
+                self.assert_ok(self.files())
+                (self.nightly / "out" / name).write_bytes(b"x")
+                self.assertIn(f"::error::{name} is not the file of any job", self.check_files().stdout)
+        # builds.json only with the SHA-256 its step gave
         self.assert_ok(self.files())
-        self.fdroid()
-        del self.steps["fdroid"]
-        self.assert_refused(self.check_files(), "fdroid.txt")
-        self.fdroid()
+        self.builds()
         self.assert_ok(self.check_files())
         (self.nightly / "out" / "builds.json").write_text("{}")
         self.assert_refused(self.check_files(), "builds.json")
 
     def test_a_file_changed_after_the_first_check_stops_the_upload(self):
-        # what the steps between the two checks (builds.json, the F-Droid tools and repository) could do
-        for name in ("vibeBMS.apk", "vibebms-linux-arm64", "vibeBMS-web.zip", "builds.json", "fdroid.txt"):
+        # what the step between the two checks (builds.json) could do
+        for name in ("vibeBMS.apk", "vibebms-linux-arm64", "vibeBMS-web.zip", "builds.json"):
             with self.subTest(name):
                 self.steps = {}
                 self.assert_ok(self.files())
                 self.assert_ok(self.check_files())
                 self.builds()
-                self.fdroid()
                 self.assert_ok(self.check_files())
                 (self.nightly / "out" / name).write_bytes(b"changed")
                 self.assert_refused(self.check_files(), name)
@@ -875,6 +877,129 @@ class Nightly(ManifestJob):
         self.assertEqual(sorted(f for u in uploads[:-2] for f in u),
                          sorted(f"out/{f.name}" for f in (self.nightly / "out").iterdir()
                                 if f.name not in ("latest.json", "latest.json.sig")))
+
+    def test_a_release_not_published_is_not_released(self):
+        # the branch moved on: nothing goes up, and the output the fdroid job waits for is not set
+        (self.nightly / "src" / "tools" / "ci_moved_on.sh").write_text("#!/bin/sh\necho yes\n")
+        self.assert_ok(self.files())
+        r, uploads = self.run_release()
+        self.assertEqual(uploads, [])
+        self.assertNotIn("published", r.outputs)
+
+
+class FDroid(unittest.TestCase):
+    """The fdroid job: after the release and the site, on the APK android-sign signed, and the nightly
+    job without any of it."""
+
+    block, outputs, needs = Outputs.block, Outputs.outputs, Outputs.needs
+
+    def setUp(self):
+        self.dir = pathlib.Path(tempfile.mkdtemp())
+        self.job = self.dir / "fdroid"
+        (self.job / "apk").mkdir(parents=True)
+        self.apk = self.job / "apk" / "vibeBMS.apk"
+        self.apk.write_bytes(b"the signed APK")
+        (self.dir / "bin").mkdir()
+        (self.dir / "bin" / "gh").write_text(GH)
+        (self.dir / "bin" / "gh").chmod(0o755)
+        self.summary = self.dir / "summary.md"
+        self.summary.write_text("")
+
+    def tearDown(self):
+        shutil.rmtree(self.dir)
+
+    def step_names(self, job):
+        return [l.strip().removeprefix("- ").removeprefix("name: ").removeprefix("uses: ")
+                for l in expand(job_lines(job)) if re.fullmatch(r"      - (name|uses): .*", l)]
+
+    def test_after_the_release_and_the_site(self):
+        for job in ("nightly", "pages", "android-sign"):
+            self.assertIn(job, self.needs("fdroid"))
+        lines = job_lines("fdroid")
+        # only when the nightly published the release (its release step's output), whatever the deploy did
+        self.assertIn("    if: ${{ !cancelled() && needs.nightly.outputs.released == 'true' }}", lines)
+        self.assertEqual(self.outputs("nightly")["released"], "${{ steps.release.outputs.published }}")
+        self.assertIn('echo "published=true" >> "$GITHUB_OUTPUT"', RELEASE.splitlines()[-1])
+        self.assertIn("    environment: release", lines)
+        self.assertEqual(self.block("fdroid", "permissions"), ["      contents: write"])
+        self.assertIn("permissions:\n  contents: read", "\n".join(LINES))
+
+    def test_the_nightly_job_runs_no_f_droid_tool(self):
+        # (its comments and the release notes may name the repository)
+        text = "\n".join(l for l in expand(job_lines("nightly")) if not l.lstrip().startswith("#"))
+        for word in ("fdroidserver", "fdroid_repo.sh", "pip", "python", "FDROID", "keystore", "secrets.",
+                     "environment:"):
+            self.assertNotIn(word, text, word)
+        self.assertFalse([n for n in self.step_names("nightly") if "F-Droid" in n or "python" in n])
+
+    def test_the_apk_is_checked_before_the_tools_and_the_key(self):
+        names = self.step_names("fdroid")
+        self.assertEqual(names[:2], ["actions/download-artifact@v8", "check the APK"])
+        at = names.index("F-Droid repository")
+        self.assertEqual(names[at - 1], "check the APK again")
+        self.assertLess(names.index("F-Droid tools"), at - 1)
+        self.assertIn("          name: vibeBMS-android\n          path: apk", "\n".join(job_lines("fdroid")))
+        # the same text both times, and the repository is built of the checked file
+        self.assertEqual(key_of("check the APK", "run", "fdroid"), "&check-apk |")
+        self.assertEqual(key_of("check the APK again", "run", "fdroid"), "*check-apk")
+        self.assertEqual(key_of("check the APK again", "env", "fdroid"), "*check-apk-env")
+        self.assertIn("src/tools/fdroid_repo.sh build apk/vibeBMS.apk ", step("F-Droid repository"))
+
+    def test_a_replaced_apk_stops_it(self):
+        made = sha256(self.apk)
+        self.assertEqual(run(CHECK_APK, self.job, APK_SHA256=made).returncode, 0)
+        for change in ("replace", "empty-output", "link", "missing"):
+            with self.subTest(change):
+                self.apk.unlink()
+                if change == "link":
+                    (self.job / "elsewhere.apk").write_bytes(b"the signed APK")
+                    self.apk.symlink_to(self.job / "elsewhere.apk")
+                elif change != "missing":
+                    self.apk.write_bytes(b"another APK" if change == "replace" else b"the signed APK")
+                r = run(CHECK_APK, self.job, APK_SHA256="" if change == "empty-output" else made)
+                self.assertNotEqual(r.returncode, 0)
+                self.assertIn("::error::the artifact vibeBMS-android is not the APK the job android-sign signed",
+                              r.stdout)
+                self.apk.unlink(missing_ok=True)
+                self.apk.write_bytes(b"the signed APK")
+
+    def test_skipped_without_the_repositorys_keys(self):
+        for signing, have_key, why in (("throwaway", "true", "throwaway key"), ("repository", "false", "no key")):
+            with self.subTest(signing=signing, have_key=have_key):
+                self.summary.write_text("")
+                r = run(FDROID_TOOLS, self.job, APK_SIGNING=signing, HAVE_KEY=have_key,
+                        GITHUB_STEP_SUMMARY=str(self.summary))
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                self.assertNotIn("ready", r.outputs)
+                self.assertIn(why, self.summary.read_text())
+                self.assertFalse((self.job / "runner-temp" / "fdroidserver").exists())
+
+    def publish(self, moved_on):
+        tools = self.job / "src" / "tools"
+        tools.mkdir(parents=True, exist_ok=True)
+        (tools / "ci_moved_on.sh").write_text(f"#!/bin/sh\necho {moved_on}\n")
+        (tools / "fdroid_repo.sh").write_text('#!/bin/sh\necho "fdroid_repo.sh $*" >> "$GH_LOG"\n')
+        for f in tools.iterdir():
+            f.chmod(0o755)
+        work = self.job / "runner-temp" / "fdroid"
+        work.mkdir(parents=True, exist_ok=True)
+        for name, text in (("fdroid.txt", "address"), ("fdroid-qr.png", "png"), ("fingerprint", "AB"),
+                           ("app_id", "io.github.vibebms.nightly")):
+            (work / name).write_text(text)
+        log = self.dir / "gh.log"
+        log.write_text("")
+        r = run(FDROID_PUBLISH, self.job, GH_TOKEN="x", GH_REPO="o/r", SHA="abc", VERSION="v",
+                GITHUB_REF_NAME="main", GITHUB_STEP_SUMMARY=str(self.summary))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return [l.replace(str(work), "$work") for l in log.read_text().splitlines()]
+
+    def test_published_to_the_branch_and_the_release(self):
+        self.assertEqual(self.publish("no"), [
+            "fdroid_repo.sh push $work https://github.com/o/r.git fdroid-repo",
+            "release upload nightly $work/fdroid.txt $work/fdroid-qr.png --clobber"])
+        self.assertIn("fingerprint (SHA-256): `AB`", self.summary.read_text())
+        # a newer commit's run publishes its own
+        self.assertEqual(self.publish("yes"), [])
 
 
 if __name__ == "__main__":
