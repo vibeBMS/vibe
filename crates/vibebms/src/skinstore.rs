@@ -390,22 +390,12 @@ impl SkinStore {
         };
         let msg = tr!("Downloading {name}…", name = format!("{}{size}", e.name));
         let id = e.id.clone();
-        #[cfg(not(target_arch = "wasm32"))]
-        let job = {
-            let (root, skins, cx) = (paths.root.clone(), paths.skins.clone(), cx.clone());
-            Job::spawn("skin", move |progress| {
-                fetch_and_install(&root, &skins, &cx.with_progress(progress), &e, &old)
+        let job = Job::start(|tx, progress| {
+            let cx = cx.with_progress(progress);
+            fetch_and_install(&paths.root, paths.skins.clone(), &cx, e, old, move |r| {
+                let _ = tx.send(r);
             })
-        };
-        #[cfg(target_arch = "wasm32")]
-        let job = {
-            let skins = paths.skins.clone();
-            Job::start(|tx, progress| {
-                web_install(e, skins, old, cx, progress, move |r| {
-                    let _ = tx.send(r);
-                })
-            })
-        };
+        });
         self.busy.push((id, job));
         Ok(msg)
     }
@@ -637,9 +627,9 @@ fn refused(folder: &str) -> String {
 }
 
 /// The top folders of placed files, in order.
-fn top_folders(placed: &[(PathBuf, PathBuf)]) -> Vec<String> {
+fn top_folders<'a>(placed: impl Iterator<Item = &'a PathBuf>) -> Vec<String> {
     let mut v: Vec<String> = Vec::new();
-    for (_, to) in placed {
+    for to in placed {
         if let Some(Component::Normal(f)) = to.components().next() {
             let f = f.to_string_lossy().into_owned();
             if !v.contains(&f) {
@@ -651,7 +641,6 @@ fn top_folders(placed: &[(PathBuf, PathBuf)]) -> Vec<String> {
 }
 
 /// Every file below `dir`, relative to it.
-#[cfg(not(target_arch = "wasm32"))]
 fn files_below(dir: &Path) -> Vec<PathBuf> {
     fn walk(base: &Path, d: &Path, out: &mut Vec<PathBuf>) {
         for e in std::fs::read_dir(d).into_iter().flatten().flatten() {
@@ -673,64 +662,100 @@ fn files_below(dir: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// Unpack `archives` (each into its own folder of `staging`) and put the
-/// skin they hold below `skins`, the folders `old` removed first. Returns
-/// the folders below `skins` it is in.
-#[cfg(not(target_arch = "wasm32"))]
+/// A file of the skin, unpacked: in the staging folder (from a download
+/// to a file: natively), or its bytes (from one in memory: a web page's).
+enum Unpacked {
+    File(PathBuf),
+    Bytes(Vec<u8>),
+}
+
+/// Download `i` of `entry` (`blob`), checked against the catalog's hash
+/// and unpacked (a file into its own folder of `staging`): its files and
+/// where each goes below `skins/` ([`place`]).
+fn unpack(
+    entry: &SkinEntry,
+    i: usize,
+    blob: bmseeker::unpack::Blob,
+    staging: &Path,
+) -> Result<Vec<(Unpacked, PathBuf)>, String> {
+    use bmseeker::unpack::Blob;
+    match blob {
+        Blob::File(a) => {
+            entry.hash_matches(i, || {
+                crate::ir::build_id::file_sha256(&a).map_err(|e| e.to_string())
+            })?;
+            let dir = staging.join(i.to_string());
+            // (named as an archive: one that is none is refused)
+            bmseeker::import::unpack_into(&bmseeker::fs::Disk, Blob::File(a), "skin.zip", &dir)?;
+            let placed = place(entry, &files_below(&dir));
+            Ok((placed.into_iter())
+                .map(|(from, to)| (Unpacked::File(dir.join(from)), to))
+                .collect())
+        }
+        Blob::Bytes(bytes) => {
+            entry.hash_matches(i, || Ok(vibebms_core::bms::sha256_hex(&bytes)))?;
+            let mut files: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+            bmseeker::unpack::unpack_bytes(bytes, |rel, data| files.push((rel, data)))?;
+            let names: Vec<PathBuf> = files.iter().map(|(r, _)| r.clone()).collect();
+            let mut by: std::collections::HashMap<PathBuf, Vec<u8>> = files.into_iter().collect();
+            Ok((place(entry, &names).into_iter())
+                .filter_map(|(from, to)| Some((Unpacked::Bytes(by.remove(&from)?), to)))
+                .collect())
+        }
+    }
+}
+
+/// Unpack the downloads `blobs` (a file each into its own folder of
+/// `staging`) and put the skin they hold below `skins`, the folders `old`
+/// removed first: a file moved there, bytes kept in the browser's storage
+/// (and in memory: skins are read at once). Returns the folders below
+/// `skins` it is in.
 pub fn install_files(
-    archives: &[PathBuf],
+    blobs: Vec<bmseeker::unpack::Blob>,
     skins: &Path,
     staging: &Path,
     entry: &SkinEntry,
     old: &[String],
 ) -> Result<Vec<String>, String> {
     let _ = std::fs::remove_dir_all(staging);
-    let r = install_staged(archives, skins, staging, entry, old);
+    let r = install_staged(blobs, skins, staging, entry, old);
     let _ = std::fs::remove_dir_all(staging);
     r
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 fn install_staged(
-    archives: &[PathBuf],
+    blobs: Vec<bmseeker::unpack::Blob>,
     skins: &Path,
     staging: &Path,
     entry: &SkinEntry,
     old: &[String],
 ) -> Result<Vec<String>, String> {
-    let mut moves: Vec<(PathBuf, PathBuf)> = Vec::new();
-    for (i, a) in archives.iter().enumerate() {
-        entry.hash_matches(i, || {
-            crate::ir::build_id::file_sha256(a).map_err(|e| e.to_string())
-        })?;
-        let dir = staging.join(i.to_string());
-        // (named as an archive: one that is none is refused)
-        crate::import::unpack_into(
-            &bmseeker::fs::Disk,
-            bmseeker::unpack::Blob::File(a.clone()),
-            "skin.zip",
-            &dir,
-        )?;
-        let placed = place(entry, &files_below(&dir));
-        moves.extend(placed.into_iter().map(|(from, to)| (dir.join(from), to)));
+    let mut moves: Vec<(Unpacked, PathBuf)> = Vec::new();
+    for (i, b) in blobs.into_iter().enumerate() {
+        moves.extend(unpack(entry, i, b, staging)?);
     }
     if !moves.iter().any(|(_, to)| is_skin_file(to)) {
         return Err("the archive holds no skin".into());
     }
-    let folders = top_folders(&moves);
+    let folders = top_folders(moves.iter().map(|(_, to)| to));
     if let Some(f) = not_its_own(skins, entry, old, &folders) {
         return Err(refused(f));
     }
     for f in old.iter().chain(&folders) {
         remove_folder(skins, f);
     }
-    for (from, to) in &moves {
+    for (from, to) in moves {
         let to = skins.join(to);
-        if let Some(d) = to.parent() {
-            std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
-        }
-        if std::fs::rename(from, &to).is_err() {
-            std::fs::copy(from, &to).map_err(|e| format!("{}: {e}", to.display()))?;
+        match from {
+            Unpacked::File(from) => {
+                if let Some(d) = to.parent() {
+                    std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
+                }
+                if std::fs::rename(&from, &to).is_err() {
+                    std::fs::copy(&from, &to).map_err(|e| format!("{}: {e}", to.display()))?;
+                }
+            }
+            Unpacked::Bytes(data) => crate::platform::vfs::store_resident(&to, data),
         }
     }
     Ok(folders)
@@ -755,106 +780,50 @@ fn missed(m: bmseeker::install::job::Missed) -> Fail {
     }
 }
 
-/// Download entry `e`'s archives (bmseeker's `Files`; `cx`'s progress
-/// tells how far) and install them.
-#[cfg(not(target_arch = "wasm32"))]
+/// Download entry `e`'s archives one after another (bmseeker's `Files`;
+/// `cx`'s progress tells how far): natively into their slots below
+/// `<root>/downloads`, on the web through the vibeBMS proxy into memory
+/// ([`crate::platform::run_job`]). Then install them ([`install_files`])
+/// and `done` with the folders below `skins` the skin is in.
 fn fetch_and_install(
     root: &Path,
-    skins: &Path,
-    cx: &crate::hosts::Context,
-    e: &SkinEntry,
-    old: &[String],
-) -> Result<Vec<String>, Fail> {
-    use bmseeker::install::job::Files;
-    let downloads = root.join("downloads");
-    std::fs::create_dir_all(&downloads).map_err(|e| e.to_string())?;
-    let stem = format!(".skin-{}", safe_name(&e.id));
-    let slots = downloads.join(&stem);
-    let got: Vec<PathBuf> = (0..e.downloads.len())
-        .map(|i| Files::slot(&slots, i))
-        .collect();
-    let fetched = crate::hosts::fetch_files(sources(e), &slots, cx);
-    let r = match fetched {
-        Ok(_) => {
-            cx.stage(bmseeker::progress::Stage::Unpacking);
-            install_files(&got, skins, &downloads.join(&stem), e, old).map_err(Fail::Msg)
-        }
-        Err(m) => Err(missed(m)),
-    };
-    for f in &got {
-        let _ = std::fs::remove_file(f);
-    }
-    r
-}
-
-/// The web build: entry `e`'s archives one after another through the
-/// vibeBMS proxy (bmseeker's `Files` in the page), unpacked in memory;
-/// then the old folders go and the files are kept in the browser's
-/// storage (and in memory: skins are read at once).
-#[cfg(target_arch = "wasm32")]
-fn web_install(
-    e: SkinEntry,
     skins: PathBuf,
-    old: Vec<String>,
     cx: &crate::hosts::Context,
-    progress: Arc<Progress>,
+    e: SkinEntry,
+    old: Vec<String>,
     done: impl FnOnce(Result<Vec<String>, Fail>) + Send + 'static,
 ) {
     use bmseeker::install::job::Files;
-    let cx = cx.with_progress(progress.clone());
-    let job = Files::new(sources(&e), PathBuf::new(), &cx);
-    crate::platform::run_job(job, &cx, move |r| {
-        let got = match r {
-            Ok(got) => got,
-            Err(m) => return done(Err(missed(m))),
+    let downloads = root.join("downloads");
+    if let Err(err) = crate::platform::vfs::create_dir_all(&downloads) {
+        return done(Err(err.to_string().into()));
+    }
+    let staging = downloads.join(format!(".skin-{}", safe_name(&e.id)));
+    let slots: Vec<PathBuf> = (0..e.downloads.len())
+        .map(|i| Files::slot(&staging, i))
+        .collect();
+    let job = Files::new(sources(&e), staging.clone(), cx);
+    let told = cx.clone();
+    crate::platform::run_job(job, cx, move |r| {
+        let r = match r {
+            Ok(got) => {
+                told.stage(bmseeker::progress::Stage::Unpacking);
+                let blobs = got.into_iter().map(|g| g.blob).collect();
+                install_files(blobs, &skins, &staging, &e, &old).map_err(Fail::Msg)
+            }
+            Err(m) => Err(missed(m)),
         };
-        progress.set_stage(bmseeker::progress::Stage::Unpacking);
-        let mut placed: Vec<(PathBuf, Vec<u8>)> = Vec::new();
-        for (i, g) in got.into_iter().enumerate() {
-            let bmseeker::unpack::Blob::Bytes(bytes) = g.blob else {
-                continue;
-            };
-            if let Err(m) = e.hash_matches(i, || Ok(vibebms_core::bms::sha256_hex(&bytes))) {
-                return done(Err(Fail::Msg(m)));
-            }
-            let mut files: Vec<(PathBuf, Vec<u8>)> = Vec::new();
-            if let Err(m) =
-                bmseeker::unpack::unpack_bytes(bytes, |rel, data| files.push((rel, data)))
-            {
-                return done(Err(Fail::Msg(m)));
-            }
-            let names: Vec<PathBuf> = files.iter().map(|(r, _)| r.clone()).collect();
-            let mut by: std::collections::HashMap<PathBuf, Vec<u8>> = files.into_iter().collect();
-            for (from, to) in place(&e, &names) {
-                if let Some(data) = by.remove(&from) {
-                    placed.push((to, data));
-                }
-            }
+        for f in &slots {
+            let _ = crate::platform::vfs::remove_file(f);
         }
-        if !placed.iter().any(|(to, _)| is_skin_file(to)) {
-            return done(Err(Fail::Msg("the archive holds no skin".into())));
-        }
-        let pairs: Vec<(PathBuf, PathBuf)> = placed
-            .iter()
-            .map(|(to, _)| (PathBuf::new(), to.clone()))
-            .collect();
-        let folders = top_folders(&pairs);
-        if let Some(f) = not_its_own(&skins, &e, &old, &folders) {
-            return done(Err(Fail::Msg(refused(f))));
-        }
-        for f in old.iter().chain(&folders) {
-            remove_folder(&skins, f);
-        }
-        for (to, data) in placed {
-            crate::platform::vfs::store_resident(&skins.join(to), data);
-        }
-        done(Ok(folders))
+        done(r)
     });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bmseeker::unpack::Blob;
 
     fn entry(kind: &str, folder: &str) -> SkinEntry {
         SkinEntry {
@@ -1125,7 +1094,7 @@ mod tests {
         )
         .unwrap();
         let e = entry("beatoraja", "Repo");
-        let got = install_files(std::slice::from_ref(&a), &skins, &staging, &e, &[]).unwrap();
+        let got = install_files(vec![Blob::File(a.clone())], &skins, &staging, &e, &[]).unwrap();
         assert_eq!(got, ["Repo"]);
         assert_eq!(
             std::fs::read(skins.join("Repo/play/play7.json")).unwrap(),
@@ -1142,17 +1111,17 @@ mod tests {
             ]),
         )
         .unwrap();
-        install_files(std::slice::from_ref(&a), &skins, &staging, &e, &got).unwrap();
+        install_files(vec![Blob::File(a.clone())], &skins, &staging, &e, &got).unwrap();
         assert!(!skins.join("Repo/play/old.png").exists());
         assert!(skins.join("Repo/play/play7.json").is_file());
         assert!(skins.join("Mine/play.json").is_file());
         // no skin in it: nothing changes
         std::fs::write(&a, zip(&[("x/readme.txt", b"r")])).unwrap();
-        assert!(install_files(std::slice::from_ref(&a), &skins, &staging, &e, &got).is_err());
+        assert!(install_files(vec![Blob::File(a.clone())], &skins, &staging, &e, &got).is_err());
         assert!(skins.join("Repo/play/play7.json").is_file());
         // not an archive
         std::fs::write(&a, b"<html>").unwrap();
-        assert!(install_files(&[a], &skins, &staging, &e, &got).is_err());
+        assert!(install_files(vec![Blob::File(a)], &skins, &staging, &e, &got).is_err());
         std::fs::remove_dir_all(&base).ok();
     }
 
@@ -1175,7 +1144,7 @@ mod tests {
                 .collect();
             let files: Vec<(&str, &[u8])> = files.iter().map(|(n, d)| (n.as_str(), *d)).collect();
             std::fs::write(&a, zip(&files)).unwrap();
-            install_files(std::slice::from_ref(&a), &skins, &staging, &e, old)
+            install_files(vec![Blob::File(a.clone())], &skins, &staging, &e, old)
         };
         let r = install(&["EC", "Mine"], &[]);
         assert!(r.unwrap_err().contains("skins/Mine"));
@@ -1188,6 +1157,63 @@ mod tests {
         // what it left is its own the next time
         assert!(install(&["EC", "Extra"], &[]).is_err());
         assert!(install(&["EC", "Extra"], &got).is_ok());
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// A download that came into memory (a web page's) is checked,
+    /// placed and kept as one to a file is.
+    #[test]
+    fn installs_an_archive_in_memory() {
+        let base = std::env::temp_dir().join(format!("vibebms-skinbytes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (skins, staging) = (base.join("skins"), base.join("downloads/.skin-t"));
+        std::fs::create_dir_all(skins.join("Mine")).unwrap();
+        std::fs::write(skins.join("Mine/play.json"), "{}").unwrap();
+        let bytes = zip(&[
+            ("repo-main/play/play7.json", b"{\"type\":0}"),
+            ("repo-main/README.md", b"r"),
+            ("__MACOSX/x", b"x"),
+        ]);
+        let e = SkinEntry {
+            sha256: vec![vibebms_core::bms::sha256_hex(&bytes)],
+            ..entry("beatoraja", "Repo")
+        };
+        let got = install_files(vec![Blob::Bytes(bytes.clone())], &skins, &staging, &e, &[]);
+        assert_eq!(got.unwrap(), ["Repo"]);
+        assert_eq!(
+            std::fs::read(skins.join("Repo/play/play7.json")).unwrap(),
+            b"{\"type\":0}"
+        );
+        assert!(skins.join("Repo/README.md").is_file());
+        assert!(!skins.join("__MACOSX").exists() && !staging.exists());
+        // another file than the catalog's, an archive of no skin, no
+        // archive: nothing changes
+        let other = SkinEntry {
+            sha256: vec![vibebms_core::bms::sha256_hex(b"another file")],
+            ..e.clone()
+        };
+        let r = install_files(vec![Blob::Bytes(bytes)], &skins, &staging, &other, &[]);
+        assert!(r.unwrap_err().contains("not the file"));
+        let e = entry("beatoraja", "Repo");
+        let none = zip(&[("x/readme.txt", b"r")]);
+        let r = install_files(
+            vec![Blob::Bytes(none)],
+            &skins,
+            &staging,
+            &e,
+            &["Repo".into()],
+        );
+        assert!(r.unwrap_err().contains("no skin"));
+        let r = install_files(
+            vec![Blob::Bytes(b"<html>".to_vec())],
+            &skins,
+            &staging,
+            &e,
+            &[],
+        );
+        assert!(r.is_err());
+        assert!(skins.join("Repo/play/play7.json").is_file());
+        assert_eq!(std::fs::read(skins.join("Mine/play.json")).unwrap(), b"{}");
         std::fs::remove_dir_all(&base).ok();
     }
 
@@ -1207,7 +1233,7 @@ mod tests {
                 sha256: vec![sha256.into()],
                 ..entry("beatoraja", "Repo")
             };
-            install_files(std::slice::from_ref(&a), &skins, &staging, &e, &[])
+            install_files(vec![Blob::File(a.clone())], &skins, &staging, &e, &[])
         };
         let other = vibebms_core::bms::sha256_hex(b"another file");
         assert!(install(&other).unwrap_err().contains("not the file"));
@@ -1236,8 +1262,19 @@ mod tests {
         std::fs::create_dir_all(&skins).unwrap();
         let p = Progress::new();
         let cx = crate::hosts::context(&Default::default());
-        let r = fetch_and_install(&root, &skins, &cx.with_progress(p), &e, &[e.folder()]);
-        match r {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let old = vec![e.folder()];
+        fetch_and_install(
+            &root,
+            skins.clone(),
+            &cx.with_progress(p),
+            e,
+            old,
+            move |r| {
+                let _ = tx.send(r);
+            },
+        );
+        match rx.recv().unwrap() {
             Ok(folders) => {
                 println!("INSTALLED {folders:?}");
                 let found = crate::skin::lr2::find_skins(&skins);

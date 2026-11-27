@@ -2,8 +2,6 @@
 //! proxy the web build reaches those hosts through: `bmseeker::web`).
 
 pub use bmseeker::hosts::{Context, Fetch};
-#[cfg(not(target_arch = "wasm32"))]
-pub use bmseeker::native::{fetch_files, Native};
 
 /// What the app resolves links and installs songs with: bmseeker's default
 /// settings and hosts, with the player's choices (third parties' copies
