@@ -136,9 +136,10 @@ fn read(at: &imp::Place) -> (Doc, bool) {
     let mut moved = false;
     for (p, s) in std::mem::take(&mut doc.keys) {
         match s {
+            // (with both shapes, by hand: the one kept apart stays)
             Stored::Held { held } => {
                 moved = true;
-                doc.held.insert(p, held);
+                doc.held.entry(p).or_insert(held);
             }
             s => {
                 doc.keys.insert(p, s);
@@ -564,6 +565,26 @@ mod tests {
         let mut c = Keys::open(&paths);
         c.bind(|_| None).unwrap();
         assert!(!Keys::open(&paths).has(p));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// A document with both shapes of one held key (only by hand): the one
+    /// kept apart, the newer shape, is the key.
+    #[test]
+    fn of_two_held_keys_the_newer_shape_stays() {
+        let root = temp("held-twice");
+        let paths = Paths::at(root.clone());
+        let file = root.join("config/credentials.json");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(
+            &file,
+            r#"{"keys":{"vibe-json:0":{"held":"old"}},"held":{"vibe-json:0":"new"}}"#,
+        )
+        .unwrap();
+        let p = ProviderId::VibeJson(0);
+        let mut c = Keys::open(&paths);
+        c.bind_held(p, "https://a:443").unwrap();
+        assert_eq!(c.get(p, "https://a:443").unwrap().token.expose(), "new");
         std::fs::remove_dir_all(&root).ok();
     }
 
