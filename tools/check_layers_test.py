@@ -75,6 +75,12 @@ class CheckLayers(unittest.TestCase):
         self.assertIn("formats/mod.rs:", out)
         self.assertIn("#[path]", out)
 
+    def test_a_macro_made_path_fails(self):
+        self.fails("macro_rules! up {\n    ($m:ident) => {\n        crate::$m::skinvals::judge_option()\n"
+                   "    };\n}\npub fn g() {\n    up!(scene);\n}\n", "macro's argument")
+        self.fails("macro_rules! up2 {\n    ($m:ident) => {\n        $crate::$m::f()\n    };\n}\n",
+                   "macro's argument")
+
 
 if __name__ == "__main__":
     unittest.main()

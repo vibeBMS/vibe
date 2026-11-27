@@ -13,8 +13,9 @@ uses is read from its text, with comments, strings and test code left out
 the item. A use of a higher layer fails unless UPWARD lists it; a use
 UPWARD lists that no longer exists fails too, so the list is shortened
 when one goes. What a value's method reaches without naming its type is
-not seen. A `#[path]` attribute fails: a module's layer is read from where
-its file is.
+not seen. A `#[path]` attribute, and a path a macro makes from its
+argument after `crate::` (`crate::$m::…`), fail: neither can be read from
+the text.
 """
 import os
 import re
@@ -238,6 +239,10 @@ def uses(src):
             line = text.count("\n", 0, m.start()) + 1
             odd.append(at % line + ": a #[path] attribute: keep the file where its `mod` line puts it")
         text = cut_tests(text)
+        # (a path a macro makes from what it is given is not read)
+        for m in re.finditer(r"(?<!\w)crate\s*::\s*\$", text):
+            line = text.count("\n", 0, m.start()) + 1
+            odd.append(at % line + ": a path made from a macro's argument after `crate::`: name its module")
         inline = [(m.end(), item_end(text, m.end() - 1), m.group(1))
                   for m in re.finditer(r"\bmod\s+(\w+)\s*\{", text)]
         aliases = {}
