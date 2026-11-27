@@ -1,8 +1,6 @@
 //! Device input -> lanes.
 
 pub mod gamepad;
-#[cfg(any(target_os = "ios", test))]
-pub mod hid;
 
 use crate::config::{KeyConfig, LaneKeys, SideKeys};
 use crate::platform::{Duration, Instant};

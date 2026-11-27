@@ -62,9 +62,6 @@ UPWARD = [
      "AUTO's language on Android is the Java locale; passing the system's locale in from the start instead "
      "would read it at every start, not only when AUTO is chosen"),
     ("formats", "gfx", ["fits"], "the size every image decoder keeps to: it belongs in formats"),
-    ("platform::vfs", "placement", ["Vfs"], "the player's files as bmseeker sees them: platform code"),
-    ("platform::opfs", "replay", ["dir"], "which folders the browser keeps: the start can say"),
-    ("platform::ios", "input::hid", ["key_code"], "only iOS' keyboard reads HID usages: it belongs in platform"),
     ("config", "archive", ["DEFAULT_INDEXES", "CATALOG", "OLD_DEFAULT"], "default settings: they belong in config"),
     ("paths", "update", ["app_bundle"], "the macOS bundle's layout: it belongs in paths"),
     ("input", "touch", ["START", "SELECT", "START2", "SELECT2"], "lanes of the input: they belong in input"),

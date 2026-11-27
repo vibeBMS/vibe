@@ -267,7 +267,9 @@ pub fn run() {
         // (the first scan waits for them)
         let replays = app.paths.replays();
         let skins = app.paths.skins.clone();
-        crate::platform::opfs::start(&app.paths.root, crate::platform::vfs::mount, move |n| {
+        let root = &app.paths.root;
+        let root_replays = crate::replay::dir(root);
+        crate::platform::opfs::start(root, root_replays, crate::platform::vfs::mount, move |n| {
             if n > 0 {
                 log::info!("library: {n} files kept in the browser");
             }

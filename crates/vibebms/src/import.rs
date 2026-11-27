@@ -1,7 +1,7 @@
 //! Songs the in-app browser downloaded: `bmseeker::import` on the player's
 //! files, and what it tells the user.
 
-use crate::placement::Vfs;
+use crate::platform::Vfs;
 use bmseeker::fs::file_name;
 pub use bmseeker::import::{unpack_into, Imported};
 use std::path::{Path, PathBuf};

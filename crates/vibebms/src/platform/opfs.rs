@@ -248,15 +248,17 @@ fn kept(p: &Path) -> Option<String> {
 }
 
 /// Start: the worker, then the kept files mounted below `<root>/bms`
-/// (`mount` for each), then `done`.
+/// (`mount` for each), then `done`. `replays`: the folder of the root's
+/// replays, kept too.
 pub fn start(
     root: &Path,
+    replays: PathBuf,
     mount: impl FnMut(PathBuf, web_sys::File) + 'static,
     done: impl FnOnce(usize) + 'static,
 ) {
     let kept_dirs = vec![
         (root.join("bms"), "bms"),
-        (crate::replay::dir(root), "replays"),
+        (replays, "replays"),
         (root.join("skins"), "skins"),
         // the other profiles' replays (`profiles`)
         (root.join("profiles"), "profiles"),

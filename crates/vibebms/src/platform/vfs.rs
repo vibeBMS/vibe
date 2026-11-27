@@ -588,7 +588,7 @@ mod imp {
         use bmseeker::unpack::{unpack, Blob, BUDGET};
         let stem = super::super::arcfs::archive_folder(name).unwrap_or_else(|| "archive".into());
         let base = dir.join(stem);
-        match unpack(Blob::Bytes(bytes), &crate::placement::Vfs, &base, BUDGET) {
+        match unpack(Blob::Bytes(bytes), &crate::platform::Vfs, &base, BUDGET) {
             Ok(m) => m.len(),
             Err(e) => {
                 log::warn!("{name}: {e}");
