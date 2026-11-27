@@ -922,17 +922,10 @@ mod tests {
     }
 
     fn mixer() -> Mixer {
-        Mixer::new(&vibebms_audio::AudioConfig {
-            buffer_frames: 0,
-            sample_rate: 44100,
-            master: 0.0,
-            key_volume: 0.0,
-            bgm_volume: 0.0,
-            system_volume: 0.0,
-            max_voices: 16,
-            #[cfg(windows)]
-            exclusive: false,
-        })
+        Mixer::offline(
+            &crate::config::AudioSettings::default().mixer_config(16),
+            44100,
+        )
     }
 
     /// The result's music: the outcome's `.loop`, else its plain file,
