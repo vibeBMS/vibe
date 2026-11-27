@@ -240,9 +240,9 @@ The key is kept away from the build. CI's `android` job builds the unsigned APK 
 output (any job of the run can upload an artifact, but only that job sets its outputs), and signs it
 (`tools/build_release.sh sign`), with the JDK, the pinned build-tools and apksigcopier alone; the keystore exists for
 that one step. It gives the signed APK's SHA-256 as an output in turn: the `nightly` job checks the APK against it
-before it builds the F-Droid index, and again right before it uploads the release (Self-update, below, "The files
-the nightly publishes"). On the default branch that job
-and the `nightly` job (for the F-Droid repository's key) run in the environment `release`. Keep the keys there, not in
+before it uploads the release (Self-update, below, "The files the nightly publishes"), and the `fdroid` job before
+it builds the F-Droid index (F-Droid repository, below). On the default branch that job
+and the `fdroid` job (for the F-Droid repository's key) run in the environment `release`. Keep the keys there, not in
 the repository's secrets: Settings › Environments › `release`, "Deployment branches and tags": selected branches,
 the default branch only; then add `ANDROID_KEYSTORE`, `ANDROID_KEYSTORE_PASSWORD` (and `FDROID_KEYSTORE`,
 `FDROID_KEYSTORE_PASSWORD`) as the environment's secrets and delete the repository's. The self-update's key,
@@ -254,7 +254,7 @@ Make the passwords (`ANDROID_KEYSTORE_PASSWORD`, `FDROID_KEYSTORE_PASSWORD`) lon
 (`0-9`, `a-f`). GitHub leaves out a job output in which the value of a secret of that job appears, and the jobs give
 SHA-256s, 64 hex digits, as outputs: a short password of hex digits is somewhere in one of them now and then (for 4
 digits about one run in a thousand). The `nightly` job then refuses the file whose maker "gave no SHA-256", and
-nothing is published.
+nothing is published (or the `fdroid` job refuses the APK, and the F-Droid repository is not updated).
 
 Gradle builds the APK unsigned and `tools/build_release.sh sign` signs it with
 the pinned build-tools' apksigner (`BUILD_TOOLS_VERSION`), with APK Signature Scheme v2 alone, as the Android Gradle
@@ -281,8 +281,13 @@ repository in one tap (and as a QR code,
 [`fdroid-qr.png`](https://github.com/vibeBMS/vibe/releases/download/nightly/fdroid-qr.png)). An APK installed from
 the release by hand updates the same way, as it is signed with the same key.
 
-The nightly job publishes the repository with the nightly APK (`tools/fdroid_repo.sh`). On each push to the default
-branch it:
+CI's `fdroid` job ("F-Droid repository") publishes the repository with the nightly APK (`tools/fdroid_repo.sh`). It
+needs the `nightly` and `pages` jobs and runs only when the `nightly` job published the release (its output
+`released`), so it starts once the release is out and the site is deployed: nothing it runs can change what those
+two published in this run. A run that does not release (a build failed, a pull request, another branch, a commit
+the branch has moved on from) skips it. It takes the APK as the artifact `vibeBMS-android` and checks it against
+the SHA-256 `android-sign` gave (before it installs fdroidserver, and again right before the key is written). Then
+it:
 - installs fdroidserver 2.4.5 from pip, in a step that has no key: it and every package it brings (68 files) are
   pinned by version and SHA-256 in `tools/fdroidserver.txt` and `tools/fdroidserver-build.txt` (`--require-hashes`;
   the four that have no wheel are built with the pinned setuptools, without pip's build isolation, which would fetch
@@ -297,17 +302,17 @@ branch it:
   `FDROID_KEYSTORE` / `FDROID_KEYSTORE_PASSWORD` when set, else with the APK's key (`ANDROID_KEYSTORE`, which that
   step gets only then); the password reaches keytool and fdroidserver through the environment, not a command line
   or `config.yml`;
-- after the release is published, replaces the branch `fdroid-repo` with one new commit (no parent), so the older
-  APKs are not kept in its history. The release's concurrency group and the check that the commit is still the
-  branch's head (or that the newer commits skip CI, `[skip ci]`: they start no run, `tools/ci_moved_on.sh`) make
-  the newest run win;
+- replaces the branch `fdroid-repo` with one new commit (no parent), so the older APKs are not kept in its history.
+  The job's concurrency group (`fdroid-repo`) and the check that the commit is still the branch's head (or that the
+  newer commits skip CI, `[skip ci]`: they start no run, `tools/ci_moved_on.sh`) make the newest run win;
 - puts the address, the key's fingerprint and the links that add the repository (`fdroidrepos://...?fingerprint=`)
-  in the run's summary and in the release's `fdroid.txt`, the link as a QR code in `fdroid-qr.png`.
+  in the run's summary and, uploaded to the nightly release, in `fdroid.txt`, the link as a QR code in
+  `fdroid-qr.png`.
 
-It skips the repository, saying why in the summary, when the run built no APK, when the APK was signed with a key
-made for the run (it could not update the installed app), or when there is no key for the index (a key made per run
-would change the fingerprint the clients pinned). A failure there holds back no other file: the job publishes the
-rest, then ends as failed, so that it is seen.
+It skips the repository, saying why in the summary, when the APK was signed with a key made for the run (it could
+not update the installed app), or when there is no key for the index (a key made per run would change the
+fingerprint the clients pinned). A failure there fails the `fdroid` job alone, so that it is seen: the release and
+the site are already published.
 
 The index's key is what clients pin: changing it later means every user adds the repository again. So whether the
 index keeps the APK's key or gets its own (F-Droid advises one; `FDROID_KEYSTORE`) is decided once, before users add
@@ -402,9 +407,9 @@ build that has the key takes the list only with a signature that matches.
 
 - The key is an OpenSSH Ed25519 key. Its private half is the secret `UPDATE_SIGNING_KEY` of the environment
   `update-signing`, which only the job `sign-update` names: the jobs that run scripts and downloaded tools (the
-  nightly's, in `release`) are never given it. Limit it to the default branch as `release` is (Android signing,
-  above). Its public half is `tools/update_key.pub`, in the repository. There is one key and no second copy: CI
-  alone has it.
+  nightly's, and the fdroid job's, in `release`) are never given it. Limit it to the default branch as `release` is
+  (Android signing, above). Its public half is `tools/update_key.pub`, in the repository. There is one key and no
+  second copy: CI alone has it.
 - The job `update-manifest` writes `latest.json`. It has no secret and only reads. It gives the file's SHA-256 as a
   job output. The job `sign-update` runs in the environment `update-signing`: it downloads `latest.json` as an
   artifact, checks it against that SHA-256 (with `sha256sum`, before the key is written), and runs
@@ -477,14 +482,15 @@ matches:
   artifact of it itself, named for the attempt (`github-pages-<attempt>`, so a re-run of the job deploys its own).
   Upload-artifact and upload-pages-artifact both leave out the hidden files and follow links, so the site has the
   files of the web build as before. The files it makes itself (the
-  web build's zip, `altstore.json`, `builds.json`, and `fdroid.txt` and `fdroid-qr.png` when the F-Droid repository
-  is built) are given as the SHA-256 outputs of the steps that made them.
+  web build's zip, `altstore.json`, `builds.json`) are given as the SHA-256 outputs of the steps that made them.
 - Its step "check the files" then checks every file in `out/` (what it uploads) against the output of its maker.
   Every one of them must match, and a file that no maker names, or whose maker gave no SHA-256, stops the release:
-  nothing is published. It runs before the F-Droid index is built (so the index has the APK `android-sign` signed),
-  and again ("check the files again", the same text: a YAML alias in the workflow, not a file a step could change)
-  as the last step before the upload, so a file that the steps in between (`builds.json`, the F-Droid tools and
-  repository) changed is not published.
+  nothing is published. It runs before `builds.json` is made (which hashes what is inside the app's zip and the
+  APK, so those are the checked files), and again ("check the files again", the same text: a YAML alias in the
+  workflow, not a file a step could change) as the last step before the upload, for `builds.json` and anything else
+  in `out/` by then. Nothing is installed in that job, and it has no secret.
+- The `fdroid` job takes the APK only when it matches `android-sign`'s output (F-Droid repository, above); its
+  `fdroid.txt` and `fdroid-qr.png` are not files of the `nightly` job, which refuses them.
 
 What it does not protect against:
 - Foreign code in the job that makes a file (a crate's build script in a build job, a Gradle plugin in `android`)
@@ -495,14 +501,19 @@ What it does not protect against:
   job then builds from it: its SHA-256 names what it built, so every check passes. The Reproducible builds workflow
   (started by hand) builds the release files again without any cache: a file it does not make to the same bytes
   shows such a difference.
-- Code that runs in the `nightly` job itself between the checks: the pinned fdroidserver of the F-Droid steps (each
-  of its files pinned by SHA-256; it already has the F-Droid key) could change what the later steps run (their
-  `PATH` or environment, a process left running), which no check in the same job can rule out. The second check
-  sees any file it changed in `out/`. The `nightly` job runs at the same time as the `pages` job, so this code could
-  also replace the Pages artifact between that job's upload and its deploy.
-- The F-Droid repository pushed to the branch `fdroid-repo`: only `fdroid.txt` and `fdroid-qr.png` are checked.
-  The index and the copy of the APK in it are what fdroidserver wrote (the point above); clients check the index's
-  signature, and the APK's own signature, as they install it.
+- The `fdroid` job itself. It runs the pinned fdroidserver (each of its files pinned by SHA-256, but third-party
+  code, four packages built from their sources) with the F-Droid repository's key and a token that can write the
+  repository's contents. Code in it could sign any index with that key, push to `fdroid-repo` and to any other
+  branch or tag that no rule protects, and replace or add files of the nightly release after the `nightly` job
+  checked them: the executables the self-update installs only together with a `latest.json` that verifies (once
+  `tools/update_key.pub` is committed; until then a replaced `latest.json` is taken as it is), every other file as
+  it is (an Android client installs an update only with the installed APK's signature). Its steps also name
+  `ANDROID_KEYSTORE` and its password (the index's key when `FDROID_KEYSTORE` is not set), so the runner holds them,
+  and code with the runner's passwordless `sudo` can read them from its memory. It cannot change this run's site
+  (it has no Pages permission, and the `pages` job has ended) or its checks. Nothing it publishes is checked after
+  fdroidserver ran: the index, the copy of the APK in it (`tools/fdroid_repo.sh` compares it byte for byte with the
+  checked APK, but in the same job), `fdroid.txt` and `fdroid-qr.png`; clients check the index's signature, and the
+  APK's own signature, as they install it.
 - What is carried from the previous release without a signature: the other apps of `altstore.json` and the older
   entries of `builds.json`, taken from the release as it is (the other channels of `latest.json` are kept only when
   their signature verifies).
