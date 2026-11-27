@@ -172,10 +172,12 @@ frames later, so play does not stall.
   its OPTIONS button) chooses from which, by the lamps of the judge preset chosen.
 - Entering a folder puts the cursor on the folder's own row; deciding on it closes the folder (as in LR2).
 - A chart held in several folders (the same file, by its SHA-256) is one chart: ALL SONGS, search, FAVORITE, the
-  virtual folders, RANDOM MIX and the library's chart count list it once, as its first copy in path order (a loose
-  file before one inside an archive). Each folder it is in, and SAME FOLDER, still shows its own copy, and a folder's
-  count is the charts in it. Scores, replays and chart favourites are the chart's; a song favourite stays with its
-  folder.
+  virtual folders, RANDOM MIX and the library's chart count list it once. Of its copies the filters keep, the one
+  shown is a loose file with a sound file beside it, else another loose one (a chart alone, as in a downloads folder,
+  likely plays silent), else one inside an archive; of those alike, the first in path order. A table entry or a
+  course stage takes a copy the same way, whatever the filters. Each folder it is in, and SAME FOLDER, still shows its
+  own copy, and a folder's count is the charts in it. Scores, replays and chart favourites are the chart's; a song
+  favourite stays with its folder.
 
 Holding START or SELECT shows beatoraja's option panels, in its key layout:
 

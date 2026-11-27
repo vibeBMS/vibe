@@ -1,7 +1,9 @@
 //! One chart held in several folders. Records of one SHA-256 are one
 //! chart: the lists that are not a view of one folder show it once, and
-//! wherever a chart is found by its hash the same copy of it is taken, the
-//! first in library order, a loose file before one inside an archive. An
+//! wherever a chart is found by its hash the same copy of it is taken: a
+//! loose file with a sound beside it, else another loose one (a chart
+//! alone, as in a downloads folder, likely plays silent), else one inside
+//! an archive; the first in library order of those alike. An
 //! MD5 can be shared by different charts (a collision, or a file made to
 //! match one): then the title and artist the finder was given choose.
 
@@ -18,8 +20,8 @@ pub struct Charts {
     chart: Vec<u32>,
     /// Each chart's copy taken (a record).
     taken: Vec<usize>,
-    /// The records inside an archive.
-    packed: Vec<bool>,
+    /// Each record's class: (inside an archive, no sound beside it).
+    class: Vec<(bool, bool)>,
     by_sha: HashMap<String, u32>,
     /// The charts of each MD5, in the order of their copies taken.
     by_md5: HashMap<String, Vec<u32>>,
@@ -44,7 +46,7 @@ impl Charts {
     pub fn new(songs: &[Song]) -> Charts {
         let mut c = Charts {
             chart: Vec::with_capacity(songs.len()),
-            packed: songs.iter().map(Song::in_archive).collect(),
+            class: songs.iter().map(|s| (s.in_archive(), s.bare)).collect(),
             ..Default::default()
         };
         for (i, s) in songs.iter().enumerate() {
@@ -52,7 +54,7 @@ impl Charts {
             let n = match c.by_sha.get(sha.as_ref()) {
                 Some(&n) => {
                     let t = &mut c.taken[n as usize];
-                    if c.packed[*t] && !c.packed[i] {
+                    if c.class[i] < c.class[*t] {
                         *t = i;
                     }
                     n
@@ -80,10 +82,10 @@ impl Charts {
         c
     }
 
-    /// The order copies are taken in: loose files first, then by library
-    /// order.
-    fn rank(&self, i: usize) -> (bool, usize) {
-        (self.packed[i], i)
+    /// The order copies are taken in: by class (loose files with a sound
+    /// beside them first), then by library order.
+    fn rank(&self, i: usize) -> ((bool, bool), usize) {
+        (self.class[i], i)
     }
 
     /// How many charts there are (copies counted once).
@@ -231,5 +233,44 @@ mod tests {
         assert!(begun.elapsed().as_secs() < 10, "{:?}", begun.elapsed());
         assert_eq!(c.by_md5(&songs, "m", &title(15), ""), Some(15));
         assert_eq!(c.by_md5(&songs, "m", &title(16), ""), Some(0));
+    }
+
+    /// Of a chart's loose copies, one with a sound beside it is taken (a
+    /// chart alone, as in a downloads folder, is likely to play silent);
+    /// among those alike, the first in library order.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_copy_with_its_sounds_is_taken() {
+        use crate::library::{cached_songs, scan, ScanProgress};
+        use std::sync::Arc;
+        let dir = std::env::temp_dir().join(format!("vibebms-charts-bare-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let chart = b"#TITLE X\n#WAV01 01.wav\n#00111:01\n";
+        for d in ["a", "b", "c"] {
+            std::fs::create_dir_all(dir.join(d)).unwrap();
+            std::fs::write(dir.join(d).join("x.bms"), chart).unwrap();
+        }
+        std::fs::write(dir.join("b/01.WAV"), b"RIFF").unwrap();
+        std::fs::write(dir.join("c/01.ogg"), b"OggS").unwrap();
+        let cache = dir.join("cache");
+        let file = cache.join("songs.json");
+        let taken = || {
+            let p = Arc::new(ScanProgress::default());
+            scan(file.clone(), vec![dir.clone()], [cache.clone()].into(), p);
+            let songs = cached_songs(&file);
+            let c = Charts::new(&songs);
+            let i = c.by_sha(&songs[0].sha256).unwrap();
+            let mut v: Vec<usize> = (0..songs.len()).collect();
+            c.one_each(&mut v);
+            assert_eq!(v, [i]);
+            songs[i].path.clone()
+        };
+        assert_eq!(taken(), dir.join("b/x.bms").to_string_lossy());
+        // its sound gone, at the next scan
+        std::fs::remove_file(dir.join("b/01.WAV")).unwrap();
+        assert_eq!(taken(), dir.join("c/x.bms").to_string_lossy());
+        std::fs::remove_file(dir.join("c/01.ogg")).unwrap();
+        assert_eq!(taken(), dir.join("a/x.bms").to_string_lossy());
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -59,6 +59,10 @@ pub struct Song {
     /// The long notes by type (`LnProfile::bits`); `None` in libraries
     /// scanned before it was stored.
     pub ln_profile: Option<u8>,
+    /// No sound file is in its folder (a chart alone, as in a downloads or
+    /// backup folder), as the last scan found it: of a chart's copies, one
+    /// with sounds is taken first (`charts`). Never for one in an archive.
+    pub bare: bool,
     /// When its file was last changed (s; the scan's stamp): when it came,
     /// for the NEW sort.
     #[serde(skip)]
@@ -1061,6 +1065,8 @@ impl Marks {
 #[derive(Default)]
 struct Found {
     charts: Vec<PathBuf>,
+    /// Folders that hold a sound file.
+    voiced: HashSet<PathBuf>,
     /// Archives (read as folders: `platform::arcfs`).
     archives: Vec<PathBuf>,
     /// Folders that cannot be read (a drive not mounted, no permission).
@@ -1093,6 +1099,10 @@ fn walk(dir: &Path, depth: usize, skip: &HashSet<PathBuf>, out: &mut Found) {
             out.charts.push(e.path);
         } else if arcfs::is_archive(&e.path) {
             out.archives.push(e.path);
+        } else if (e.path.extension().and_then(|x| x.to_str()))
+            .is_some_and(|x| vfs::AUDIO_EXTS.iter().any(|a| x.eq_ignore_ascii_case(a)))
+        {
+            out.voiced.insert(dir.to_path_buf());
         }
     }
 }
@@ -1345,6 +1355,7 @@ pub fn song_from_chart(path: &Path, folder: String, c: &vibebms_core::Chart) -> 
         stagefile: m.stagefile.clone(),
         banner: m.banner.clone(),
         preview: m.preview.clone(),
+        bare: false,
         added: 0,
     }
 }
@@ -1362,7 +1373,7 @@ pub fn scan(
     skip: HashSet<PathBuf>,
     progress: Arc<ScanProgress>,
 ) {
-    let known_records = load_songs(&songs_file);
+    let mut known_records = load_songs(&songs_file);
     // charts read before the library kept their judge rank and note
     // kinds, or the types of their long notes, are read again (once)
     let known: HashMap<String, (i64, i64)> = known_records
@@ -1380,6 +1391,7 @@ pub fn scan(
     // (each with the root it is below)
     let mut archives: Vec<(PathBuf, &Path)> = Vec::new();
     let mut unreadable: Vec<PathBuf> = Vec::new();
+    let mut voiced: HashSet<PathBuf> = HashSet::new();
     for root in &roots {
         *progress.current.lock().unwrap() = root.display().to_string();
         let mut found = Found::default();
@@ -1390,6 +1402,7 @@ pub fn scan(
         }
         archives.extend(found.archives.into_iter().map(|a| (a, root.as_path())));
         unreadable.extend(found.unreadable);
+        voiced.extend(found.voiced);
         progress.found.store(files.len(), Ordering::Relaxed);
     }
     // archives: those that changed read (their charts in `pre`), every
@@ -1554,7 +1567,23 @@ pub fn scan(
         progress.parsed.fetch_add(1, Ordering::Relaxed);
     };
     marks.each(todo.len(), mark, parse_one);
-    let new = results.into_inner().unwrap();
+    let mut new = results.into_inner().unwrap();
+    // whether each chart has a sound beside it, as its folder is now (of
+    // a folder that cannot be read now, as it was)
+    let bare =
+        |p: &Path| arcfs::split(p).is_none() && p.parent().is_some_and(|d| !voiced.contains(d));
+    for r in &mut new {
+        r.song.bare = bare(Path::new(&r.song.path));
+    }
+    let mut moved = 0;
+    for r in &mut known_records {
+        let p = Path::new(&r.song.path);
+        if !unreadable.iter().any(|d| p.starts_with(d)) {
+            let b = bare(p);
+            moved += usize::from(r.song.bare != b);
+            r.song.bare = b;
+        }
+    }
     // the archives' indexes: those found (and those in folders that cannot
     // be read now, or not below these roots) kept
     let found_archives: HashSet<&Path> = archives.iter().map(|(a, _)| a.as_path()).collect();
@@ -1574,7 +1603,7 @@ pub fn scan(
         .iter()
         .filter(|r| !seen.contains(&r.song.path))
         .count();
-    let changed = !new.is_empty() || removed > 0;
+    let changed = !new.is_empty() || removed > 0 || moved > 0;
     if changed {
         let updated: HashSet<String> = new.iter().map(|r| r.song.path.clone()).collect();
         let mut all: Vec<SongRecord> = known_records
