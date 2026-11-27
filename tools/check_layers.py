@@ -15,10 +15,15 @@ the item. A use of a higher layer fails unless UPWARD lists it; a use
 UPWARD lists that no longer exists fails too, so the list is shortened
 when one goes. Likewise a cycle: top-level modules (`a` for `a::b::c`)
 that use each other, each reached from the others through uses between
-top-level modules, fail unless CYCLES lists exactly that set. What a value's method reaches without naming its type is
-not seen. A `#[path]` attribute, and a path a macro makes from its
-argument after `crate::` (`crate::$m::…`), fail: neither can be read from
-the text.
+top-level modules, fail unless CYCLES lists exactly that set, with the
+uses that close it: any other use in the direction of one of those (from
+its module to the other's) fails, and so do uses between the members
+that make a cycle without them. What a value's method reaches without
+naming its type is not seen, so an `impl` of a type of another top-level
+module (not of a trait) fails. A `#[path]` attribute, a path a macro makes
+from its argument after `crate::` (`crate::$m::…`), `use crate as x;` and
+`extern crate self as x;` fail: what they reach cannot be read from the
+text.
 """
 import os
 import re
@@ -57,10 +62,11 @@ UPWARD = [
      "would read it at every start, not only when AUTO is chosen"),
 ]
 
-# (top-level modules that use each other, why they stay)
+# (top-level modules that use each other, the uses that close the cycle as
+# (from module or the modules under it, to module, items), why they stay)
 CYCLES = [
-    (["i18n", "platform"], "the use of platform::android::locale listed in UPWARD"),
-    (["bulk", "songfetch"],
+    (["i18n", "platform"], [("i18n", "platform::android", ["locale"])], "the use listed in UPWARD"),
+    (["bulk", "songfetch"], [("songfetch", "bulk", ["Wanted"])],
      "songfetch fetches a bulk::Wanted, the song a table asks for, and bulk downloads through songfetch; Wanted "
      "is to move to songfetch when the top-level files are regrouped"),
 ]
@@ -105,11 +111,21 @@ def blank(text):
 
 def item_end(text, i):
     """Where the item starting at `i` (its attributes first) ends: after its
-    `;` or `,` (a field, a variant, a match arm), before a `}` that closes
-    what holds it, or after its `{ … }`."""
-    depth = 0
+    `;` or `,` (a field, a variant, a match arm) but one in `<…>`, before a
+    `}` that closes what holds it, or after its `{ … }`."""
+    depth = angle = 0
     while i < len(text):
         c = text[i]
+        # (`<<` shifts, `->` returns, `=>` ends a match arm's pattern)
+        if depth == 0 and text.startswith("<<", i):
+            i += 2
+            continue
+        if depth == 0 and c == "<":
+            angle += 1
+        elif depth == 0 and c == ">" and text[i - 1 : i] not in ("-", "="):
+            angle = max(angle - 1, 0)
+        elif depth == 0 and text.startswith("=>", i):
+            angle = 0
         if c in "([{":
             depth += 1
         elif c in ")]}":
@@ -118,7 +134,7 @@ def item_end(text, i):
             depth -= 1
             if depth == 0 and c == "}":
                 return i + 1
-        elif c in ";," and depth == 0:
+        elif (c == ";" or c == "," and angle == 0) and depth == 0:
             return i + 1
         i += 1
     return i
@@ -168,6 +184,9 @@ def paths(text, roots):
             while i < len(text) and depth:
                 depth += {"{": 1, "}": -1}.get(text[i], 0)
                 i += 1
+            s = text[start:i]
+        elif m2 := re.compile(r"\s+as\s+\w+").match(text, i):
+            i = m2.end()
             s = text[start:i]
         s = re.sub(r"\s+as\s+", "@", s)
         s = re.sub(r"\s+", "", s)
@@ -244,9 +263,15 @@ def uses(src):
         for m in re.finditer(r"(?<!\w)crate\s*::\s*\$", text):
             line = text.count("\n", 0, m.start()) + 1
             odd.append(at % line + ": a path made from a macro's argument after `crate::`: name its module")
+        # (the crate under another name: its paths are not read)
+        for m in re.finditer(r"(?<!\w)(use\s+crate|extern\s+crate\s+self)\s+as\b", text):
+            line = text.count("\n", 0, m.start()) + 1
+            odd.append(at % line + ": the crate under another name (`%s as`): name it `crate`"
+                       % re.sub(r"\s+", " ", m.group(1)))
         inline = [(m.end(), item_end(text, m.end() - 1), m.group(1))
                   for m in re.finditer(r"\bmod\s+(\w+)\s*\{", text)]
         aliases = {}
+        named = {}  # item imported (or named by its path) -> its module
         spans = []
         for start, end, line, p, alias in paths(text, ["crate", "super", "self"]):
             spans.append((start, end))
@@ -256,6 +281,8 @@ def uses(src):
                 continue
             if t[1]:
                 found[(mod, t[0], t[1])].append(at % line)
+                if p.split("::")[-1] == t[1]:
+                    named[alias or t[1]] = t[0]
             elif p.endswith("::*"):
                 found[(mod, t[0], "*")].append(at % line)
             else:
@@ -270,6 +297,23 @@ def uses(src):
                 seen = True
             if not seen:
                 found[(mod, to, "(module)")].append(at % line)
+        # (methods here of another top-level module's type reach this module
+        # from wherever the type is used, unseen)
+        inherent = (r"(?<!\w)impl\s*(?:<[^{;]*?>)?\s*([\w:]+?)\s*(?:<(?:(?!\bfor\b)[^{;])*>)?\s*"
+                    r"(?:where\b[^{;]*)?\{")
+        for m in re.finditer(inherent, text):
+            name = re.sub(r"\s+", "", m.group(1))
+            first, _, rest = name.partition("::")
+            if first in ("crate", "super", "self"):
+                to = target(here, name)[0]
+            elif rest and first in aliases:
+                to = target(aliases[first][0].split("::"), "self::" + rest)[0]
+            else:
+                to = named.get(name)
+            if to is not None and to.split("::")[0] != mod.split("::")[0]:
+                line = text.count("\n", 0, m.start()) + 1
+                odd.append(at % line + ": methods of %s's %s: write them in its module, or as functions here"
+                           % (to or "lib", name.split("::")[-1]))
         for m in re.finditer(r"(?<![\w:])(\w+)!\s*[(\[{]", text):
             if macros.get(m.group(1), mod) != mod:
                 to = macros[m.group(1)]
@@ -317,12 +361,37 @@ def cycles(found):
 
 def cycle_problems(found, listed):
     """What is wrong with the cycles of `found` against `listed` (CYCLES)."""
+    top = lambda m: m.split("::")[0]
     have = cycles(found)
-    want = {tuple(sorted(c)) for c, _ in listed}
+    want = {tuple(sorted(c)) for c, _, _ in listed}
     bad = ["a cycle between top-level modules: %s (%s)" % (", ".join(m or "lib" for m in c), "; ".join(at))
            for c, at in sorted(have.items()) if c not in want]
-    bad += ["%s no longer use each other in a cycle: take it out of CYCLES in tools/check_layers.py" % ", ".join(c)
-            for c in sorted(want) if c not in have]
+    for c in sorted(want):
+        if c in have:
+            continue
+        grown = [h for h in have if set(c) < set(h)]
+        if grown:
+            bad += ["the cycle %s has grown: %s joined it: change CYCLES in tools/check_layers.py"
+                    % (", ".join(c), ", ".join(m or "lib" for m in h if m not in c)) for h in grown]
+        else:
+            bad.append("%s no longer use each other in a cycle: take it out of CYCLES in tools/check_layers.py"
+                       % ", ".join(c))
+    for members, closing, _ in listed:
+        back = {(top(x), top(y)) for x, y, _ in closing}
+        between = {k: at for k, at in found.items()
+                   if top(k[0]) != top(k[1]) and top(k[0]) in members and top(k[1]) in members}
+        for (a, b, i), at in sorted(between.items()):
+            if (top(a), top(b)) in back and not any(under(a, x) and b == y and i in items
+                                                    for x, y, items in closing):
+                bad.append("%s uses %s::%s (%s), a use that closes the cycle %s but not one CYCLES lists for it"
+                           % (a, b, i, " ".join(at), ", ".join(sorted(members))))
+        for x, y, items in closing:
+            for i in items:
+                if not any(under(a, x) and b == y and j == i for a, b, j in found):
+                    bad.append("%s no longer uses %s::%s: take it out of CYCLES in tools/check_layers.py" % (x, y, i))
+        rest = cycles({k: at for k, at in between.items() if (top(k[0]), top(k[1])) not in back})
+        bad += ["%s use each other without the uses CYCLES lists for them (%s)" % (", ".join(c), "; ".join(at))
+                for c, at in sorted(rest.items())]
     return bad, len(have)
 
 

@@ -126,10 +126,11 @@ without wasm-opt, plus the CJK fonts (see Reproducible builds).
   (lowest first: the file formats and the UI's text, `platform`, the library, the settings, drawing and input, skins,
   sound, the services, the state the scenes share, `ctx/`, the widgets, the in-app browser, the scenes, and the shell,
   `app/`) and uses only the layers below its own. The uses of a higher layer that remain are listed in the script,
-  each with its reason, and so are the top-level modules that still use each other in a cycle. CI's test job runs
-  it: it fails on a use of a higher layer or a cycle it does not list, on a listed use or cycle that is gone, and on
-  a module in no layer, so a change that adds a module gives it a layer, and one that removes a listed use or cycle
-  takes it off the list.
+  each with its reason, and so are the top-level modules that still use each other in a cycle, with the uses that
+  close it. CI's test job runs it: it fails on a use of a higher layer or a cycle it does not list, on another use
+  that closes a listed cycle, on a listed use or cycle that is gone or a listed cycle that has grown, on an `impl`
+  (not of a trait) of another top-level module's type, and on a module in no layer, so a change that adds a module
+  gives it a layer, and one that removes a listed use or cycle takes it off the list.
 - The logo and icons: `tools/gen_logo.py` (fonttools, cairosvg, Pillow) writes `assets/logo/` and the platforms'
   icons.
 
