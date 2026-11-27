@@ -14,6 +14,11 @@ inputs:
   cache-key:
     description: rust-cache key (empty for the job's default)
     default: ""
+  cache-job:
+    description: >-
+      The job named in the cache key, in place of this job's id (the jobs of
+      one build, split from a matrix, keep the key that matrix job had)
+    default: ""
   stamp:
     description: "true: stamp the CI version (tools/ci_version.sh)"
     default: "true"
@@ -48,7 +53,8 @@ runs:
         rustup toolchain list
     - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       with:
-        key: ${{ inputs.cache-key }}
+        key: ${{ inputs.cache-job && format('{0}-{1}', inputs.cache-key, inputs.cache-job) || inputs.cache-key }}
+        add-job-id-key: ${{ inputs.cache-job == '' }}
         # only the default branch writes the cache (pull requests and other
         # branches read its entries): the repository's 10 GB cache is about
         # one set of these, and each pull request's set evicted the default
