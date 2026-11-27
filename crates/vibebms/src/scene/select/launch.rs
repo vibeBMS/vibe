@@ -398,13 +398,14 @@ impl SelectScene {
             ..Default::default()
         };
         let entry = crate::net::songfetch::entry(&ctx.tables.links, &want, more);
-        // the song is in the library (another of its charts): what to say
-        // when nothing can be tried
-        let have_song = !md5.is_empty()
-            && ctx.lib.songs.iter().any(|s| {
-                crate::net::placement::same_name(&s.title, &title)
-                    && crate::net::placement::same_artist(&s.artist, &artist)
-            });
+        // the song is in the library (a chart of its title and artist, or
+        // one the table names as the song's own, as the download decides):
+        // what to say when nothing can be tried
+        let have_song = !md5.is_empty() && {
+            let song = bmseeker::placement::SongKey::of(&title, &artist);
+            (want.org_md5.iter()).any(|m| self.charts.by_md5(&ctx.lib.songs, m, "", "").is_some())
+                || self.song_keys(ctx).iter().any(|k| k.same_song(&song))
+        };
         if ctx
             .net
             .song_fetch

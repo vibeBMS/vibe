@@ -552,15 +552,13 @@ impl SelectScene {
                                 .filter(|i| Path::new(&songs[*i].path).starts_with(&dir))
                                 .collect()
                         }
-                        None => (0..songs.len())
-                            .filter(|i| {
-                                crate::net::placement::same_title(&songs[*i].title, &w.title)
-                                    && crate::net::placement::same_artist(
-                                        &songs[*i].artist,
-                                        &w.artist,
-                                    )
-                            })
-                            .collect(),
+                        None => {
+                            let work = bmseeker::placement::SongKey::of(&w.title, &w.artist);
+                            let keys = self.song_keys(ctx);
+                            (0..songs.len())
+                                .filter(|i| keys[*i].same_song(&work))
+                                .collect()
+                        }
                     };
                     if mine.is_empty() {
                         bars.push(Bar::Missing(Missing {
@@ -1370,6 +1368,114 @@ mod tests {
                 .collect();
             assert_eq!(got, ["/bms/a/x.bms"]);
         }
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// An event's work not recorded as downloaded is the library's songs
+    /// of it as the downloads compare songs (`SongKey`): a title that only
+    /// starts another's, or an artist that only starts another's, is
+    /// another song; a chart's name cut, short titles, spellings alike and
+    /// full-width letters are the same one.
+    #[test]
+    fn event_work_owned_as_downloads_compare() {
+        let root = std::env::temp_dir().join(format!("vibebms-work-owned-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        ctx.net.archives.events = vec![crate::net::events::Event {
+            url: "e".into(),
+            name: "EV".into(),
+            ..Default::default()
+        }];
+        let mut s = SelectScene::new(&mut ctx);
+        let x = |t| (t, "x");
+        // (the library's chart, the work, owned)
+        let rows = [
+            (x("Mirage Garden [ANOTHER]"), x("Mirage Garden"), true),
+            (x("Arcadia -★1-"), x("Arcadia"), true),
+            (x("Engraved Mark -ANOTHER-"), x("Engraved Mark"), true),
+            (x("Airborne"), x("Air"), false),
+            (x("Love Story"), x("Love"), false),
+            (x("AA"), x("AA"), true),
+            (x("灼熱 [A]"), x("灼熱"), true),
+            (x("Hello Worlds"), x("Hello World"), true),
+            (x("Blue Sky II"), x("Blue Sky"), true),
+            (x("Colourful"), x("Colorful"), true),
+            (x("Ｓｏｎｇ　Ａ"), x("Song A"), true),
+            (("Song A", "x feat. y"), x("Song A"), true),
+            (("Song A", "x / obj: y"), x("Song A"), true),
+            (("Song A", "DJ Noriken"), ("Song A", "DJ"), false),
+            (("Song A", "x vs y"), x("Song A"), false),
+            (("Song A", ""), ("Song A", ""), true),
+            (x(""), x(""), false),
+        ];
+        for ((title, artist), (work, by), owned) in rows {
+            ctx.lib.songs = Arc::new(vec![Song {
+                artist: artist.into(),
+                ..song(title, PlayMode::Beat7K, 2, "5", 0)
+            }]);
+            ctx.net.archives.events[0].works = vec![bmseeker::manbow::mirror::Work {
+                num: 1,
+                title: work.into(),
+                artist: by.into(),
+                page: "https://venue/1".into(),
+                ..Default::default()
+            }];
+            s.index(&ctx);
+            let bars = s.build(&ctx, &Node::Archive("e".into()), true);
+            let row = (title, artist, work, by);
+            match &bars[..] {
+                [Bar::Song(0)] => assert!(owned, "{row:?}"),
+                [Bar::Missing(m)] => assert!(!owned && m.title == work, "{row:?}"),
+                _ => panic!("{row:?}: {} bars", bars.len()),
+            }
+        }
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// An event of 200 works over a library of 50,000 charts: the keys
+    /// made (once per list of songs) and the works looked up, then the
+    /// works alone. `cargo test -p vibebms works_over_a_large_library --
+    /// --ignored --nocapture`
+    #[test]
+    #[ignore = "a measurement"]
+    fn works_over_a_large_library() {
+        let root = std::env::temp_dir().join(format!("vibebms-works-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        ctx.lib.songs = Arc::new(
+            (0..50_000)
+                .map(|i| Song {
+                    artist: format!("Artist {} / obj: x", i % 500),
+                    ..song(
+                        &format!("ソング {i} [ANOTHER]"),
+                        PlayMode::Beat7K,
+                        2,
+                        "5",
+                        0,
+                    )
+                })
+                .collect(),
+        );
+        ctx.net.archives.events = vec![crate::net::events::Event {
+            url: "e".into(),
+            works: (0..200)
+                .map(|i| bmseeker::manbow::mirror::Work {
+                    num: i,
+                    title: format!("ソング {i}"),
+                    artist: format!("Artist {i}"),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        }];
+        let s = SelectScene::new(&mut ctx);
+        let node = Node::Archive("e".into());
+        let begun = std::time::Instant::now();
+        let first = s.build(&ctx, &node, true).len();
+        let keyed = begun.elapsed();
+        s.build(&ctx, &node, true);
+        println!(
+            "{first} bars; keys and works: {keyed:?}, works again: {:?}",
+            begun.elapsed() - keyed
+        );
         std::fs::remove_dir_all(&root).ok();
     }
 

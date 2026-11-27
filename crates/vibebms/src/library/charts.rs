@@ -8,7 +8,7 @@
 //! match one): then the title and artist the finder was given choose.
 
 use crate::library::Song;
-use crate::net::placement::{same_artist, same_title};
+use bmseeker::placement::SongKey;
 use std::borrow::Cow;
 use std::collections::HashMap;
 
@@ -105,13 +105,19 @@ impl Charts {
     pub fn by_md5(&self, songs: &[Song], md5: &str, title: &str, artist: &str) -> Option<usize> {
         let found = self.by_md5.get(key(md5).as_ref())?;
         let copies = || found.iter().map(|&n| self.taken[n as usize]);
-        let named = |i: &usize| {
-            let s = &songs[*i];
-            (same_title(&s.title, title) || same_title(&s.full_title(), title))
-                && (artist.is_empty() || same_artist(&s.artist, artist))
+        // of several, by name as the downloads compare songs (an entry
+        // without an artist: by title alone)
+        let named = || {
+            let wanted = SongKey::of(title, artist);
+            copies().take(NAMED_OF).find(|&i| {
+                let s = &songs[i];
+                let by = if artist.is_empty() { "" } else { &s.artist };
+                let alike = |t: &str| SongKey::of(t, by).same_song(&wanted);
+                alike(&s.title) || (!s.subtitle.is_empty() && alike(&s.full_title()))
+            })
         };
         (found.len() > 1 && !title.is_empty())
-            .then(|| copies().take(NAMED_OF).find(named))
+            .then(named)
             .flatten()
             .or_else(|| copies().next())
     }
@@ -219,8 +225,14 @@ mod tests {
     /// it: each row looks at a few of them, not at all.
     #[test]
     fn many_charts_of_one_md5_are_looked_up_quickly() {
-        // (titles as long as many are)
-        let title = |k: usize| format!("T{k} - a song with a long title [ANOTHER] -remix-");
+        // (titles as long as many are, each another song's: not alike)
+        let hash = |k: usize| {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            k.hash(&mut h);
+            h.finish()
+        };
+        let title = |k: usize| format!("{:016x}{:016x} [ANOTHER] -remix-", hash(k), hash(!k));
         let songs: Vec<Song> = (0..5000)
             .map(|k| song(&format!("/bms/{k}/x.bms"), &format!("s{k}"), "m", &title(k)))
             .collect();
