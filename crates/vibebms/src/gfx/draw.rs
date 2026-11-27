@@ -9,6 +9,9 @@ pub struct Draw<'a> {
     pub b: &'a mut Batch,
     /// Where the mouse is (`Ctx`'s `input.pointer`), for skins' hover images.
     pub pointer: Option<(f32, f32)>,
+    /// A text field is being edited (set as it is drawn): the window then
+    /// shows the on-screen keyboard (iOS, Android) and takes input methods.
+    pub text_input: bool,
 }
 
 impl Draw<'_> {

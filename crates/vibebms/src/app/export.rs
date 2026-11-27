@@ -520,8 +520,9 @@ pub fn export_video(
             text: &mut text,
             b: &mut batch,
             pointer: None,
+            text_input: false,
         };
-        scene.draw(&mut ctx, &mut d, t);
+        scene.draw(&ctx, &mut d, t);
         let px = off.frame(&batch, crate::gfx::theme::BACKGROUND)?;
         if let Err(e) = pipe.write_all(&px) {
             if cancel.load(Ordering::Relaxed) {

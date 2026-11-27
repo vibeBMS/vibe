@@ -33,7 +33,7 @@ pub enum Next {
 
 pub trait Scene {
     fn update(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, now: Instant) -> Next;
-    fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant);
+    fn draw(&mut self, ctx: &Ctx, d: &mut Draw, now: Instant);
     fn input(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next;
     /// Another scene was pushed over it (it is not drawn until
     /// [`resumed`](Self::resumed)): textures may be let go.

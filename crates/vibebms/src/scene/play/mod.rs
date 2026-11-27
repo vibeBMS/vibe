@@ -753,7 +753,7 @@ impl Scene for PlayScene {
         ctx.save_config();
     }
 
-    fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
+    fn draw(&mut self, ctx: &Ctx, d: &mut Draw, now: Instant) {
         match &self.stage {
             Stage::Loading(l) => l.draw(ctx, d, &self.req),
             _ if self.session.sides.is_empty() => {}

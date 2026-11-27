@@ -774,7 +774,7 @@ impl Scene for PracticeScene {
         ctx.save_config();
     }
 
-    fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, _now: Instant) {
+    fn draw(&mut self, ctx: &Ctx, d: &mut Draw, _now: Instant) {
         let u = ctx.ui();
         let (w, h) = (ctx.view.width, ctx.view.height);
         d.b.rect(Rect::new(0.0, 0.0, w, h), theme::BACKGROUND);

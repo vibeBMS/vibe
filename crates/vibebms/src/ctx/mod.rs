@@ -200,9 +200,6 @@ impl View {
 pub struct Input {
     /// A touch screen has been touched.
     pub touch_seen: bool,
-    /// A text field is being edited (scenes set it as they draw): the
-    /// on-screen keyboard is shown on iOS and Android.
-    pub text_input: bool,
     /// Where the mouse is (screen pixels); `None` before it moves and once
     /// it has left the window.
     pub pointer: Option<(f32, f32)>,

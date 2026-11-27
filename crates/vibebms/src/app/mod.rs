@@ -453,14 +453,14 @@ impl Running {
             text: &mut self.text,
             b: &mut self.batch,
             pointer: self.ctx.input.pointer,
+            text_input: false,
         };
-        self.ctx.input.text_input = false;
         if let Some(top) = self.scenes.last_mut() {
-            top.draw(&mut self.ctx, &mut d, shown);
+            top.draw(&self.ctx, &mut d, shown);
         }
         // the on-screen keyboard (iOS, Android) while a text field is edited
-        if self.ctx.input.text_input != self.ime_on {
-            self.ime_on = self.ctx.input.text_input;
+        if d.text_input != self.ime_on {
+            self.ime_on = d.text_input;
             if cfg!(mobile) {
                 self.window.set_ime_allowed(self.ime_on);
             }
@@ -475,7 +475,8 @@ impl Running {
             );
         }
         self.downloads.draw(&self.ctx, &mut d);
-        draw_overlay(&mut self.ctx, &mut d, now);
+        (self.ctx.toasts).retain(|(_, t)| now.duration_since(*t) < Duration::from_secs(4));
+        draw_overlay(&self.ctx, &mut d, now);
         if std::mem::take(&mut self.ctx.view.want_screenshot) && self.shot_name.is_none() {
             if self.gfx.request_capture() {
                 let label = self.scenes.last().map(|s| s.screenshot_label(&self.ctx));
@@ -601,10 +602,8 @@ fn answer_third_party_notice(ctx: &mut Ctx, ok: bool) {
     ctx.save_config();
 }
 
-fn draw_overlay(ctx: &mut Ctx, d: &mut Draw, now: Instant) {
+fn draw_overlay(ctx: &Ctx, d: &mut Draw, now: Instant) {
     let ui = ctx.ui();
-    ctx.toasts
-        .retain(|(_, t)| now.duration_since(*t) < Duration::from_secs(4));
     let mut y = 12.0 * ui;
     for (msg, t) in &ctx.toasts {
         let age = now.duration_since(*t).as_secs_f32();

@@ -556,7 +556,7 @@ impl Scene for KeyConfigScene {
         Next::Stay
     }
 
-    fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
+    fn draw(&mut self, ctx: &Ctx, d: &mut Draw, now: Instant) {
         let view = Rect::new(0.0, 0.0, ctx.view.width, ctx.view.height);
         self.host
             .draw(d, view, now, &KeyState { s: self, ctx }, &mut NoHooks);

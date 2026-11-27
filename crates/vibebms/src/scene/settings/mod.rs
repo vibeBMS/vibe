@@ -1228,7 +1228,7 @@ impl Scene for SettingsScene {
         self.then.take().unwrap_or(next)
     }
 
-    fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, _now: Instant) {
+    fn draw(&mut self, ctx: &Ctx, d: &mut Draw, _now: Instant) {
         self.place(ctx);
         self.draw_all(ctx, d)
     }
