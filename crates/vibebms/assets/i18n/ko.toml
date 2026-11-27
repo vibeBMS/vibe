@@ -994,3 +994,11 @@ _untranslated = [
 "Other people's copies, not their authors' own downloads: they are listed with Third-party sources on (SETTINGS › LIBRARY)." = "작가가 직접 배포한 것이 아닌 다른 사람의 사본: 서드파티 소스를 켜면 표시됩니다 (설정 › 라이브러리)."
 "Third-party source" = "서드파티 소스"
 "Someone else's copy, not the author's own download: it is downloaded only with Third-party sources on (SETTINGS › LIBRARY)." = "작가가 직접 배포한 것이 아닌 다른 사람의 사본: 서드파티 소스가 켜져 있을 때만 다운로드합니다 (설정 › 라이브러리)."
+
+# Download progress
+"Waiting…" = "대기 중…"
+"Finding the file…" = "파일 찾는 중…"
+"Finding the file… ({at})" = "파일 찾는 중… ({at})"
+"{hosts} refused, skipped" = "{hosts} 거부됨, 건너뜀"
+"Unpacking…" = "압축 푸는 중…"
+"Adding to the library…" = "라이브러리에 추가하는 중…"

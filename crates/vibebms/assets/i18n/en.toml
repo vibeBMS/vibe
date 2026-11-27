@@ -1049,6 +1049,14 @@ Using them is your own responsibility: follow each site's terms and respect the 
 "{title}: already installed ({folder})" = "{title}: already installed ({folder})"
 "{title}: the song is in the library, but none of this chart's links works" = "{title}: the song is in the library, but none of this chart's links works"
 
+# ui/mod.rs
+"{hosts} refused, skipped" = "{hosts} refused, skipped"
+"Waiting…" = "Waiting…"
+"Finding the file…" = "Finding the file…"
+"Finding the file… ({at})" = "Finding the file… ({at})"
+"Unpacking…" = "Unpacking…"
+"Adding to the library…" = "Adding to the library…"
+
 # ui/text_input.rs
 "(Enter = OK, Esc = cancel)" = "(Enter = OK, Esc = cancel)"
 

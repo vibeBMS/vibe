@@ -994,3 +994,11 @@ _untranslated = [
 "Other people's copies, not their authors' own downloads: they are listed with Third-party sources on (SETTINGS › LIBRARY)." = "作者自身の配布ではなく他の人によるコピーです。サードパーティのソースをオンにすると表示されます（設定 › ライブラリ）。"
 "Third-party source" = "サードパーティのソース"
 "Someone else's copy, not the author's own download: it is downloaded only with Third-party sources on (SETTINGS › LIBRARY)." = "作者自身の配布ではなく他の人によるコピーです。サードパーティのソースがオンのときだけダウンロードします（設定 › ライブラリ）。"
+
+# Download progress
+"Waiting…" = "待機中…"
+"Finding the file…" = "ファイルを探しています…"
+"Finding the file… ({at})" = "ファイルを探しています…（{at}）"
+"{hosts} refused, skipped" = "{hosts} に拒否されたためスキップ"
+"Unpacking…" = "展開中…"
+"Adding to the library…" = "ライブラリに追加中…"

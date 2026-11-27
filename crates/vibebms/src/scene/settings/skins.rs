@@ -304,7 +304,7 @@ fn state_value(ctx: &Ctx, armed: &Armed<Confirm>, e: &SkinEntry) -> String {
         String::new()
     };
     match ctx.skins.store.state(&ctx.paths.skins, e) {
-        State::Busy(p) => format!("{}  {}", p.label(), tr!("cancel ×")),
+        State::Busy(p) => format!("{}  {}", crate::ui::progress_line(&p), tr!("cancel ×")),
         State::Installed { update: true } if !offered(ctx, e) => tr!("installed ✓").into(),
         State::Installed { update: true } => tr!("update ↓{size}", size = size),
         State::Installed { .. } if armed.is(&Confirm::Reinstall(e.id.clone())) => {

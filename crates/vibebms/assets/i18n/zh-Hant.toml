@@ -995,3 +995,11 @@ _untranslated = [
 "Other people's copies, not their authors' own downloads: they are listed with Third-party sources on (SETTINGS › LIBRARY)." = "其他人的副本，並非作者本人提供的下載：開啟第三方來源後才會列出（設定 › 曲庫）。"
 "Third-party source" = "第三方來源"
 "Someone else's copy, not the author's own download: it is downloaded only with Third-party sources on (SETTINGS › LIBRARY)." = "其他人的副本，並非作者本人提供的下載：僅在開啟第三方來源時下載（設定 › 曲庫）。"
+
+# Download progress
+"Waiting…" = "等待中…"
+"Finding the file…" = "正在尋找檔案…"
+"Finding the file… ({at})" = "正在尋找檔案…（{at}）"
+"{hosts} refused, skipped" = "{hosts} 拒絕，已略過"
+"Unpacking…" = "正在解壓縮…"
+"Adding to the library…" = "正在新增到曲庫…"

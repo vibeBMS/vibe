@@ -876,7 +876,7 @@ fn download_progress(d: &mut Draw, r: Rect, p: &bmseeker::progress::Progress, no
     let size = (r.h * 0.32).clamp(10.0, 18.0);
     // (left of the level number at the bar's right end)
     let (x, y) = (r.right() - r.h * 1.9, strip.y - size * 1.2);
-    let label = p.label();
+    let label = crate::ui::progress_line(p);
     d.text(
         &label,
         x + 1.0,
