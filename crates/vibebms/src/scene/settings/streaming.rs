@@ -3,8 +3,8 @@
 use super::row::onoff;
 use super::row::{Act, Row, Rows};
 use super::TextField;
-use crate::app::Ctx;
 use crate::config::ObsScenes;
+use crate::ctx::Ctx;
 use crate::integrations::ObsPassword;
 use crate::ir::creds;
 

@@ -3,7 +3,7 @@
 //! scene draws it.
 
 use super::SelectScene;
-use crate::app::Ctx;
+use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{Draw, Rect};
 use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};

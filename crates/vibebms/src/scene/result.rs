@@ -1,8 +1,8 @@
 //! Result screen: lamp, score, judge breakdown, gauge graph, timing histogram,
 //! saving best scores, and what became of the play at each IR.
 
-use crate::app::Ctx;
 use crate::config::SubmitPolicy;
+use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{Draw, Gfx, Rect};
 use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};

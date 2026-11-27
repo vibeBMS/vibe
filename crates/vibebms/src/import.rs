@@ -30,7 +30,7 @@ pub struct Report {
 }
 
 /// Tell the user how an import went, and of the charts that waited for it.
-pub fn report(ctx: &mut crate::app::Ctx, r: Outcome) -> Report {
+pub fn report(ctx: &mut crate::ctx::Ctx, r: Outcome) -> Report {
     let mut out = Report {
         rescan: true,
         song_arrived: false,

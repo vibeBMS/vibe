@@ -4,7 +4,7 @@
 
 use super::skin::{PlayHooks, PlayState};
 use super::{PlayScene, Stage};
-use crate::app::Ctx;
+use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{rgba, with_alpha, Draw, Rect};
 use crate::input;

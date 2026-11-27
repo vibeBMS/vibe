@@ -20,8 +20,8 @@ pub mod download;
 pub mod lamps;
 pub mod store;
 
-use crate::app::AppEvent;
 use crate::config::{Beside, IrAccount, IrSettings, SubmitPolicy};
+use crate::ctx::AppEvent;
 use crate::paths::Paths;
 use crate::platform::{http, Job, IS_WEB};
 use lamps::{LampCache, SetKey};

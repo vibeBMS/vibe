@@ -40,6 +40,7 @@ LAYERS = [
     ("sound", ["loudness", "sysound"]),
     ("services", ["hosts", "profiles", "update", "ir", "integrations", "import", "archive", "songfetch", "bulk",
                   "skinstore", "web"]),
+    ("shared state", ["ctx"]),
     ("widgets", ["ui"]),
     ("browser", ["browser"]),
     ("scenes", ["scene"]),
@@ -47,18 +48,17 @@ LAYERS = [
 ]
 
 # (from module or the modules under it, to module, items, why it stays)
-SHELL = "the shared state is defined in app/, the shell, until it has a module of its own"
+PARTS = "it takes the whole Ctx to pass parts of it on"
+EVENT = "what a service has done reaches the shared state as an AppEvent"
 UPWARD = [
-    ("scene", "app", ["Ctx"], SHELL),
-    ("ui", "app", ["Ctx"], SHELL),
-    ("browser", "app", ["Ctx"], SHELL),
-    ("loudness", "app", ["Ctx"], SHELL + "; it takes the whole Ctx to pass parts of it on"),
-    ("bulk", "app", ["Ctx"], SHELL + "; it takes the whole Ctx to pass parts of it on"),
-    ("import", "app", ["Ctx"], SHELL + "; it takes the whole Ctx to pass parts of it on"),
-    ("archive", "app", ["AppEvent"], SHELL + "; what a service has done reaches the shell as an AppEvent"),
-    ("ir", "app", ["AppEvent"], SHELL + "; what a service has done reaches the shell as an AppEvent"),
-    ("skinstore", "app", ["AppEvent"], SHELL + "; what a service has done reaches the shell as an AppEvent"),
-    ("songfetch", "app", ["AppEvent"], SHELL + "; what a service has done reaches the shell as an AppEvent"),
+    ("loudness", "ctx", ["Ctx"], PARTS),
+    ("bulk", "ctx", ["Ctx"], PARTS),
+    ("import", "ctx", ["Ctx"], PARTS),
+    ("archive", "ctx", ["AppEvent"], EVENT),
+    ("ir", "ctx", ["AppEvent"], EVENT),
+    ("skinstore", "ctx", ["AppEvent"], EVENT),
+    ("songfetch", "ctx", ["AppEvent"], EVENT),
+    ("ctx", "scene::skinned", ["settle"], "a skin being tried is settled as the background work is polled"),
     ("i18n", "platform::android", ["locale"],
      "AUTO's language on Android is the Java locale; passing the system's locale in from the start instead "
      "would read it at every start, not only when AUTO is chosen"),

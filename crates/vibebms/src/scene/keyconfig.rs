@@ -20,7 +20,7 @@
 use super::keybind::{self, Learn, Learned, Slot};
 use super::skin_host::{NoHooks, SkinHost, Tap};
 use super::{skinned, skinvals};
-use crate::app::Ctx;
+use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{with_alpha, Draw, Gfx, Rect};
 use crate::input::{nav_from_key, nav_from_pad_rows, AxisStepper, InputEv, Nav, Phase};

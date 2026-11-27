@@ -4,8 +4,8 @@
 
 use super::row::{Act, Row, Rows};
 use super::{Sub, TextField};
-use crate::app::Ctx;
 use crate::courses::Course;
+use crate::ctx::Ctx;
 use crate::scene::cycle;
 use vibebms_core::course::{CourseKind, Join, MAX_STAGES};
 use vibebms_core::PlayMode;

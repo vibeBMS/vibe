@@ -17,8 +17,8 @@ pub(crate) use skin::SelectState;
 pub(crate) use tree::Missing;
 pub(crate) use tree::{Bar, CourseBar, Node};
 
-use crate::app::Ctx;
 use crate::config::Bpms;
+use crate::ctx::Ctx;
 use crate::gfx::{Draw, Gfx, Rect};
 use crate::input::{AxisStepper, InputEv, Nav, Repeat};
 use crate::library::Song;

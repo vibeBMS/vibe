@@ -6,7 +6,7 @@
 //! mirror and unpacks into `bms/<EVENT>/` on choosing it, or opens its
 //! author's download page.
 
-use crate::app::AppEvent;
+use crate::ctx::AppEvent;
 use crate::platform::Job;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

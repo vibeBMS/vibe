@@ -3,7 +3,7 @@
 
 use super::row::{mb, Act, Row, Rows};
 use super::{Armed, Confirm, Screen, Sub};
-use crate::app::Ctx;
+use crate::ctx::Ctx;
 use crate::platform::IS_WEB;
 use crate::scene::play_skin::{configured_path, PERSPECTIVE};
 use crate::scene::skinned;

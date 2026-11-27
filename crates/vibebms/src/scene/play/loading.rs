@@ -3,8 +3,8 @@
 
 use super::bga::Files;
 use super::{PlayRequest, Versus};
-use crate::app::Ctx;
 use crate::config::{BgaMode, PlayConfig};
+use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{with_alpha, Draw, Picture, Rect};
 use crate::loudness::Loudness;

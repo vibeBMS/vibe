@@ -3,7 +3,7 @@
 //! web through the vibeBMS proxy, unpacked / placed in memory. A link that
 //! leads to a page instead opens it in the browser.
 
-use crate::app::AppEvent;
+use crate::ctx::AppEvent;
 use crate::library::Song;
 use crate::platform::Job;
 use bmseeker::progress::{Progress, Stage};

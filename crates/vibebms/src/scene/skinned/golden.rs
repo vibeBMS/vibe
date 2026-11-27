@@ -3,7 +3,7 @@
 //! `tests/golden/skin_values.txt`: rewriting the value tables must not
 //! change them. `GOLDEN_BLESS=1` writes the file anew.
 
-use crate::app::Ctx;
+use crate::ctx::Ctx;
 use crate::library::{BestScore, Song};
 use crate::platform::{Duration, Instant};
 use crate::scene::decide::{DecideScene, DecideState};

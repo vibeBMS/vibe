@@ -263,7 +263,7 @@ impl Downloader for Fetch<'_> {
 }
 
 /// One step of the queue in `ctx` (each frame).
-pub fn tick(ctx: &mut crate::app::Ctx, now: Instant) {
+pub fn tick(ctx: &mut crate::ctx::Ctx, now: Instant) {
     let net = &mut ctx.net;
     if net.bulk.items.is_empty() {
         return;

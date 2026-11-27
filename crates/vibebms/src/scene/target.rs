@@ -6,8 +6,8 @@
 //! The IRs give a final EX score only, and so does a record, so the
 //! rival's pacemaker runs at the share of the notes judged.
 
-use crate::app::Ctx;
 use crate::config::{PlayConfig, PlayerKey, Target};
+use crate::ctx::Ctx;
 use crate::library::Song;
 
 /// Who a rival is.

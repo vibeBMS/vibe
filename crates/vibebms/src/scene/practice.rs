@@ -3,8 +3,8 @@
 //! and LOOP; the play from there (`play::PracticeRun`), and when it comes
 //! back the last attempt's result. Nothing played from here is recorded.
 
-use crate::app::Ctx;
 use crate::config::{PlayConfig, PracticeConfig};
+use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{with_alpha, Draw, Gfx, Rect};
 use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase, Repeat};

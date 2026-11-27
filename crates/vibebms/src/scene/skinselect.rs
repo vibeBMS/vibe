@@ -17,7 +17,7 @@ use super::settings::Page;
 use super::skin_host::{NoHooks, SkinHost, Tap};
 use super::skinned;
 use super::skinvals::{self, ms_since};
-use crate::app::Ctx;
+use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{with_alpha, Draw, Gfx, Rect};
 use crate::input::{nav_from_key, nav_from_pad_rows, AxisStepper, InputEv, Nav, Phase};

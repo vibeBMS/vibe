@@ -1,6 +1,6 @@
 //! Downloads of the in-app browser being brought into the library.
 
-use crate::app::Ctx;
+use crate::ctx::Ctx;
 use crate::import;
 use crate::library::Song;
 use std::path::{Path, PathBuf};

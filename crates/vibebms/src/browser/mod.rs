@@ -3,7 +3,7 @@
 //! the library (`import`): one file at a time, each once the player has
 //! said yes to it, none larger than [`MAX_DOWNLOAD`]. Builds without one
 //! (the web, Linux without WebKitGTK) get a `Downloads` that does nothing:
-//! their pages open in the system browser instead (`IN_APP_BROWSER`).
+//! their pages open in the system browser instead (`ctx::IN_APP_BROWSER`).
 
 #[cfg(target_os = "android")]
 mod android;
@@ -18,9 +18,6 @@ mod webview;
 pub use android::Downloads;
 #[cfg(all(in_app_browser, not(target_os = "android")))]
 pub use webview::Downloads;
-
-/// Songs are downloaded in an in-app browser (desktop, Android, iOS).
-pub const IN_APP_BROWSER: bool = cfg!(in_app_browser);
 
 /// The largest file the in-app browser keeps (bytes): song packs run to
 /// several GB, and a page must not be able to fill the disk.
@@ -38,7 +35,7 @@ impl Downloads {
         &mut self,
         _el: &winit::event_loop::ActiveEventLoop,
         _game: &winit::window::Window,
-        _ctx: &mut crate::app::Ctx,
+        _ctx: &mut crate::ctx::Ctx,
         _pages: Vec<String>,
     ) {
     }
@@ -55,11 +52,11 @@ impl Downloads {
         false
     }
 
-    pub fn input(&mut self, _ctx: &mut crate::app::Ctx, _ev: &crate::input::InputEv) -> bool {
+    pub fn input(&mut self, _ctx: &mut crate::ctx::Ctx, _ev: &crate::input::InputEv) -> bool {
         false
     }
 
-    pub fn draw(&mut self, _ctx: &crate::app::Ctx, _d: &mut crate::gfx::Draw) {}
+    pub fn draw(&mut self, _ctx: &crate::ctx::Ctx, _d: &mut crate::gfx::Draw) {}
 
-    pub fn poll(&mut self, _ctx: &mut crate::app::Ctx) {}
+    pub fn poll(&mut self, _ctx: &mut crate::ctx::Ctx) {}
 }

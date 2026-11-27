@@ -18,8 +18,8 @@
 //! archive of a whole `LR2files` keeps its themes' names). A beatoraja
 //! skin's paths are its own: it goes to `skins/<folder>/` too.
 
-use crate::app::AppEvent;
 use crate::archive::{safe_name, Fail};
+use crate::ctx::AppEvent;
 use crate::platform::Job;
 use bmseeker::progress::Progress;
 use serde::{Deserialize, Serialize};

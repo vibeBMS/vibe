@@ -5,7 +5,7 @@
 //! sounds are mixed offline at the chart's sample rate into a WAV file,
 //! which a second `ffmpeg` run puts beside the frames.
 
-use super::Ctx;
+use crate::ctx::Ctx;
 use crate::gfx::text::Text;
 use crate::gfx::{Batch, Draw, Offscreen};
 use crate::paths::Paths;
@@ -399,9 +399,9 @@ pub fn export_video(
         points_per_inch: 96.0,
     };
     let size = winit::dpi::PhysicalSize::new(w, h);
-    let view = super::ctx::View {
+    let view = crate::ctx::View {
         fps: fps as f32,
-        ..super::ctx::View::new(size, 1.0, screen, &off.gfx.adapter_name)
+        ..crate::ctx::View::new(size, 1.0, screen, &off.gfx.adapter_name)
     };
     let profiles = crate::profiles::Profiles::open(paths);
     let mut ctx = Ctx::new(

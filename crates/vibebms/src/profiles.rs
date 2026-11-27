@@ -672,7 +672,7 @@ mod tests {
     }
 
     /// A play of `ex` EX score (`ex` PGREATs) recorded for chart `sha`.
-    fn play(ctx: &mut crate::app::Ctx, sha: &str, ex: u32) {
+    fn play(ctx: &mut crate::ctx::Ctx, sha: &str, ex: u32) {
         use vibebms_core::judge::{Judge, JudgePreset};
         use vibebms_core::score::{ClearType, Score};
         let mut sc = Score {
@@ -697,7 +697,7 @@ mod tests {
         use crate::config::{Beside, Target};
         use crate::scene::target::{self, RivalKey};
         let root = temp("switch");
-        let mut ctx = crate::app::Ctx::for_test(root.clone());
+        let mut ctx = crate::ctx::Ctx::for_test(root.clone());
         ctx.open_records();
         ctx.reload_library();
         play(&mut ctx, "aa", 30);

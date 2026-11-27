@@ -54,7 +54,7 @@ pub fn gain(l: &Loudness, target: f32) -> f32 {
 
 /// A play starts: the chart's sounds (keysounds and BGM) at its gain; a
 /// loudness just measured is kept.
-pub fn start_play(ctx: &mut crate::app::Ctx, sha256: &str, l: Option<(Loudness, bool)>) {
+pub fn start_play(ctx: &mut crate::ctx::Ctx, sha256: &str, l: Option<(Loudness, bool)>) {
     if let Some((l, true)) = l {
         ctx.audio.loudness.put(sha256, l);
     }

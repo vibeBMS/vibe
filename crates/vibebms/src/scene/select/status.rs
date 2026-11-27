@@ -5,8 +5,8 @@
 
 use super::tree::{Bar, Distribution};
 use super::SelectScene;
-use crate::app::Ctx;
 use crate::config::{HiSpeedMode, KeyFilter, PlayConfig, Versus};
+use crate::ctx::Ctx;
 use crate::library::Song;
 use crate::sysound::Sound;
 use std::cell::Ref;

@@ -3,8 +3,8 @@
 use super::graphs::{self, Area};
 use super::result::{Outcome, ResultScene, SideResult};
 use super::skinvals::*;
-use crate::app::Ctx;
 use crate::config::Bpms;
+use crate::ctx::Ctx;
 use crate::gfx::{Draw, Rect};
 use crate::library::BestScore;
 use crate::platform::Instant;

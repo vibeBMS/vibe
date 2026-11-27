@@ -1,7 +1,7 @@
 //! Shared pieces of the skinned (non-play) scenes: which skin to use and
 //! loading it; its options and offsets.
 
-use crate::app::Ctx;
+use crate::ctx::Ctx;
 use crate::gfx::Gfx;
 use crate::skin::render::LoadedSkin;
 use crate::skin::SkinType;

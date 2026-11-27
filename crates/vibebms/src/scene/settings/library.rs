@@ -5,8 +5,8 @@
 use super::row::onoff;
 use super::row::{Act, Row, Rows};
 use super::{Ask, Sub, TextField};
-use crate::app::Ctx;
 use crate::config::TableConfig;
+use crate::ctx::Ctx;
 
 fn remove_folder(c: &mut Ctx, i: usize) {
     if i < c.config.bms_dirs.len() {

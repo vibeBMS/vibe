@@ -1,15 +1,6 @@
 # Every text vibeBMS translates, in English (the key the other tables use).
 # Generated from the code's tr!(...) calls: I18N_BLESS=1 cargo test -p vibebms i18n
 
-# app/ctx.rs
-"No such profile" = "No such profile"
-"Profile: {name}" = "Profile: {name}"
-"Library: {n} charts" = "Library: {n} charts"
-"{title}: {n} scores read: {new} new, {changed} improved, {unknown} of charts not here" = "{title}: {n} scores read: {new} new, {changed} improved, {unknown} of charts not here"
-", {n} left out (LN mode not said)" = ", {n} left out (LN mode not said)"
-", {n} left out (no rule mode)" = ", {n} left out (no rule mode)"
-"Reading {n} charts…" = "Reading {n} charts…"
-
 # app/mod.rs
 "Screenshot: {e}" = "Screenshot: {e}"
 "Screenshot: {path}" = "Screenshot: {path}"
@@ -17,10 +8,6 @@
 "Turn off" = "Turn off"
 "Screenshots: this GPU's screen cannot be read" = "Screenshots: this GPU's screen cannot be read"
 "Graphics: {wanted} could not start, {used} is used instead (SETTINGS › DISPLAY & AUDIO › ADVANCED)" = "Graphics: {wanted} could not start, {used} is used instead (SETTINGS › DISPLAY & AUDIO › ADVANCED)"
-
-# app/tables.rs
-"Table {name}: {e}" = "Table {name}: {e}"
-"Table updated: {name} ({n} charts)" = "Table updated: {name} ({n} charts)"
 
 # archive.rs
 "Added {name} ({n} files)" = "Added {name} ({n} files)"
@@ -46,6 +33,19 @@
 "OK brings it into your library. Otherwise it is deleted." = "OK brings it into your library. Otherwise it is deleted."
 "Keep this download?" = "Keep this download?"
 "Delete" = "Delete"
+
+# ctx/mod.rs
+"No such profile" = "No such profile"
+"Profile: {name}" = "Profile: {name}"
+"Library: {n} charts" = "Library: {n} charts"
+"{title}: {n} scores read: {new} new, {changed} improved, {unknown} of charts not here" = "{title}: {n} scores read: {new} new, {changed} improved, {unknown} of charts not here"
+", {n} left out (LN mode not said)" = ", {n} left out (LN mode not said)"
+", {n} left out (no rule mode)" = ", {n} left out (no rule mode)"
+"Reading {n} charts…" = "Reading {n} charts…"
+
+# ctx/tables.rs
+"Table {name}: {e}" = "Table {name}: {e}"
+"Table updated: {name} ({n} charts)" = "Table updated: {name} ({n} charts)"
 
 # hosts.rs
 """

@@ -381,7 +381,7 @@ pub(super) fn rows(b: &mut Rows) {
 
 /// A controller choice as shown: the name, `(not connected)` when it is
 /// not.
-fn pad_choice(ctx: &crate::app::Ctx, p: &Option<PadId>) -> String {
+fn pad_choice(ctx: &crate::ctx::Ctx, p: &Option<PadId>) -> String {
     match p {
         None => tr!("AUTO (connection order)").into(),
         Some(p) if ctx.input.pads.iter().any(|c| c.pad == *p) => p.name.clone(),
@@ -392,7 +392,7 @@ fn pad_choice(ctx: &crate::app::Ctx, p: &Option<PadId>) -> String {
 /// Side `side`'s controller: AUTO, then the connected controllers (and the
 /// one chosen if it is not connected), `d` steps on. A controller the
 /// other side has changes sides with this side's.
-fn step_pad(c: &mut crate::app::Ctx, side: usize, d: i32) {
+fn step_pad(c: &mut crate::ctx::Ctx, side: usize, d: i32) {
     let mut all: Vec<Option<PadId>> = vec![None];
     let cur = c.config.keys.controllers.get(side).clone();
     for p in c

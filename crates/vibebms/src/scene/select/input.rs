@@ -3,8 +3,8 @@
 use super::options::SelectOption;
 use super::tree::Node;
 use super::SelectScene;
-use crate::app::Ctx;
 use crate::config::{KeyConfig, LaneKeys};
+use crate::ctx::Ctx;
 use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase, Repeat};
 use crate::platform::{Duration, Instant};
 use crate::scene::Next;

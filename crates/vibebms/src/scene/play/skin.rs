@@ -2,8 +2,8 @@
 //! frame, the parts the scene draws for it.
 
 use super::PlayScene;
-use crate::app::Ctx;
 use crate::config::{HiSpeedMode, PlayConfig};
+use crate::ctx::Ctx;
 use crate::gfx::{Draw, Gfx, Rect, TexId};
 use crate::platform::Instant;
 use crate::scene::graphs::{self, Column};

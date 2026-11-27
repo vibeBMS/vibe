@@ -3,9 +3,9 @@
 //! in jobs and taken in as they come, the song select listing their folders
 //! from then (`lib.version`); what is stale in them is fetched then.
 
-use super::Ctx;
 use crate::archive::Archives;
 use crate::config::TableConfig;
+use crate::ctx::Ctx;
 use crate::platform::Job;
 use crate::skinstore::SkinStore;
 use bmseeker::links::Links;
@@ -31,7 +31,7 @@ impl Startup {
         let tables = ctx.config.tables.clone();
         let p = paths.clone();
         let tables = Job::spawn("tables", move |_| {
-            let cached = super::tables::read_cached(&p, &tables);
+            let cached = crate::ctx::tables::read_cached(&p, &tables);
             (tables, cached)
         });
         let (p, urls) = (paths.clone(), ctx.config.archives.clone());

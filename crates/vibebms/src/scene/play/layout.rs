@@ -2,8 +2,8 @@
 //! under it (or the perspective lanes as controls), START / SELECT.
 
 use super::PlayScene;
-use crate::app::Ctx;
 use crate::config::Side;
+use crate::ctx::Ctx;
 use crate::gfx::Rect;
 use crate::input;
 use crate::perspective::{Depths, Fan};

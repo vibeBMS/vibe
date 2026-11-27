@@ -7,7 +7,7 @@ use super::session::{Feed, Role, Session, SideState};
 use super::skin::ghost_ex;
 use super::sound::Audio;
 use super::{battle_skin_fits, single_mode, Facts, PlayScene, Stage, Versus};
-use crate::app::Ctx;
+use crate::ctx::Ctx;
 use crate::gfx::Gfx;
 use crate::input::LaneMapper;
 use crate::platform::{Duration, Instant};

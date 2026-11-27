@@ -4,7 +4,7 @@
 use super::per_play::MOVED;
 use super::row::{Folds, Kind, Row};
 use super::{Armed, Confirm, Page, View};
-use crate::app::Ctx;
+use crate::ctx::Ctx;
 
 /// Results shown at most.
 const SHOWN: usize = 60;

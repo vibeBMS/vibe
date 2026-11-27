@@ -2,8 +2,8 @@
 //! its lamp / rank counts.
 
 use super::SelectScene;
-use crate::app::Ctx;
 use crate::config::SortMode;
+use crate::ctx::Ctx;
 use crate::library::Song;
 use crate::scene::skinvals::rank_index;
 use std::collections::HashMap;
