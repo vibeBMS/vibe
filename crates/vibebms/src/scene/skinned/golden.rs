@@ -22,7 +22,7 @@ use vibebms_core::play::{build_chart, build_engine, RuleOptions};
 use vibebms_core::score::{Assist, ClearType};
 use vibebms_core::LnType;
 
-fn song() -> Song {
+pub(super) fn song() -> Song {
     Song {
         path: "golden/song/chart.bme".into(),
         folder: "golden".into(),
@@ -206,7 +206,7 @@ fn side(engine: Engine) -> SideState {
 }
 
 /// The result of a play scene's first side (and its second).
-fn result(ctx: &mut Ctx, play: &PlayScene) -> ResultScene {
+pub(super) fn result(ctx: &mut Ctx, play: &PlayScene) -> ResultScene {
     let ses = &play.session;
     let e = ses.engine().unwrap();
     let p2 = ses.opponent().map(|o| SideResult {

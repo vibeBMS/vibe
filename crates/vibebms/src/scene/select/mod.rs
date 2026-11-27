@@ -96,7 +96,7 @@ pub struct SelectScene {
     banner_job: Option<crate::gfx::ImageJobs>,
     ranking: HashMap<String, Rank>,
     quit_armed: Option<Instant>,
-    host: SkinHost,
+    pub(crate) host: SkinHost,
     /// The sound set's BGM is playing; the panel its sounds last saw.
     bgm_on: bool,
     sound_panel: usize,

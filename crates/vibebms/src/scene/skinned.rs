@@ -291,6 +291,8 @@ pub fn step_offset(ctx: &mut Ctx, value: &str, name: &str, field: usize, d: i32)
 }
 
 #[cfg(test)]
+mod frames;
+#[cfg(test)]
 mod golden;
 
 #[cfg(test)]
