@@ -506,11 +506,6 @@ fn remove_folder(skins: &Path, name: &str) {
         return;
     }
     let dir = skins.join(name);
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-    #[cfg(target_arch = "wasm32")]
     if crate::platform::vfs::is_dir(&dir) {
         crate::platform::vfs::remove_dir(&dir);
     }
