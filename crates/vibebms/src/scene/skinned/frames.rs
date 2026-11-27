@@ -1,13 +1,20 @@
 //! Frames of the built-in skins recorded without a GPU or a sound device:
 //! the song select, a play and its result, each drawn at its start and
-//! 2 s in, into the batch the frame is drawn from. Not the frames' every
-//! vertex (any edit of a skin would change them): that drawing runs, and
-//! that what it records can be drawn.
+//! 2 s in, into the batch the frame is drawn from. In the bundled font, in
+//! English, by the scenes' own clocks: the same frames on every machine.
+//!
+//! Each frame is checked for what it draws, kind by kind: triangles of the
+//! skin's images, of text and of shapes, and how many of the skin's
+//! textures. Not where, in what colour or in which order (any edit of a
+//! skin would change that): an object that is no longer drawn fails, as
+//! does one more, a text that is longer or shorter, or another texture;
+//! moving, resizing or recolouring one does not. (An edit of a built-in
+//! skin that adds or removes something changes the numbers here too.)
 
 use super::golden::{result, song};
 use crate::ctx::Ctx;
 use crate::gfx::text::Text;
-use crate::gfx::{Batch, Draw, Gfx, ATLAS};
+use crate::gfx::{Batch, Draw, Gfx, ATLAS, WHITE_UV};
 use crate::platform::{Duration, Instant};
 use crate::scene::play::{PlayRequest, PlayScene};
 use crate::scene::select::{Bar, SelectScene};
@@ -21,25 +28,39 @@ struct Frames {
     batch: Batch,
 }
 
+/// What a frame drew.
+#[derive(Debug, PartialEq)]
+struct Drawn {
+    /// Triangles of the skin's images.
+    images: usize,
+    /// Triangles of text: of the atlas, off its white block.
+    glyphs: usize,
+    /// Triangles of shapes: the atlas's white block.
+    shapes: usize,
+    /// The skin's textures drawn from.
+    textures: usize,
+}
+
 impl Frames {
-    fn new(ctx: &Ctx) -> Frames {
+    fn new() -> Frames {
+        crate::i18n::set(crate::i18n::Lang::En);
         Frames {
             gfx: Gfx::without_gpu(),
-            text: Text::new(&[ctx.paths.fonts.as_path()]),
+            text: Text::built_in(),
             batch: Batch::default(),
         }
     }
 
     /// `scene` updated and drawn at `t` (twice: what the first frame asks
     /// for, such as a font's sheets, is there for the second), its skin's
-    /// images waited for (`wait`); the triangles drawn, checked.
+    /// images waited for (`wait`); what was drawn, checked.
     fn draw<S: Scene>(
         &mut self,
         ctx: &mut Ctx,
         scene: &mut S,
         t: Instant,
         wait: impl Fn(&mut S, &mut Gfx),
-    ) -> usize {
+    ) -> Drawn {
         for _ in 0..2 {
             assert!(matches!(scene.update(ctx, &mut self.gfx, t), Next::Stay));
             wait(scene, &mut self.gfx);
@@ -57,11 +78,19 @@ impl Frames {
     }
 
     /// Every draw of the batch is of a texture there is, every vertex
-    /// finite and within two screens' size of the screen; text and images
-    /// are drawn. How many triangles.
-    fn check(&self, ctx: &Ctx) -> usize {
+    /// finite and within two screens' size of the screen. What was drawn.
+    fn check(&self, ctx: &Ctx) -> Drawn {
         let (w, h) = (ctx.view.width, ctx.view.height);
-        let mut verts = 0;
+        let white = |uv: [f32; 2]| {
+            (WHITE_UV[0]..=WHITE_UV[2]).contains(&uv[0])
+                && (WHITE_UV[1]..=WHITE_UV[3]).contains(&uv[1])
+        };
+        let mut n = Drawn {
+            images: 0,
+            glyphs: 0,
+            shapes: 0,
+            textures: 0,
+        };
         let mut texs = std::collections::HashSet::new();
         for (tex, vs) in self.batch.draws() {
             assert!(self.gfx.texture_size(tex).is_some(), "texture {tex}");
@@ -72,12 +101,19 @@ impl Frames {
                 assert!((-2.0 * h..=3.0 * h).contains(&y), "{:?}", v.pos);
                 assert!(v.uv.iter().chain(&v.color).all(|c| c.is_finite()), "{v:?}");
             }
-            verts += vs.len();
-            texs.insert(tex);
+            for tri in vs.chunks(3) {
+                match tex {
+                    ATLAS if tri.iter().all(|v| white(v.uv)) => n.shapes += 1,
+                    ATLAS => n.glyphs += 1,
+                    _ => n.images += 1,
+                }
+            }
+            if tex != ATLAS {
+                texs.insert(tex);
+            }
         }
-        assert!(texs.contains(&ATLAS), "no text, no shapes");
-        assert!(texs.iter().any(|&t| t != ATLAS), "no image of the skin");
-        verts / 3
+        n.textures = texs.len();
+        n
     }
 }
 
@@ -100,25 +136,41 @@ fn temp_root(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!("vibebms-frames-{name}-{}", std::process::id()))
 }
 
-/// `n` triangles drawn, in the range about what was recorded for a frame
-/// (the select 1172 at both times, the play 334 then 346, the result 356
-/// then 360: the text's glyphs depend a little on the fonts there are).
-fn assert_within(n: usize, range: std::ops::RangeInclusive<usize>, frame: &str) {
-    assert!(range.contains(&n), "{frame}: {n} triangles");
-}
-
 #[test]
 fn the_song_select_is_drawn() {
     let root = temp_root("select");
     let mut ctx = ctx(&root);
-    let mut f = Frames::new(&ctx);
+    let mut f = Frames::new();
     let mut select = SelectScene::new(&mut ctx);
     select.bars = vec![Bar::Song(0)];
-    let t0 = select.host.created;
-    let wait = |s: &mut SelectScene, gfx: &mut Gfx| s.host.skin.as_mut().unwrap().wait(gfx);
-    for (t, range) in [(t0, 800..=1600), (t0 + Duration::from_secs(2), 800..=1600)] {
+    let t0 = select.host().created;
+    let wait = |s: &mut SelectScene, gfx: &mut Gfx| s.host().skin.as_mut().unwrap().wait(gfx);
+    let frames = [
+        (
+            t0,
+            Drawn {
+                images: 382,
+                glyphs: 790,
+                shapes: 0,
+                textures: 2,
+            },
+        ),
+        (
+            t0 + Duration::from_secs(2),
+            Drawn {
+                images: 382,
+                glyphs: 790,
+                shapes: 0,
+                textures: 2,
+            },
+        ),
+    ];
+    for (t, want) in frames {
+        // (2 s since the cursor moved, too: the banner, the preview and
+        // the ranking are asked for)
+        select.set_clock(t);
         let n = f.draw(&mut ctx, &mut select, t, wait);
-        assert_within(n, range, &format!("select {:?}", t - t0));
+        assert_eq!(n, want, "select {:?}", t - t0);
     }
     std::fs::remove_dir_all(&root).ok();
 }
@@ -129,7 +181,7 @@ fn the_song_select_is_drawn() {
 fn a_play_and_its_result_are_drawn() {
     let root = temp_root("play");
     let mut ctx = ctx(&root);
-    let mut f = Frames::new(&ctx);
+    let mut f = Frames::new();
     let req = PlayRequest {
         song: ctx.lib.songs[0].clone(),
         autoplay: true,
@@ -141,7 +193,7 @@ fn a_play_and_its_result_are_drawn() {
     let mut play = PlayScene::new(&mut ctx, req);
     let until = Instant::now() + Duration::from_secs(60);
     let began = loop {
-        assert!(Instant::now() < until, "the chart did not load");
+        assert!(Instant::now() < until, "the chart did not load in 60 s");
         let next = play.update(&mut ctx, &mut f.gfx, Instant::now());
         assert!(matches!(next, Next::Stay), "{:?}", ctx.toasts);
         if let Some(b) = play.began() {
@@ -151,12 +203,29 @@ fn a_play_and_its_result_are_drawn() {
     };
     // (the play's skin is waited for as it loads)
     let ready = |_: &mut PlayScene, _: &mut Gfx| {};
-    for (t, range) in [
-        (began, 230..=480),
-        (began + Duration::from_secs(2), 230..=480),
-    ] {
+    let frames = [
+        (
+            began,
+            Drawn {
+                images: 332,
+                glyphs: 0,
+                shapes: 2,
+                textures: 2,
+            },
+        ),
+        (
+            began + Duration::from_secs(2),
+            Drawn {
+                images: 344,
+                glyphs: 0,
+                shapes: 2,
+                textures: 2,
+            },
+        ),
+    ];
+    for (t, want) in frames {
         let n = f.draw(&mut ctx, &mut play, t, ready);
-        assert_within(n, range, &format!("play {:?}", t - began));
+        assert_eq!(n, want, "play {:?}", t - began);
     }
 
     let mut res = result(&mut ctx, &play);
@@ -164,9 +233,29 @@ fn a_play_and_its_result_are_drawn() {
     let wait = |s: &mut crate::scene::result::ResultScene, gfx: &mut Gfx| {
         s.host.skin.as_mut().unwrap().wait(gfx)
     };
-    for (t, range) in [(t0, 250..=500), (t0 + Duration::from_secs(2), 250..=500)] {
+    let frames = [
+        (
+            t0,
+            Drawn {
+                images: 196,
+                glyphs: 142,
+                shapes: 18,
+                textures: 2,
+            },
+        ),
+        (
+            t0 + Duration::from_secs(2),
+            Drawn {
+                images: 200,
+                glyphs: 142,
+                shapes: 18,
+                textures: 2,
+            },
+        ),
+    ];
+    for (t, want) in frames {
         let n = f.draw(&mut ctx, &mut res, t, wait);
-        assert_within(n, range, &format!("result {:?}", t - t0));
+        assert_eq!(n, want, "result {:?}", t - t0);
     }
     std::fs::remove_dir_all(&root).ok();
 }
