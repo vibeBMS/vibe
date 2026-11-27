@@ -10,7 +10,8 @@
 //! and `event_util` modules (as globals in JSON skins).
 
 use super::load::Home;
-use super::state::SkinState;
+use super::state::{Counts, SkinState};
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 /// First synthetic id of a script value.
@@ -119,8 +120,8 @@ impl SkinState for Overlay<'_> {
     fn number(&self, id: i32) -> Option<i64> {
         self.val(id, Val::int).unwrap_or_else(|| self.st.number(id))
     }
-    fn text(&self, id: i32) -> Option<String> {
-        self.val(id, Val::text).or_else(|| self.st.text(id))
+    fn text(&self, id: i32) -> Option<Cow<'_, str>> {
+        (self.val(id, Val::text).map(Cow::Owned)).or_else(|| self.st.text(id))
     }
     fn rate(&self, id: i32) -> f32 {
         self.val(id, |v| v.num() as f32)
@@ -129,7 +130,7 @@ impl SkinState for Overlay<'_> {
     fn button(&self, id: i32) -> Option<i64> {
         self.val(id, Val::int).unwrap_or_else(|| self.st.button(id))
     }
-    fn distribution(&self, rank: bool) -> Option<Vec<u32>> {
+    fn distribution(&self, rank: bool) -> Option<Counts> {
         self.st.distribution(rank)
     }
     fn offset(&self, id: i32) -> Option<[f32; 6]> {
@@ -1254,7 +1255,7 @@ end
         })?;
         let empty: fn(&Lua) -> mlua::Result<LV> = |lua| lua.create_string("").map(LV::String);
         put(lua, vb, frame, "text", empty, |_, st, _, id: i32| {
-            Ok(st.text(id).unwrap_or_default())
+            Ok(st.text(id).map(Cow::into_owned).unwrap_or_default())
         })?;
         put(lua, vb, frame, "event_index", zero, |_, st, _, id: i32| {
             Ok(st.button(id).unwrap_or(0))
@@ -1816,7 +1817,7 @@ end
             fn number(&self, id: i32) -> Option<i64> {
                 Some(id as i64 * 10)
             }
-            fn text(&self, _: i32) -> Option<String> {
+            fn text(&self, _: i32) -> Option<std::borrow::Cow<'_, str>> {
                 Some("t".into())
             }
             fn rate(&self, _: i32) -> f32 {

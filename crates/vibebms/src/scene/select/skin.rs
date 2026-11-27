@@ -732,9 +732,13 @@ impl SkinState for SelectState<'_> {
         })
     }
 
-    fn distribution(&self, rank: bool) -> Option<Vec<u32>> {
+    fn distribution(&self, rank: bool) -> Option<Counts> {
         let (l, r) = self.s.folder_distribution(self.ctx, self.s.cursor)?;
-        Some(if rank { r.to_vec() } else { l.to_vec() })
+        Some(if rank {
+            Counts::new(&r)
+        } else {
+            Counts::new(&l)
+        })
     }
 
     fn button(&self, id: i32) -> Option<i64> {
@@ -752,69 +756,72 @@ impl SkinState for SelectState<'_> {
         })
     }
 
-    fn text(&self, id: i32) -> Option<String> {
+    fn text(&self, id: i32) -> Option<Cow<'_, str>> {
         let song = self.song;
         Some(match id {
-            2 => self.ctx.config.player_name.clone(),
+            2 => self.ctx.config.player_name.as_str().into(),
             // folders and courses show their name as the title
-            10 | 12 if song.is_none() => self.bar_title(self.bar?)?.into_owned(),
+            10 | 12 if song.is_none() => self.bar_title(self.bar?)?,
             11 if song.is_none() => match self.bar? {
-                Bar::Folder { sub, .. } => sub.clone(),
+                Bar::Folder { sub, .. } => sub.as_str().into(),
                 _ => return None,
             },
             14 | 16 if song.is_none() => match self.bar? {
-                Bar::Missing(m) => m.artist.clone(),
+                Bar::Missing(m) => m.artist.as_str().into(),
                 _ => return None,
             },
             10..=16 | 1030 | 1031 => return chart_text(&ChartText::of_song(song?), id),
-            120..=129 => self.ranking()?.get((id - 120) as usize)?.player.clone(),
-            TEXT_IR => return self.ir_line(),
-            n @ TEXT_KEY_OPTION..=9617 => {
-                self.key_option_texts()[(n - TEXT_KEY_OPTION) as usize].clone()
-            }
-            TEXT_MODE => status::mode_label(song?),
+            120..=129 => self
+                .ranking()?
+                .get((id - 120) as usize)?
+                .player
+                .as_str()
+                .into(),
+            TEXT_IR => return self.ir_line().map(Cow::Owned),
+            n @ TEXT_KEY_OPTION..=9617 => self.key_option_texts()[(n - TEXT_KEY_OPTION) as usize]
+                .as_str()
+                .into(),
+            TEXT_MODE => status::mode_label(song?).into(),
             TEXT_QUERY => self.s.query().unwrap_or_default().into(),
             TEXT_LAST_PLAYED => {
                 let t = self.best.filter(|_| song.is_some())?.last_played;
                 let local = chrono::DateTime::from_timestamp(t, 0)?.with_timezone(&chrono::Local);
-                (t > 0).then(|| local.format("%Y-%m-%d").to_string())?
+                (t > 0)
+                    .then(|| local.format("%Y-%m-%d").to_string())?
+                    .into()
             }
             TEXT_SAVE => self.outcome().0.label().into(),
             TEXT_CLEAR => match self.outcome().1 {
                 Some(c) => c.label().into(),
                 None => "—".into(),
             },
-            TEXT_NETWORK => status::network(self.ctx).0,
-            TEXT_ASSIST => status::assist_summary(&self.ctx.config.play),
-            TEXT_COVER => status::lane_cover_summary(&self.ctx.config.play),
+            TEXT_NETWORK => status::network(self.ctx).0.into(),
+            TEXT_ASSIST => status::assist_summary(&self.ctx.config.play).into(),
+            TEXT_COVER => status::lane_cover_summary(&self.ctx.config.play).into(),
             TEXT_PROFILE => (self.ctx.profiles.registry)
                 .name(&self.ctx.paths.profile)
-                .to_string(),
-            30 => self
-                .s
-                .search_edit
-                .as_ref()
-                .map_or(String::new(), |t| t.buf.clone()),
-            1000 => self.s.path_label(self.ctx),
+                .into(),
+            30 => (self.s.search_edit.as_ref()).map_or("".into(), |t| t.buf.as_str().into()),
+            1000 => self.s.path_label(self.ctx).into(),
             // the table being browsed, else the selected chart's
             1001..=1003 => match &self.s.node {
                 Node::Level(t, l) => {
                     let t = table(self.ctx, t)?;
                     match id {
-                        1001 => t.header.name.clone(),
-                        1002 => t.label(l),
-                        _ => format!("{}{}", t.label(l), t.header.name),
+                        1001 => t.header.name.as_str().into(),
+                        1002 => t.label(l).into(),
+                        _ => format!("{}{}", t.label(l), t.header.name).into(),
                     }
                 }
                 Node::Table(t) | Node::Courses(t) if id != 1002 => {
-                    table(self.ctx, t)?.header.name.clone()
+                    table(self.ctx, t)?.header.name.as_str().into()
                 }
                 _ => return table_text(self.table()?, id),
             },
-            1010 => format!("vibeBMS {}", env!("CARGO_PKG_VERSION")),
+            1010 => format!("vibeBMS {}", env!("CARGO_PKG_VERSION")).into(),
             n if (OPTION_TEXT..OPTION_TEXT + 100).contains(&n) => {
                 let o = SelectOption::ALL.get((n - OPTION_TEXT) as usize)?;
-                o.value(self.ctx, song.map(Bpms::of_song), song)
+                o.value(self.ctx, song.map(Bpms::of_song), song).into()
             }
             n if (OPTION_NAME..OPTION_NAME + 100).contains(&n) => SelectOption::ALL
                 .get((n - OPTION_NAME) as usize)?

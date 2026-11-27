@@ -1,5 +1,7 @@
 //! What a skin reads of the game while it is drawn.
 
+use std::borrow::Cow;
+
 /// Game state queried by the skin each frame.
 pub trait SkinState {
     /// Start time (scene ms) of a timer, `None` if off. Timer 0 = scene start.
@@ -7,7 +9,7 @@ pub trait SkinState {
     /// LR2 option (negative id = negated).
     fn option(&self, id: i32) -> bool;
     fn number(&self, id: i32) -> Option<i64>;
-    fn text(&self, id: i32) -> Option<String>;
+    fn text(&self, id: i32) -> Option<Cow<'_, str>>;
     /// 0..1 for bar graphs and sliders.
     fn rate(&self, id: i32) -> f32;
     /// Index of the image an image set / button shows (button values are
@@ -17,7 +19,7 @@ pub trait SkinState {
     }
     /// Clear lamp counts (by clear type, 11) or DJ rank counts (AAA..F,
     /// then no play) of the selected folder.
-    fn distribution(&self, rank: bool) -> Option<Vec<u32>> {
+    fn distribution(&self, rank: bool) -> Option<Counts> {
         let _ = rank;
         None
     }
@@ -25,5 +27,37 @@ pub trait SkinState {
     fn offset(&self, id: i32) -> Option<[f32; 6]> {
         let _ = id;
         None
+    }
+}
+
+/// Counts of a folder's charts by lamp or rank ([`SkinState::distribution`]),
+/// kept without a heap.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Counts {
+    n: [u32; Counts::MAX],
+    len: usize,
+}
+
+impl Counts {
+    pub const MAX: usize = 11;
+
+    /// `c`, of at most [`Counts::MAX`].
+    pub fn new(c: &[u32]) -> Counts {
+        let mut n = [0; Counts::MAX];
+        n[..c.len()].copy_from_slice(c);
+        Counts { n, len: c.len() }
+    }
+}
+
+impl std::ops::Deref for Counts {
+    type Target = [u32];
+    fn deref(&self) -> &[u32] {
+        &self.n[..self.len]
+    }
+}
+
+impl std::fmt::Debug for Counts {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        (**self).fmt(f)
     }
 }

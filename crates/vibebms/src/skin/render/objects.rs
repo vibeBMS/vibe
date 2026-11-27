@@ -3,6 +3,7 @@
 use super::{GaugeView, Hooks, LoadedSkin, Xf};
 use crate::gfx::{Draw, Rect, TexId};
 use crate::skin::*;
+use std::borrow::Cow;
 
 /// A part `r` (an image's region `uv`) of an object drawn at `whole`:
 /// with the object's blend, turned with it about its centre.
@@ -232,7 +233,8 @@ impl LoadedSkin {
                     constant,
                     style,
                 } => {
-                    if let Some(s) = constant.clone().or_else(|| st.text(*id)) {
+                    let fixed = constant.as_deref().map(Cow::Borrowed);
+                    if let Some(s) = fixed.or_else(|| st.text(*id)) {
                         // texts follow the selection (timer 11), else the scene
                         let shown = now - st.timer(11).unwrap_or(0);
                         let f = style.face.as_deref().and_then(|p| d.text.face(p));

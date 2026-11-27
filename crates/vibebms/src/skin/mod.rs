@@ -30,7 +30,7 @@ pub use load::Home;
 pub(crate) use load::{read_media, read_text};
 pub use model::*;
 pub use options::*;
-pub use state::SkinState;
+pub use state::{Counts, SkinState};
 pub use types::*;
 
 use std::collections::HashMap;

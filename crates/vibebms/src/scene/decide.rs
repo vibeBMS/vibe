@@ -15,6 +15,7 @@ use crate::platform::Instant;
 use crate::scene::{Next, Scene};
 use crate::skin::render::Hooks;
 use crate::skin::{SkinState, SkinType};
+use std::borrow::Cow;
 use std::cell::OnceCell;
 
 /// How long the screen shows when the skin does not say (beatoraja's
@@ -131,10 +132,10 @@ impl SkinState for DecideState<'_> {
         })
     }
 
-    fn text(&self, id: i32) -> Option<String> {
+    fn text(&self, id: i32) -> Option<Cow<'_, str>> {
         let s = self.song?;
         match id {
-            2 => Some(self.ctx.config.player_name.clone()),
+            2 => Some(self.ctx.config.player_name.as_str().into()),
             1001..=1003 => {
                 let t = self
                     .table

@@ -7,6 +7,7 @@ use crate::config::{Bpms, HiSpeedMode, PlayConfig};
 use crate::ctx::Ctx;
 use crate::library::{BestScore, Song};
 use crate::platform::Instant;
+use std::borrow::Cow;
 use vibebms_core::chart::ChartMeta;
 use vibebms_core::gauge::{GaugeAutoShift, GaugeType};
 use vibebms_core::judge::{Judge, JudgePreset};
@@ -179,8 +180,8 @@ impl<'a> ChartText<'a> {
 
 /// Chart texts 10-16 (title, subtitle, both, genre, artist, subartist,
 /// both) and the hashes 1030 / 1031.
-pub fn chart_text(t: &ChartText, id: i32) -> Option<String> {
-    let both = |a: &str, b: &str| format!("{a} {b}").trim().to_string();
+pub fn chart_text<'a>(t: &ChartText<'a>, id: i32) -> Option<Cow<'a, str>> {
+    let both = |a: &str, b: &str| format!("{a} {b}").trim().to_string().into();
     Some(match id {
         10 => t.title.into(),
         11 => t.subtitle.into(),
@@ -210,11 +211,11 @@ pub fn table_of(ctx: &Ctx, md5: &str, sha256: &str) -> Option<(String, String)> 
 }
 
 /// beatoraja's table texts: 1001 name, 1002 level, 1003 level then name.
-pub fn table_text((name, level): &(String, String), id: i32) -> Option<String> {
+pub fn table_text((name, level): &(String, String), id: i32) -> Option<Cow<'_, str>> {
     Some(match id {
-        1001 => name.clone(),
-        1002 => level.clone(),
-        1003 => format!("{level}{name}"),
+        1001 => name.into(),
+        1002 => level.into(),
+        1003 => format!("{level}{name}").into(),
         _ => return None,
     })
 }

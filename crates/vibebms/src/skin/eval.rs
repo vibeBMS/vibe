@@ -131,7 +131,7 @@ mod tests {
         fn number(&self, _: i32) -> Option<i64> {
             None
         }
-        fn text(&self, _: i32) -> Option<String> {
+        fn text(&self, _: i32) -> Option<std::borrow::Cow<'_, str>> {
             None
         }
         fn rate(&self, _: i32) -> f32 {
@@ -163,7 +163,7 @@ mod tests {
             fn number(&self, _: i32) -> Option<i64> {
                 None
             }
-            fn text(&self, _: i32) -> Option<String> {
+            fn text(&self, _: i32) -> Option<std::borrow::Cow<'_, str>> {
                 None
             }
             fn rate(&self, _: i32) -> f32 {

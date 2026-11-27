@@ -72,7 +72,7 @@ fn lua_runs_like_beatoraja() {
         fn number(&self, id: i32) -> Option<i64> {
             (id == 71).then_some(1234)
         }
-        fn text(&self, _: i32) -> Option<String> {
+        fn text(&self, _: i32) -> Option<std::borrow::Cow<'_, str>> {
             None
         }
         fn rate(&self, _: i32) -> f32 {
@@ -707,7 +707,7 @@ impl SkinState for ScriptSt {
     fn number(&self, id: i32) -> Option<i64> {
         (id == 71).then_some(21)
     }
-    fn text(&self, _: i32) -> Option<String> {
+    fn text(&self, _: i32) -> Option<std::borrow::Cow<'_, str>> {
         None
     }
     fn rate(&self, _: i32) -> f32 {
