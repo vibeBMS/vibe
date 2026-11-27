@@ -23,6 +23,7 @@ impl LoadedSkin {
             align,
             pad,
         } = font.style;
+        let keta = keta.min(NumberStyle::PLACES);
         // (none while its timer is off)
         if src.frame(now, st).is_none() {
             return;
@@ -51,9 +52,9 @@ impl LoadedSkin {
         }
         let blanks = slots.iter().filter(|s| s.is_none()).count() as f32;
         let shift = match align {
-            Align::Right => r.w * blanks,
+            Align::Left => r.w * blanks,
             Align::Center => r.w * blanks * 0.5,
-            Align::Left => 0.0,
+            Align::Right => 0.0,
         };
         // animated digit sets: frames are grouped by `digits` (x2 when signed)
         let group = if signed { 24 } else { digits };

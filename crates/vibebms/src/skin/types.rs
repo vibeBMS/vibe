@@ -183,7 +183,7 @@ pub enum Acc {
 }
 
 impl Acc {
-    pub fn of(v: i64) -> Acc {
+    pub fn of(v: i32) -> Acc {
         match v {
             1 => Acc::Accelerate,
             2 => Acc::Decelerate,
@@ -193,9 +193,8 @@ impl Acc {
     }
 }
 
-/// How an image fits its destination (beatoraja `stretch`, LR2
-/// `#STRETCH`); the image keeps its aspect ratio but in `Full`, and is
-/// centred.
+/// How an image fits its destination (LR2 `#STRETCH`); the image keeps
+/// its aspect ratio but in `Full`, and is centred.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Stretch {
     /// Stretched over the destination (0).
@@ -220,7 +219,7 @@ pub enum Stretch {
 }
 
 impl Stretch {
-    pub fn of(v: i64) -> Stretch {
+    pub fn of(v: i32) -> Stretch {
         match v {
             1 => Stretch::Fit,
             2 => Stretch::Cover,
@@ -237,7 +236,8 @@ impl Stretch {
     }
 }
 
-/// Where a text or a number sits across its destination.
+/// Where a text or a number sits across its destination: a number's
+/// digits fill its places from the left, the right or the middle.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Align {
     #[default]
@@ -248,7 +248,7 @@ pub enum Align {
 
 impl Align {
     /// A text's `align`: 0 left, 1 centre, 2 right (others the nearest).
-    pub fn of_text(v: i64) -> Align {
+    pub fn of_text(v: i32) -> Align {
         match v {
             1 => Align::Center,
             2.. => Align::Right,
@@ -256,12 +256,13 @@ impl Align {
         }
     }
 
-    /// A number's `align`: 0 left, 1 right, 2 centre (others left).
-    pub fn of_number(v: i64) -> Align {
+    /// A number's `align`: 0 right (the blank places in front of its
+    /// digits), 1 left (the blanks after them), 2 centred (others right).
+    pub fn of_number(v: i32) -> Align {
         match v {
-            1 => Align::Right,
+            1 => Align::Left,
             2 => Align::Center,
-            _ => Align::Left,
+            _ => Align::Right,
         }
     }
 
@@ -291,7 +292,7 @@ pub enum Overflow {
 }
 
 impl Overflow {
-    pub fn of(v: i64) -> Overflow {
+    pub fn of(v: i32) -> Overflow {
         match v {
             1 => Overflow::Shrink,
             2 => Overflow::Cut,
@@ -302,10 +303,9 @@ impl Overflow {
 }
 
 /// The way a bar graph fills or a slider moves.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Dir {
     Up,
-    #[default]
     Right,
     Down,
     Left,
@@ -313,7 +313,7 @@ pub enum Dir {
 
 impl Dir {
     /// A slider's direction: 0 up, 1 right, 2 down, others left.
-    pub fn of_slider(v: i64) -> Dir {
+    pub fn of_slider(v: i32) -> Dir {
         match v {
             0 => Dir::Up,
             1 => Dir::Right,
@@ -323,10 +323,37 @@ impl Dir {
     }
 
     /// A bar graph's direction: 1 fills upwards, others to the right.
-    pub fn of_bar(v: i64) -> Dir {
+    pub fn of_bar(v: i32) -> Dir {
         match v {
             1 => Dir::Up,
             _ => Dir::Right,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A code below or above those there are: what it always meant.
+    #[test]
+    fn codes_out_of_range() {
+        for v in [-1, i32::MIN] {
+            assert_eq!(Acc::of(v), Acc::Linear);
+            assert_eq!(Stretch::of(v), Stretch::Full);
+            assert_eq!(Align::of_text(v), Align::Left);
+            assert_eq!(Align::of_number(v), Align::Right);
+            assert_eq!(Overflow::of(v), Overflow::Spill);
+            assert_eq!(Dir::of_slider(v), Dir::Left);
+            assert_eq!(Dir::of_bar(v), Dir::Right);
+        }
+        assert_eq!(Acc::of(4), Acc::Linear);
+        assert_eq!(Stretch::of(11), Stretch::Full);
+        assert_eq!(Align::of_text(3), Align::Right);
+        assert_eq!(Align::of_text(i32::MAX), Align::Right);
+        assert_eq!(Align::of_number(3), Align::Right);
+        assert_eq!(Overflow::of(4), Overflow::Spill);
+        assert_eq!(Dir::of_slider(4), Dir::Left);
+        assert_eq!(Dir::of_bar(2), Dir::Right);
     }
 }

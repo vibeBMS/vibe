@@ -1220,3 +1220,57 @@ fn what_a_skin_asks_for_is_within_limits() {
     assert!(e.contains("too many includes"), "{e}");
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// A code past i32 means what its low 32 bits do (each was always read as
+/// an i32); an `acc` (a number with a fraction) saturates.
+#[test]
+fn codes_past_i32_are_read_as_i32() {
+    let dir = std::env::temp_dir().join(format!("vibebms-bwide-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("p.png"), b"x").unwrap();
+    let json = r#"{"type": 6, "name": "W", "w": 640, "h": 480,
+        "source": [{"id": "p", "path": "p.png"}],
+        "image": [{"id": "i", "src": "p", "x": 0, "y": 0, "w": 10, "h": 10}],
+        "value": [{"id": "n", "src": "p", "x": 0, "y": 0, "w": 110, "h": 20, "divx": 11,
+            "digit": 6, "ref": 71, "align": 4294967297}],
+        "text": [{"id": "t1", "ref": 10, "align": 4294967297, "overflow": 4294967297},
+            {"id": "t2", "ref": 10, "align": 2147483648}],
+        "slider": [{"id": "s", "src": "p", "x": 0, "y": 0, "w": 20, "h": 20,
+            "angle": 4294967296, "range": 100, "type": 4}],
+        "graph": [{"id": "g", "src": "p", "x": 0, "y": 0, "w": 100, "h": 20,
+            "angle": 4294967297, "type": 3}],
+        "destination": [
+            {"id": "i", "dst": [{"x": 0, "y": 0, "w": 10, "h": 10, "acc": 4294967297}]},
+            {"id": "n", "dst": [{"x": 10, "y": 20, "w": 12, "h": 20}]},
+            {"id": "t1", "dst": [{"x": 320, "y": 40, "w": 200, "h": 20}]},
+            {"id": "t2", "dst": [{"x": 320, "y": 80, "w": 200, "h": 20}]},
+            {"id": "s", "dst": [{"x": 450, "y": 320, "w": 20, "h": 20}]},
+            {"id": "g", "dst": [{"x": 300, "y": 220, "w": 100, "h": 20}]}]}"#;
+    std::fs::write(dir.join("w.json"), json).unwrap();
+    let s = load(&dir.join("w.json"), &HashMap::new(), &|_| Some((256, 256))).unwrap();
+    std::fs::remove_dir_all(&dir).ok();
+    let o = &s.objects;
+    assert_eq!(o[0].dst.acc, Acc::Linear);
+    let Kind::Number { font, .. } = &o[1].kind else {
+        panic!("{:?}", o[1].kind)
+    };
+    assert_eq!(font.style.align, Align::Left);
+    let style = |k: &Kind| match k {
+        Kind::Text { style, .. } => (style.align, style.overflow),
+        k => panic!("{k:?}"),
+    };
+    assert_eq!(style(&o[2].kind), (Align::Center, Overflow::Shrink));
+    assert_eq!(o[2].dst.keys[0].rect.x, 220.0);
+    assert_eq!(style(&o[3].kind), (Align::Left, Overflow::Spill));
+    assert_eq!(o[3].dst.keys[0].rect.x, 320.0);
+    assert!(
+        matches!(o[4].kind, Kind::Slider { dir: Dir::Up, .. }),
+        "{:?}",
+        o[4].kind
+    );
+    assert!(
+        matches!(o[5].kind, Kind::Bar { dir: Dir::Up, .. }),
+        "{:?}",
+        o[5].kind
+    );
+}

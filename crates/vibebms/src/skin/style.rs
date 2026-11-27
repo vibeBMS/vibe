@@ -22,7 +22,7 @@ pub struct TextStyle {
 }
 
 /// How a number is set.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct NumberStyle {
     /// Images of a set: 10 (0-9), 11 (and padding), 12 (signed: 24, a
     /// positive and a negative set of 0-9, padding, sign).

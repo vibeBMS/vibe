@@ -2222,7 +2222,7 @@ ORANGE = (255, 150, 60)
 CYAN = (110, 200, 255)
 FAINT = (74, 83, 114)
 
-# bar types (skin/mod.rs BAR_*): accent colour and tag
+# bar types (skin/model.rs BAR_*): accent colour and tag
 BAR_KINDS = [
     (TEAL, None), (AMBER, "FOLDER"), (GREEN, "TABLE"), (PINK, "COURSE"), ((150, 110, 130), "COURSE"),
     (BLUE, "RANDOM"), (VIOLET, "SEARCH"), ((110, 115, 130), None), (ORANGE, "NONSTOP"),

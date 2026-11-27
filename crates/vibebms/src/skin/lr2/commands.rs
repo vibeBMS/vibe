@@ -167,7 +167,7 @@ impl Loader<'_> {
                 });
                 self.fonts.push(font);
             }
-            "#STRETCH" => self.stretch = Stretch::of(v[1]),
+            "#STRETCH" => self.stretch = Stretch::of(v[1] as i32),
             // a horizontal play skin: `#HORIZONTAL` (`#HORIZONTAL,0` is off)
             "#HORIZONTAL" => self.skin.horizontal = s1.is_empty() || v[1] != 0,
             "#PLAYSTART" => self.skin.play_start_ms = Some(v[1].clamp(0, 10_000)),
@@ -290,7 +290,7 @@ impl Loader<'_> {
                             style: NumberStyle {
                                 digits,
                                 keta: v[13].clamp(1, NumberStyle::PLACES as i64) as usize,
-                                align: Align::of_number(v[12]),
+                                align: Align::of_number(v[12] as i32),
                                 pad: (digits > 10).then_some(10),
                             },
                         },
@@ -303,7 +303,7 @@ impl Loader<'_> {
                     let style = NumberStyle {
                         digits,
                         keta: v[13].clamp(1, NumberStyle::PLACES as i64) as usize,
-                        align: Align::Left,
+                        align: Align::Right,
                         pad: None,
                     };
                     self.skin.judges[side].combo[j] = Some(ComboSkin {
@@ -326,7 +326,7 @@ impl Loader<'_> {
                     id: v[3] as i32,
                     constant: None,
                     style: TextStyle {
-                        align: Align::of_text(v[4]),
+                        align: Align::of_text(v[4] as i32),
                         font,
                         ..Default::default()
                     },
@@ -338,7 +338,7 @@ impl Loader<'_> {
                     self.push(Kind::Bar {
                         src: s,
                         id: v[11] as i32 + 100,
-                        dir: Dir::of_bar(v[12]),
+                        dir: Dir::of_bar(v[12] as i32),
                         minmax: None,
                     });
                 }
@@ -350,7 +350,7 @@ impl Loader<'_> {
                     self.push(Kind::Slider {
                         src: s,
                         id: v[13] as i32,
-                        dir: Dir::of_slider(v[11]),
+                        dir: Dir::of_slider(v[11] as i32),
                         range: v[12] as f32,
                         minmax: Some((v[15] as f32, v[16] as f32)),
                     });
@@ -363,7 +363,7 @@ impl Loader<'_> {
                     self.push(Kind::Bar {
                         src: s,
                         id: v[11] as i32,
-                        dir: Dir::of_bar(v[12]),
+                        dir: Dir::of_bar(v[12] as i32),
                         minmax: Some((v[13] as f32, v[14] as f32)),
                     });
                 }
@@ -374,7 +374,7 @@ impl Loader<'_> {
                     self.push(Kind::Slider {
                         src: s,
                         id: v[13] as i32,
-                        dir: Dir::of_slider(v[11]),
+                        dir: Dir::of_slider(v[11] as i32),
                         range: v[12] as f32,
                         minmax: None,
                     });
@@ -478,7 +478,7 @@ impl Loader<'_> {
                     let font = self.font(v[2]);
                     let sl = self.songlist();
                     let t = sl.text.get_or_insert_with(SongTitle::default);
-                    t.style.align = Align::of_text(v[4]);
+                    t.style.align = Align::of_text(v[4] as i32);
                     t.style.font = font;
                 }
             }
@@ -507,7 +507,7 @@ impl Loader<'_> {
                     style: NumberStyle {
                         digits,
                         keta: v[13].clamp(1, NumberStyle::PLACES as i64) as usize,
-                        align: Align::of_number(v[12]),
+                        align: Align::of_number(v[12] as i32),
                         pad: None,
                     },
                 };

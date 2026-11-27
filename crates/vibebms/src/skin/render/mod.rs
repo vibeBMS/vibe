@@ -3,6 +3,8 @@
 mod loaded;
 mod number;
 mod objects;
+#[cfg(test)]
+mod tests;
 mod text;
 
 pub use loaded::LoadedSkin;
