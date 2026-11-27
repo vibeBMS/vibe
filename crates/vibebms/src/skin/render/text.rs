@@ -165,12 +165,8 @@ impl LoadedSkin {
         let mut x = r.x + r.w * a - width * scale * a;
         for (img, g) in glyphs {
             let tw = g[2] * scale * k;
-            if let Some(t) = self.texture(*img) {
-                if let Some((w, h)) = d.gfx.texture_size(t) {
-                    let (w, h) = (w as f32, h as f32);
-                    let uv = [g[0] / w, g[1] / h, (g[0] + g[2]) / w, (g[1] + g[3]) / h];
-                    d.b.quad(t, Rect::new(x, r.y, tw, r.h), uv, color);
-                }
+            if let Some((t, uv)) = self.uv(*img, *g) {
+                d.b.quad(t, Rect::new(x, r.y, tw, r.h), uv, color);
             }
             x += tw + f.margin * scale;
         }
@@ -203,18 +199,14 @@ impl LoadedSkin {
             let (Some((img, g)), Some(m)) = (f.glyphs.get(c), f.metrics.get(c)) else {
                 continue;
             };
-            if let Some(t) = self.texture(*img) {
-                if let Some((w, h)) = d.gfx.texture_size(t) {
-                    let (w, h) = (w as f32, h as f32);
-                    let uv = [g[0] / w, g[1] / h, (g[0] + g[2]) / w, (g[1] + g[3]) / h];
-                    let gr = Rect::new(
-                        x + m[0] * k * scale,
-                        r.y + m[1] * k,
-                        g[2] * k * scale,
-                        g[3] * k,
-                    );
-                    d.b.quad(t, gr, uv, color);
-                }
+            if let Some((t, uv)) = self.uv(*img, *g) {
+                let gr = Rect::new(
+                    x + m[0] * k * scale,
+                    r.y + m[1] * k,
+                    g[2] * k * scale,
+                    g[3] * k,
+                );
+                d.b.quad(t, gr, uv, color);
             }
             x += m[2] * k * scale;
         }

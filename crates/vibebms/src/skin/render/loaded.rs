@@ -6,10 +6,29 @@ use crate::gfx::{Draw, Gfx, ImageJobs, ImageTex, Rect, TexId};
 use crate::skin::script::Overlay;
 use crate::skin::*;
 
+/// An image's texture, and its size (what the image's frames are given in).
+#[derive(Clone, Copy)]
+struct Tex {
+    id: TexId,
+    w: f32,
+    h: f32,
+}
+
+impl Tex {
+    fn of(gfx: &Gfx, id: TexId) -> Option<Tex> {
+        let (w, h) = gfx.texture_size(id)?;
+        Some(Tex {
+            id,
+            w: w as f32,
+            h: h as f32,
+        })
+    }
+}
+
 /// A skin with its textures uploaded.
 pub struct LoadedSkin {
     pub skin: Skin,
-    pub tex: Vec<Option<TexId>>,
+    tex: Vec<Option<Tex>>,
     /// Images loaded when first drawn: bitmap font sheets (a Japanese font
     /// has hundreds) and the skin's `lazy_images`. Which images are such
     /// (and not asked for yet), and the ones asked for since the last
@@ -103,7 +122,7 @@ impl LoadedSkin {
         for (jobs, users) in &mut self.decoding {
             for (f, t) in jobs.poll(wait, |pic| ImageTex::new(gfx, pic)) {
                 for &i in &users[f] {
-                    self.tex[i] = t.as_ref().map(|t| t.tex);
+                    self.tex[i] = t.as_ref().and_then(|t| Tex::of(gfx, t.tex));
                 }
                 self.anims.extend(t.filter(|t| t.is_animated()));
             }
@@ -130,7 +149,7 @@ impl LoadedSkin {
         let ms = now.saturating_duration_since(self.loaded_at).as_millis() as i64;
         for (i, v) in &mut self.videos {
             v.update(gfx, ms);
-            self.tex[*i] = v.texture();
+            self.tex[*i] = v.texture().and_then(|t| Tex::of(gfx, t));
         }
         for a in &mut self.anims {
             a.show(gfx, ms);
@@ -161,7 +180,7 @@ impl LoadedSkin {
         }
         // (their textures are freed with the others)
         self.anims.clear();
-        let mut ids: Vec<TexId> = self.tex.drain(..).flatten().collect();
+        let mut ids: Vec<TexId> = self.tex.drain(..).flatten().map(|t| t.id).collect();
         ids.sort_unstable();
         ids.dedup();
         for t in ids {
@@ -172,7 +191,7 @@ impl LoadedSkin {
     }
 
     /// Image `i`'s texture; one loaded when first drawn is asked for.
-    pub(super) fn texture(&self, i: usize) -> Option<TexId> {
+    fn texture(&self, i: usize) -> Option<Tex> {
         let t = self.tex.get(i).copied().flatten();
         if t.is_none() {
             let unasked = self.lazy.get(i) == Some(&true);
@@ -194,12 +213,13 @@ impl LoadedSkin {
         t
     }
 
-    pub(super) fn uv(&self, d: &Draw, src: &Src, f: [f32; 4]) -> Option<(TexId, [f32; 4])> {
-        let t = self.texture(src.image)?;
-        let (w, h) = d.gfx.texture_size(t)?;
-        let (w, h) = (w as f32, h as f32);
+    /// The texture of image `image` and where its region `f` (x, y, w, h
+    /// in image px) is on it; the image is asked for if it is loaded when
+    /// first drawn.
+    pub(super) fn uv(&self, image: usize, f: [f32; 4]) -> Option<(TexId, [f32; 4])> {
+        let Tex { id, w, h } = self.texture(image)?;
         Some((
-            t,
+            id,
             [f[0] / w, f[1] / h, (f[0] + f[2]) / w, (f[1] + f[3]) / h],
         ))
     }
@@ -207,7 +227,7 @@ impl LoadedSkin {
     /// Draw one source frame into a screen rect.
     pub fn blit(&self, d: &mut Draw, src: &Src, now: i64, st: &dyn SkinState, r: Rect, fr: &Frame) {
         let Some(f) = src.frame(now, st) else { return };
-        if let Some((t, mut uv)) = self.uv(d, src, f) {
+        if let Some((t, mut uv)) = self.uv(src.image, f) {
             // a negative width / height mirrors the image (beatoraja)
             let (mut r, mut center) = (r, fr.center);
             if r.w < 0.0 {

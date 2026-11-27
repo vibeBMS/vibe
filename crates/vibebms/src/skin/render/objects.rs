@@ -104,7 +104,7 @@ impl LoadedSkin {
             match src {
                 Some(s) if !rank => {
                     if let Some(f) = s.frames.get(set * 11 + k).or(s.frames.get(k)) {
-                        if let Some((t, uv)) = self.uv(d, s, *f) {
+                        if let Some((t, uv)) = self.uv(s.image, *f) {
                             part(d, t, seg, uv, fr, r);
                         }
                     }
@@ -263,7 +263,7 @@ impl LoadedSkin {
                             [f[0], f[1], f[2] * v, f[3]],
                         )
                     };
-                    if let Some((t, uv)) = self.uv(d, src, ff) {
+                    if let Some((t, uv)) = self.uv(src.image, ff) {
                         part(d, t, rr, uv, &fr, r);
                     }
                 }
@@ -342,7 +342,7 @@ impl LoadedSkin {
                             pw,
                             fr.rect.h,
                         ));
-                        if let Some((t, uv)) = self.uv(d, src, *f) {
+                        if let Some((t, uv)) = self.uv(src.image, *f) {
                             part(d, t, pr, uv, &fr, r);
                         }
                     }

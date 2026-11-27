@@ -77,7 +77,7 @@ impl LoadedSkin {
             else {
                 continue;
             };
-            if let Some((t, uv)) = self.uv(d, src, *f) {
+            if let Some((t, uv)) = self.uv(src.image, *f) {
                 d.b.set_blend(fr.blend);
                 d.b.quad(
                     t,
