@@ -267,18 +267,9 @@ impl SongFetch {
             }
             started = true;
             progress.set_stage(Stage::Finding);
-            let finish = move |out: Installed| {
+            crate::platform::run_job(job, &cx, move |out: Installed| {
                 let _ = tx.send(out.done);
-            };
-            #[cfg(not(target_arch = "wasm32"))]
-            crate::platform::spawn("song", move || {
-                let mut job = job;
-                let native = bmseeker::native::Native::new(&cx);
-                let net = bmseeker::refusal::Guarded::new(&native, &cx);
-                finish(bmseeker::install::job::run_job(&mut job, &net))
             });
-            #[cfg(target_arch = "wasm32")]
-            crate::platform::run_job(job, &cx, finish);
         });
         if started {
             self.jobs.push((id, job, quiet));
