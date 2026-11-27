@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """tools/check_layers.py [src]: no module of the vibebms crate uses an item
-of a higher layer (LAYERS) but the uses listed in UPWARD (docs/BUILDING.md,
-"Development"; CI's test job runs it).
+of a higher layer (LAYERS) but the uses listed in UPWARD, and no top-level
+modules use each other in a cycle but those listed in CYCLES
+(docs/BUILDING.md, "Development"; CI's test job runs it).
 
 Every .rs file under src is a module (a/b.rs and a/b/mod.rs are a::b), in
 the layer of the longest prefix of its path that LAYERS names. What it
@@ -12,7 +13,9 @@ uses is read from its text, with comments, strings and test code left out
 (`tr!`). A path's target is its longest prefix that is a module, the rest
 the item. A use of a higher layer fails unless UPWARD lists it; a use
 UPWARD lists that no longer exists fails too, so the list is shortened
-when one goes. What a value's method reaches without naming its type is
+when one goes. Likewise a cycle: top-level modules (`a` for `a::b::c`)
+that use each other, each reached from the others through uses between
+top-level modules, fail unless CYCLES lists exactly that set. What a value's method reaches without naming its type is
 not seen. A `#[path]` attribute, and a path a macro makes from its
 argument after `crate::` (`crate::$m::…`), fail: neither can be read from
 the text.
@@ -52,6 +55,14 @@ UPWARD = [
     ("i18n", "platform::android", ["locale"],
      "AUTO's language on Android is the Java locale; passing the system's locale in from the start instead "
      "would read it at every start, not only when AUTO is chosen"),
+]
+
+# (top-level modules that use each other, why they stay)
+CYCLES = [
+    (["i18n", "platform"], "the use of platform::android::locale listed in UPWARD"),
+    (["bulk", "songfetch"],
+     "songfetch fetches a bulk::Wanted, the song a table asks for, and bulk downloads through songfetch; Wanted "
+     "is to move to songfetch when the top-level files are regrouped"),
 ]
 
 
@@ -266,6 +277,55 @@ def uses(src):
     return modules - {t for t in modules if any(under(t, x) for x in tests)}, found, odd
 
 
+def cycles(found):
+    """The sets of top-level modules that use each other (strongly
+    connected, more than one), each as a sorted tuple, with the uses
+    between their members: {(module, ...): ["a -> b::item at file:line", ...]}."""
+    top = lambda m: m.split("::")[0]
+    edges = defaultdict(dict)
+    for (a, b, i), at in sorted(found.items()):
+        if top(a) != top(b):
+            edges[top(a)].setdefault(top(b), "%s::%s at %s" % (b, i, at[0]))
+    nodes = sorted(set(edges) | {b for e in edges.values() for b in e})
+    # (Tarjan's: a component is complete when its first node's low is its own)
+    index, low, stack, on, out = {}, {}, [], set(), {}
+
+    def visit(v):
+        index[v] = low[v] = len(index)
+        stack.append(v)
+        on.add(v)
+        for w in sorted(edges[v]):
+            if w not in index:
+                visit(w)
+                low[v] = min(low[v], low[w])
+            elif w in on:
+                low[v] = min(low[v], index[w])
+        if low[v] == index[v]:
+            comp = []
+            while not comp or comp[-1] != v:
+                comp.append(stack.pop())
+                on.discard(comp[-1])
+            if len(comp) > 1:
+                c = tuple(sorted(comp))
+                out[c] = ["%s -> %s" % (a or "lib", u) for a in c for b, u in sorted(edges[a].items()) if b in c]
+
+    for v in nodes:
+        if v not in index:
+            visit(v)
+    return out
+
+
+def cycle_problems(found, listed):
+    """What is wrong with the cycles of `found` against `listed` (CYCLES)."""
+    have = cycles(found)
+    want = {tuple(sorted(c)) for c, _ in listed}
+    bad = ["a cycle between top-level modules: %s (%s)" % (", ".join(m or "lib" for m in c), "; ".join(at))
+           for c, at in sorted(have.items()) if c not in want]
+    bad += ["%s no longer use each other in a cycle: take it out of CYCLES in tools/check_layers.py" % ", ".join(c)
+            for c in sorted(want) if c not in have]
+    return bad, len(have)
+
+
 def main():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     src = sys.argv[1] if len(sys.argv) > 1 else os.path.join(root, "crates", "vibebms", "src")
@@ -284,12 +344,14 @@ def main():
         for i in items:
             if not any(under(x, a) and y == b and j == i for x, y, j in upward):
                 bad.append("%s no longer uses %s::%s: take it out of UPWARD in tools/check_layers.py" % (a, b, i))
+    cycle_bad, n_cycles = cycle_problems(found, CYCLES)
+    bad += cycle_bad
     for line in bad:
         print(line)
     if bad:
         return 1
-    print("layers: %d modules, %d upward uses (at %d places), each listed"
-          % (len(modules), len(upward), sum(len(at) for at in upward.values())))
+    print("layers: %d modules, %d upward uses (at %d places), %d cycles between top-level modules, each listed"
+          % (len(modules), len(upward), sum(len(at) for at in upward.values()), n_cycles))
     return 0
 
 

@@ -124,10 +124,12 @@ without wasm-opt, plus the CJK fonts (see Reproducible builds).
   pixels.
 - How the app's code is layered: each module of `crates/vibebms/src` is in a layer of `tools/check_layers.py`'s table
   (lowest first: the file formats and the UI's text, `platform`, the library, the settings, drawing and input, skins,
-  sound, the services, the widgets, the scenes, and the shell, `app/`) and uses only the layers below its own. The
-  uses of a higher layer that remain are listed in the script, each with its reason. CI's test job runs it: it fails
-  on a use of a higher layer it does not list, on a listed use that is gone, and on a module in no layer, so a change
-  that adds a module gives it a layer, and one that removes a listed use takes it off the list.
+  sound, the services, the state the scenes share, `ctx/`, the widgets, the in-app browser, the scenes, and the shell,
+  `app/`) and uses only the layers below its own. The uses of a higher layer that remain are listed in the script,
+  each with its reason, and so are the top-level modules that still use each other in a cycle. CI's test job runs
+  it: it fails on a use of a higher layer or a cycle it does not list, on a listed use or cycle that is gone, and on
+  a module in no layer, so a change that adds a module gives it a layer, and one that removes a listed use or cycle
+  takes it off the list.
 - The logo and icons: `tools/gen_logo.py` (fonttools, cairosvg, Pillow) writes `assets/logo/` and the platforms'
   icons.
 

@@ -2,6 +2,7 @@
 """Tests of tools/check_layers.py: python3 tools/check_layers_test.py. Each
 puts a few lines into a copy of the app crate's sources and runs the script
 on it."""
+import importlib.util
 import pathlib
 import shutil
 import subprocess
@@ -14,6 +15,10 @@ SCRIPT = HERE / "check_layers.py"
 SRC = HERE.parent / "crates" / "vibebms" / "src"
 # an item of the scenes, the highest layer but the shell
 UP = "crate::scene::skinvals::judge_option"
+sys.dont_write_bytecode = True
+_spec = importlib.util.spec_from_file_location("check_layers", SCRIPT)
+check_layers = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(check_layers)
 
 
 class CheckLayers(unittest.TestCase):
@@ -80,6 +85,36 @@ class CheckLayers(unittest.TestCase):
                    "    };\n}\npub fn g() {\n    up!(scene);\n}\n", "macro's argument")
         self.fails("macro_rules! up2 {\n    ($m:ident) => {\n        $crate::$m::f()\n    };\n}\n",
                    "macro's argument")
+
+    def test_a_cycle_between_top_level_modules_fails(self):
+        # (two modules of one layer: neither use is upward)
+        one = {"replay.rs": "pub fn s() {\n    crate::screenshot::dir();\n}\n"}
+        self.assertEqual(self.run_on(one)[0], 0)
+        code, out = self.run_on(dict(one, **{"screenshot.rs": "pub fn r() {\n    crate::replay::dir();\n}\n"}))
+        self.assertEqual(code, 1, out)
+        self.assertIn("a cycle between top-level modules: replay, screenshot "
+                      "(replay -> screenshot::dir at replay.rs:", out)
+        self.assertIn("screenshot -> replay::dir at screenshot.rs:", out)
+
+    def test_a_listed_cycle_that_grows_fails(self):
+        # bulk uses hosts already
+        code, out = self.run_on({"hosts.rs": "pub fn b() {\n    crate::bulk::tick();\n}\n"})
+        self.assertEqual(code, 1, out)
+        self.assertIn("a cycle between top-level modules: bulk, hosts, songfetch (", out)
+        self.assertIn("bulk, songfetch no longer use each other in a cycle", out)
+
+    def test_cycles_are_found_through_submodules_and_a_gone_one_fails(self):
+        found = {("a", "b", "x"): ["a.rs:1"], ("b::c", "c", "y"): ["b/c.rs:2"], ("c", "a::d", "z"): ["c.rs:3"],
+                 ("c", "e", "w"): ["c.rs:4"]}
+        self.assertEqual(check_layers.cycles(found),
+                         {("a", "b", "c"): ["a -> b::x at a.rs:1", "b -> c::y at b/c.rs:2", "c -> a::d::z at c.rs:3"]})
+        self.assertEqual(check_layers.cycle_problems(found, [(["c", "b", "a"], "")]), ([], 1))
+        bad, _ = check_layers.cycle_problems(found, [(["a", "b"], ""), (["a", "b", "c"], "")])
+        self.assertEqual(bad, ["a, b no longer use each other in a cycle: "
+                               "take it out of CYCLES in tools/check_layers.py"])
+        del found[("c", "a::d", "z")]
+        bad, n = check_layers.cycle_problems(found, [(["a", "b", "c"], "")])
+        self.assertEqual((len(bad), n), (1, 0))
 
 
 if __name__ == "__main__":
