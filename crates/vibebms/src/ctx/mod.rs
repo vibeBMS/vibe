@@ -643,7 +643,8 @@ impl Ctx {
         self.lib.version += 1;
     }
 
-    /// What the background work did since the last frame.
+    /// What the downloads, the self-update and the IR did since the last
+    /// frame.
     pub fn poll_jobs(&mut self) {
         let archives = self.net.archives.poll(&self.paths);
         let mut events: Vec<AppEvent> = archives.into_iter().map(AppEvent::from).collect();
@@ -666,7 +667,10 @@ impl Ctx {
         let ir = self.net.ir.poll(now, &mut self.config.ir);
         events.extend(ir.into_iter().map(AppEvent::from));
         self.handle(events);
-        crate::scene::skinned::settle(self, crate::platform::Instant::now());
+    }
+
+    /// What the scan and the tables did since the last frame.
+    pub fn poll_library(&mut self) {
         self.poll_scan();
         let events = self.tables.poll(&self.paths, &self.config.tables);
         self.handle(events);

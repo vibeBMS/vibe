@@ -49,7 +49,6 @@ LAYERS = [
 
 # (from module or the modules under it, to module, items, why it stays)
 UPWARD = [
-    ("ctx", "scene::skinned", ["settle"], "a skin being tried is settled as the background work is polled"),
     ("i18n", "platform::android", ["locale"],
      "AUTO's language on Android is the Java locale; passing the system's locale in from the start instead "
      "would read it at every start, not only when AUTO is chosen"),

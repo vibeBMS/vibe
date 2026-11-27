@@ -403,6 +403,8 @@ impl Running {
         #[cfg(target_os = "ios")]
         crate::platform::ios::poll_keyboard();
         self.ctx.poll_jobs();
+        crate::scene::skinned::settle(&mut self.ctx, Instant::now());
+        self.ctx.poll_library();
         self.startup.poll(&mut self.ctx);
         self.poll_viewer(el);
         self.poll_profile(el);
