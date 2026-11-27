@@ -150,12 +150,14 @@ fn too_large() -> io::Error {
 
 /// Read the archive `archive`: the files `want` takes into `dest` (at
 /// most `cap` bytes of them), and with `list` the list of all its files.
-/// `count`: how many files are wanted, if known (a 7z, RAR, LZH or tar is
-/// not decoded past the last of them; not with `list`). An error of kind
-/// `WouldBlock` (web): the archive is not in memory yet; of kind
-/// `OutOfMemory`: the files wanted are more than `cap`, or it lists more
-/// files than an archive may ([`LIMITS`]); of kind `InvalidData`: it
-/// cannot be read, or decodes to more than one may.
+/// `count`: how many files are wanted, if known (by their paths: a path
+/// the archive has twice is one; the reading ends once that many are
+/// taken: a 7z, a solid RAR or a .tar.gz is not decoded past the last of
+/// them; not with `list`). An error of kind `WouldBlock` (web): the
+/// archive is not in memory yet; of kind `OutOfMemory`: the files wanted
+/// are more than `cap`, or it lists more files than an archive may
+/// ([`LIMITS`]); of kind `InvalidData`: it cannot be read, or decodes to
+/// more than one may.
 pub fn unpack(
     archive: &Path,
     want: &(dyn Fn(&Path) -> bool + Sync),
@@ -194,7 +196,7 @@ fn unpack_within(
         left: cap,
         listing: BTreeMap::new(),
         files: Vec::new(),
-        taken: 0,
+        taken: HashSet::new(),
         keep: Keep::Skip,
         too_large: false,
     };
@@ -227,8 +229,9 @@ struct Taken<'a> {
     left: u64,
     listing: BTreeMap<PathBuf, u64>,
     files: Vec<(PathBuf, Vec<u8>)>,
-    /// Files wanted taken.
-    taken: usize,
+    /// The paths of the files wanted taken (a path twice in the archive is
+    /// one file).
+    taken: HashSet<PathBuf>,
     /// Where the file being written goes.
     keep: Keep,
     too_large: bool,
@@ -287,7 +290,7 @@ impl Sink for Taken<'_> {
         if self.too_large {
             return Err(too_large().to_string());
         }
-        if self.count.is_some_and(|n| self.taken >= n) {
+        if self.count.is_some_and(|n| self.taken.len() >= n) {
             return Ok(Take::Stop);
         }
         let each = self.dest.each();
@@ -327,22 +330,23 @@ impl Sink for Taken<'_> {
         if self.list {
             self.listing.insert(m.rel.clone(), m.size);
         }
-        match std::mem::replace(&mut self.keep, Keep::Skip) {
-            Keep::Skip => return,
-            Keep::Memory(_) if m.size > self.left => {
-                self.too_large = true;
-                return;
-            }
-            Keep::Memory(mut v) => {
-                // (kept while its song is: not the room it grew into)
-                v.shrink_to_fit();
-                self.files.push((m.rel, v));
-            }
-            #[cfg(not(target_arch = "wasm32"))]
-            Keep::File(_) => {}
+        let keep = std::mem::replace(&mut self.keep, Keep::Skip);
+        if matches!(keep, Keep::Skip) {
+            return;
         }
-        self.taken += 1;
-        self.left -= m.size;
+        // (the bytes written; a chart's may be more than the room: it is
+        // judged once whole)
+        let Some(left) = self.left.checked_sub(m.size) else {
+            self.too_large = true;
+            return;
+        };
+        self.left = left;
+        if let Keep::Memory(mut v) = keep {
+            // (kept while its song is: not the room it grew into)
+            v.shrink_to_fit();
+            self.files.push((m.rel.clone(), v));
+        }
+        self.taken.insert(m.rel);
     }
     /// A file that could not be written in full: it goes.
     #[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
@@ -546,8 +550,10 @@ mod tests {
     }
 
     /// A zip is read as BMSeeker reads one: a file more than 32 folders
-    /// deep is not listed, one whose local header names another file than
-    /// its directory is refused; one with bytes before it is still read.
+    /// deep is not listed; one whose local header names another file than
+    /// its directory is listed and refused when it is read; one joined
+    /// after another zip is read from its first byte (the zip before it,
+    /// whose end is near enough the file's to be found).
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn zips_as_bmseeker_reads_them() {
@@ -567,14 +573,74 @@ mod tests {
         other.extend(&z);
         assert_eq!(
             list("joined.zip", &other).unwrap(),
-            [PathBuf::from("Song/a.bms")]
+            [PathBuf::from("x.txt")]
         );
         let at = z.windows(10).position(|w| w == b"Song/a.bms").unwrap();
         let mut differs = z.clone();
         differs[at..at + 10].copy_from_slice(b"Song/b.bms");
-        let e = list("differs.zip", &differs).unwrap_err();
+        let chart = [PathBuf::from("Song/a.bms")];
+        assert_eq!(list("differs.zip", &differs).unwrap(), chart);
+        let want = |r: &Path| r == chart[0];
+        let a = d.join("differs.zip");
+        let e = unpack(&a, &want, false, Some(1), &Dest::Memory, 1 << 20)
+            .err()
+            .unwrap();
         assert_eq!(e.kind(), io::ErrorKind::InvalidData, "{e}");
         assert!(e.to_string().contains("local header"), "{e}");
+        std::fs::remove_dir_all(&d).ok();
+    }
+
+    /// A RAR's file whose size it does not give is listed by the bytes it
+    /// unpacks to, and read when there is room for them.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_rar_file_of_no_size_is_listed_and_read() {
+        let d = std::env::temp_dir().join(format!("vibebms-arcfs-sizeless-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let rar = d.join("p.rar");
+        std::fs::write(&rar, bmseeker::testkit::SIZELESS_RAR).unwrap();
+        let u = unpack(&rar, &|_| false, true, None, &Dest::Memory, 0).unwrap();
+        let listed: Vec<(PathBuf, u64)> = u.listing.unwrap().into_iter().collect();
+        assert_eq!(listed, [("a.zip".into(), 4330), ("b.zip".into(), 8281)]);
+        let want = |r: &Path| r == Path::new("a.zip");
+        let u = unpack(&rar, &want, false, Some(1), &Dest::Memory, 8 << 10).unwrap();
+        assert_eq!(u.files[0].1.len(), 4330);
+        let e = unpack(&rar, &want, false, Some(1), &Dest::Memory, 4 << 10)
+            .err()
+            .unwrap();
+        assert_eq!(e.kind(), io::ErrorKind::OutOfMemory);
+        std::fs::remove_dir_all(&d).ok();
+    }
+
+    /// A path an archive has twice (names alike once made safe, a tar's
+    /// file appended again) is one of the files counted: the files after
+    /// it are still read.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_path_twice_is_one_file_counted() {
+        let d = std::env::temp_dir().join(format!("vibebms-arcfs-twice-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let files = [
+            ("Song//a.bms", "#TITLE X"),
+            ("Song/a.bms", "#TITLE A"),
+            ("Song/key.wav", "RIFF"),
+        ];
+        use bmseeker::testkit::{tar, zip};
+        for (name, bytes) in [("t.zip", zip(&files)), ("t.tar", tar(&files))] {
+            let a = d.join(name);
+            std::fs::write(&a, bytes).unwrap();
+            let u = unpack(&a, &|_| false, true, None, &Dest::Memory, 0).unwrap();
+            let count = u.listing.unwrap().len();
+            assert_eq!(count, 2, "{name}");
+            let song = |r: &Path| r.starts_with("Song");
+            let u = unpack(&a, &song, false, Some(count), &Dest::Memory, 1 << 20).unwrap();
+            let got: Vec<&Path> = u.files.iter().map(|(p, _)| p.as_path()).collect();
+            assert_eq!(
+                got,
+                ["Song/a.bms", "Song/a.bms", "Song/key.wav"].map(Path::new),
+                "{name}"
+            );
+        }
         std::fs::remove_dir_all(&d).ok();
     }
 
@@ -591,7 +657,7 @@ mod tests {
             left: 0,
             listing: BTreeMap::new(),
             files: Vec::new(),
-            taken: 0,
+            taken: HashSet::new(),
             keep: Keep::Skip,
             too_large: false,
         };
