@@ -336,7 +336,7 @@ impl Drop for Cleanup {
     }
 }
 
-/// Videos wait for their frames while it is held (`video::set_offline`).
+/// Videos wait for their frames while it is held (`gfx::video::set_offline`).
 struct OfflineVideos;
 
 impl OfflineVideos {

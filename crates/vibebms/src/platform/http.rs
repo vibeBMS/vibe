@@ -26,7 +26,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 /// vibeBMS's product in a User-Agent: its name, version and where it is
 /// from, `vibeBMS/0.1.0 (+https://github.com/vibeBMS/vibe)`. It comes after
 /// the HTTP library's on vibeBMS's own requests ([`user_agent`]) and after
-/// bmseeker's on bmseeker's downloads (`hosts::context`).
+/// bmseeker's on bmseeker's downloads (`net::hosts::context`).
 pub const PRODUCT: &str = concat!(
     "vibeBMS/",
     env!("CARGO_PKG_VERSION"),

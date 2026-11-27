@@ -147,7 +147,7 @@ pub struct AudioSettings {
     #[serde(skip_serializing_if = "is_true")]
     pub mute_inactive: bool,
     /// The chart's sounds and the song preview played at a common loudness,
-    /// `normalize_target` LUFS (`loudness`).
+    /// `normalize_target` LUFS (`audio::loudness`).
     #[serde(skip_serializing_if = "is_true")]
     pub normalize: bool,
     #[serde(skip_serializing_if = "is_normal_target")]

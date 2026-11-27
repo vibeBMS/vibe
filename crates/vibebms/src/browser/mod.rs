@@ -1,6 +1,6 @@
 //! The in-app browser: a chart's download page in the system web view.
 //! What the page downloads goes to `<root>/downloads/` and is brought into
-//! the library (`import`): one file at a time, each once the player has
+//! the library (`net::import`): one file at a time, each once the player has
 //! said yes to it, none larger than [`MAX_DOWNLOAD`]. Builds without one
 //! (the web, Linux without WebKitGTK) get a `Downloads` that does nothing:
 //! their pages open in the system browser instead (`ctx::IN_APP_BROWSER`).

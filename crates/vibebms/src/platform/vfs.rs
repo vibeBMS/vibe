@@ -561,7 +561,7 @@ mod imp {
             let mut fs = fs.borrow_mut();
             for i in 0..files.length() {
                 let Some(f) = files.get(i) else { continue };
-                // (song packs are unpacked: `web::install_file_input`)
+                // (song packs are unpacked: `app::web::install_file_input`)
                 if bmseeker::unpack::is_archive(Path::new(&f.name())) {
                     continue;
                 }

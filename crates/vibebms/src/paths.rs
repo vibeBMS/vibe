@@ -150,7 +150,7 @@ impl Paths {
         self.root.join("config").join("config.toml")
     }
 
-    /// The profile's replays (`replay`).
+    /// The profile's replays (`library::replay`).
     pub fn replays(&self) -> PathBuf {
         crate::library::replay::dir(&self.player)
     }

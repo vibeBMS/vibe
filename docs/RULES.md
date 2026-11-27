@@ -526,9 +526,9 @@ BATTLE, so RANDOM shuffles the target's lanes.
 * Courses play their charts as written (`RuleOptions::for_course`).
 
 ## Replay formats
-A replay keeps its format (`library::replay::VERSION`), bumped whenever the judge changes so that a replay of the format before
-may judge otherwise. An older replay still paces a play with its ghost; watched or played again (G-BATTLE) it runs on
-the judge of now.
+A replay keeps its format (`library::replay::VERSION`), bumped whenever the judge changes so that a replay of the
+format before may judge otherwise. An older replay still paces a play with its ghost; watched or played again
+(G-BATTLE) it runs on the judge of now.
 
 | format | the change (a replay of the format before may judge otherwise) |
 |---|---|

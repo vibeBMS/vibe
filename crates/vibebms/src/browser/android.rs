@@ -3,7 +3,7 @@
 //! download to `<root>/downloads/`, asking the player about each first (a
 //! dialog of its own, over the web view); this side opens it through JNI,
 //! polls its events and brings finished downloads into the library
-//! (`import`).
+//! (`net::import`).
 
 use super::imports::Imports;
 use super::MAX_DOWNLOAD;
