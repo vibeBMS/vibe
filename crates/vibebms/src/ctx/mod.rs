@@ -760,7 +760,7 @@ impl Ctx {
             crate::platform::opfs::hold_library(false);
             // charts picked without their song's folder go into it
             #[cfg(target_arch = "wasm32")]
-            for m in crate::web::place_picked_charts(&self.paths.root, &self.lib.songs) {
+            for m in crate::app::web::place_picked_charts(&self.paths.root, &self.lib.songs) {
                 self.toast(m);
             }
             self.start_scan();

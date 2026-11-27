@@ -19,7 +19,7 @@ impl Running {
     pub(super) fn window_event(&mut self, el: &ActiveEventLoop, event: WindowEvent) {
         // (the web: when the browser got the event, not when this runs)
         #[cfg(target_arch = "wasm32")]
-        let now = crate::web::input_time();
+        let now = crate::app::web::input_time();
         #[cfg(not(target_arch = "wasm32"))]
         let now = Instant::now();
         match event {
@@ -280,9 +280,9 @@ impl Running {
     /// The page's touches (`web::install_touch_input`) since the last call.
     #[cfg(target_arch = "wasm32")]
     pub(super) fn web_touches(&mut self, el: &ActiveEventLoop) {
-        for t in crate::web::take_touches() {
+        for t in crate::app::web::take_touches() {
             match t {
-                crate::web::TouchIn::Point {
+                crate::app::web::TouchIn::Point {
                     id,
                     phase,
                     x,
@@ -309,7 +309,7 @@ impl Running {
                     );
                 }
                 // fingers held here that are no longer on the screen
-                crate::web::TouchIn::Left(left) => {
+                crate::app::web::TouchIn::Left(left) => {
                     let lost: Vec<(u64, (f32, f32))> = self
                         .touches
                         .iter()
@@ -334,7 +334,7 @@ impl Running {
             }
         }
         // no finger on the screen: keys still held lost their release
-        if let Some(time) = crate::web::take_touches_gone() {
+        if let Some(time) = crate::app::web::take_touches_gone() {
             self.dispatch(
                 el,
                 InputEv::Released {

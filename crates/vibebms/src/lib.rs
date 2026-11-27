@@ -24,13 +24,10 @@ pub mod profiles;
 pub mod replay;
 pub mod scene;
 pub mod scoredb;
-pub mod screenshot;
 pub mod skin;
 pub mod touch;
 pub mod ui;
 pub mod update;
-#[cfg(target_arch = "wasm32")]
-pub mod web;
 
 /// Entry point for desktop builds.
 pub fn run() {

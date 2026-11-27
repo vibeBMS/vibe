@@ -125,13 +125,13 @@ class CheckLayers(unittest.TestCase):
 
     def test_a_cycle_between_top_level_modules_fails(self):
         # (two modules of one layer: neither use is upward)
-        one = {"replay.rs": "pub fn s() {\n    crate::screenshot::dir();\n}\n"}
+        one = {"replay.rs": "pub fn s() {\n    crate::app::screenshot::dir();\n}\n"}
         self.assertEqual(self.run_on(one)[0], 0)
-        code, out = self.run_on(dict(one, **{"screenshot.rs": "pub fn r() {\n    crate::replay::dir();\n}\n"}))
+        code, out = self.run_on(dict(one, **{"app/screenshot.rs": "pub fn r() {\n    crate::replay::dir();\n}\n"}))
         self.assertEqual(code, 1, out)
-        self.assertIn("a cycle between units: replay, screenshot "
-                      "(replay -> screenshot::dir at replay.rs:", out)
-        self.assertIn("screenshot -> replay::dir at screenshot.rs:", out)
+        self.assertIn("a cycle between units: app::screenshot, replay "
+                      "(app::screenshot -> replay::dir at app/screenshot.rs:", out)
+        self.assertIn("replay -> app::screenshot::dir at replay.rs:", out)
 
     def test_a_listed_cycle_that_grows_fails(self):
         code, out = self.run_on({"platform/mod.rs": "pub fn b() {\n    crate::formats::f();\n}\n",
@@ -192,6 +192,10 @@ class CheckLayers(unittest.TestCase):
         code, out = self.run_on({"net/hosts.rs": '#[cfg(windows)]\npub fn f() {}\n'})
         self.assertEqual(code, 1, out)
         self.assertIn("net::hosts: 1 lines with a platform condition, more than the 0", out)
+        # also one in a folder where conditions belong
+        code, out = self.run_on({"app/screenshot.rs": '#[cfg(windows)]\npub fn f() {}\n'})
+        self.assertEqual(code, 1, out)
+        self.assertIn("app::screenshot: 3 lines with a platform condition, more than the 2", out)
 
     def test_a_platform_condition_more_fails(self):
         for text in ['#[cfg(target_os = "linux")]\npub fn f() {}\n',

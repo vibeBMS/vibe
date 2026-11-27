@@ -7,8 +7,11 @@ mod events;
 #[cfg(desktop)]
 pub mod export;
 mod pacing;
+pub mod screenshot;
 mod startup;
 mod viewer;
+#[cfg(target_arch = "wasm32")]
+pub mod web;
 
 use crate::config::Config;
 use crate::ctx::Ctx;
@@ -161,13 +164,13 @@ pub fn run() {
     #[cfg(target_arch = "wasm32")]
     {
         use winit::platform::web::EventLoopExtWebSys;
-        crate::web::install_file_input(app.paths.root.clone());
-        crate::web::install_input_stamps();
-        crate::web::install_touch_watch();
-        crate::web::install_touch_input();
+        crate::app::web::install_file_input(app.paths.root.clone());
+        crate::app::web::install_input_stamps();
+        crate::app::web::install_touch_watch();
+        crate::app::web::install_touch_input();
         {
             let proxy = app.proxy.clone();
-            crate::web::install_page_focus(move |f| {
+            crate::app::web::install_page_focus(move |f| {
                 let _ = proxy.send_event(UserEvent::PageFocus(f));
             });
         }
@@ -206,7 +209,11 @@ impl Running {
             let name = self.shot_name.take().unwrap_or_default();
             match r {
                 Ok(img) => {
-                    self.shot_job = Some(crate::screenshot::save(img, name, &self.ctx.paths.root))
+                    self.shot_job = Some(crate::app::screenshot::save(
+                        img,
+                        name,
+                        &self.ctx.paths.root,
+                    ))
                 }
                 Err(e) => self.ctx.toast(tr!("Screenshot: {e}", e = e)),
             }
@@ -417,7 +424,7 @@ impl Running {
         self.ctx.audio.sounds.poll(&self.ctx.audio.mixer, norm);
         self.ctx.audio.loudness.poll();
         #[cfg(target_arch = "wasm32")]
-        crate::web::show_page_buttons(!self.scenes.last().is_some_and(|s| s.full_screen()));
+        crate::app::web::show_page_buttons(!self.scenes.last().is_some_and(|s| s.full_screen()));
         if let Some(fs) = self.ctx.view.want_fullscreen.take() {
             self.window
                 .set_fullscreen(fs.then_some(Fullscreen::Borderless(None)));
@@ -472,8 +479,8 @@ impl Running {
         if std::mem::take(&mut self.ctx.view.want_screenshot) && self.shot_name.is_none() {
             if self.gfx.request_capture() {
                 let label = self.scenes.last().map(|s| s.screenshot_label(&self.ctx));
-                let name = crate::screenshot::file_name(
-                    &crate::screenshot::stamp(),
+                let name = crate::app::screenshot::file_name(
+                    &crate::app::screenshot::stamp(),
                     &label.unwrap_or_default(),
                 );
                 self.shot_name = Some(name);

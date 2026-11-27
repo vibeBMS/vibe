@@ -48,14 +48,14 @@ LAYERS = [
     ("placement", ["net::placement", "charts"]),
     ("courses and scores", ["courses", "scoredb"]),
     ("settings", ["config"]),
-    ("kept files", ["replay", "screenshot"]),
+    ("kept files", ["replay", "app::screenshot"]),
     ("paths", ["paths"]),
     ("drawing and input", ["gfx", "input", "perspective"]),
     ("looks and touch", ["gfx::theme", "gfx::video", "touch"]),
     ("skins", ["skin"]),
     ("sound", ["audio", "audio::loudness", "audio::sysound"]),
     ("services", ["net", "net::hosts", "profiles", "update", "ir", "integrations", "net::import", "net::events",
-                  "net::songfetch", "net::bulk", "net::skinstore", "web"]),
+                  "net::songfetch", "net::bulk", "net::skinstore", "app::web"]),
     ("shared state", ["ctx"]),
     ("widgets", ["ui"]),
     ("browser", ["browser"]),
@@ -85,9 +85,9 @@ CONDITIONS_AT_HOME = ["platform", "app", "browser"]
 # platform condition (conditions()), outside test code: a count may only go
 # down.
 CONDITIONS = {
-    "audio::loudness": 1, "config": 1, "ctx": 11, "gfx": 12, "gfx::video": 5, "i18n": 3, "input": 13,
-    "integrations": 28, "ir": 5, "lib": 2, "library": 12, "net": 1, "net::links": 5, "paths": 2, "replay": 2,
-    "scene": 40, "screenshot": 2, "skin": 2, "update": 12,
+    "app::screenshot": 2, "audio::loudness": 1, "config": 1, "ctx": 11, "gfx": 12, "gfx::video": 5, "i18n": 3,
+    "input": 13, "integrations": 28, "ir": 5, "lib": 1, "library": 12, "net": 1, "net::links": 5, "paths": 2,
+    "replay": 2, "scene": 40, "skin": 2, "update": 12,
 }
 
 # What names a platform in a cfg: the target's predicates, and the groups
@@ -405,7 +405,7 @@ def conditions(src, names):
             if named.search(parts[0] if m.group(1) else ",".join(parts)):
                 lines.add(text.count("\n", 0, m.start()) + 1)
         top = unit_of(mod) or "lib"
-        if lines and top.split("::")[0] not in CONDITIONS_AT_HOME:
+        if lines and top not in CONDITIONS_AT_HOME:
             out[top] += ["%s:%d" % (os.path.relpath(f, src), n) for n in sorted(lines)]
     return out
 

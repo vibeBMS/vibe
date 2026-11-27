@@ -386,7 +386,10 @@ impl Scene for SelectScene {
         let Some((_, s)) = self.selected_song(ctx) else {
             return Vec::new();
         };
-        let mut v = vec![s.title.clone(), crate::screenshot::difficulty(s.difficulty)];
+        let mut v = vec![
+            s.title.clone(),
+            crate::app::screenshot::difficulty(s.difficulty),
+        ];
         if let Some(b) = ctx.best(s, ctx.config.play.ln_pref()) {
             v.extend([b.clear.label().to_string(), b.ex_score.to_string()]);
         }

@@ -9,6 +9,11 @@
 "Screenshots: this GPU's screen cannot be read" = "Screenshots: this GPU's screen cannot be read"
 "Graphics: {wanted} could not start, {used} is used instead (SETTINGS › DISPLAY & AUDIO › ADVANCED)" = "Graphics: {wanted} could not start, {used} is used instead (SETTINGS › DISPLAY & AUDIO › ADVANCED)"
 
+# app/web.rs
+"{name}: add its song first, then this chart again" = "{name}: add its song first, then this chart again"
+"Which song is this chart for?" = "Which song is this chart for?"
+"Keep it separate" = "Keep it separate"
+
 # browser/android.rs
 "Save this download?" = "Save this download?"
 "Don't save" = "Don't save"
@@ -1064,8 +1069,3 @@ Using them is your own responsibility: follow each site's terms and respect the 
 "Update available: {version} (SETTINGS › SYSTEM)" = "Update available: {version} (SETTINGS › SYSTEM)"
 "Updated to {ver}: restart to use it" = "Updated to {ver}: restart to use it"
 "The update failed: the executable's location is not known" = "The update failed: the executable's location is not known"
-
-# web.rs
-"{name}: add its song first, then this chart again" = "{name}: add its song first, then this chart again"
-"Which song is this chart for?" = "Which song is this chart for?"
-"Keep it separate" = "Keep it separate"

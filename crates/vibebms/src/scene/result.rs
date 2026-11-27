@@ -467,7 +467,7 @@ impl Scene for ResultScene {
         let d = &self.d;
         vec![
             d.title.clone(),
-            crate::screenshot::difficulty(d.request.song.difficulty),
+            crate::app::screenshot::difficulty(d.request.song.difficulty),
             d.clear.label().into(),
             d.score.ex_score().to_string(),
         ]

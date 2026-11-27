@@ -33,7 +33,7 @@ impl Chart {
     pub fn of(song: &crate::library::Song) -> Chart {
         Chart {
             title: song.title.clone(),
-            difficulty: crate::screenshot::difficulty(song.difficulty),
+            difficulty: crate::app::screenshot::difficulty(song.difficulty),
         }
     }
 
