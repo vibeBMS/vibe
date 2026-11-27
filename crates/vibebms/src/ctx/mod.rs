@@ -2,10 +2,10 @@
 
 mod event;
 mod mute;
-pub mod overrides;
-pub mod tables;
+pub(crate) mod overrides;
+pub(crate) mod tables;
 
-pub use event::AppEvent;
+pub(crate) use event::AppEvent;
 pub use mute::Mute;
 pub use overrides::Overrides;
 use tables::Tables;
@@ -917,6 +917,34 @@ mod tests {
             Some(vec![pages[1].to_string(), pages[3].to_string()])
         );
         assert_eq!(ctx.net.take_pages(), None);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// A step of the bulk queue that changes what the music select lists
+    /// counts as a change of them; one that changes nothing does not.
+    #[test]
+    fn a_bulk_step_that_changes_the_lists_counts() {
+        let root = std::env::temp_dir().join(format!("vibebms-bulk-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        let v = ctx.lib.version;
+        ctx.poll_jobs();
+        assert_eq!(ctx.lib.version, v);
+        // a chart the library holds: done at once, nothing downloaded
+        let md5 = format!("{:0>32}", "held");
+        ctx.lib.songs = Arc::new(vec![Song {
+            md5: md5.clone(),
+            ..Default::default()
+        }]);
+        let held = crate::bulk::Wanted {
+            title: "held".into(),
+            md5,
+            ..Default::default()
+        };
+        assert_eq!(ctx.net.bulk.queue([held]), 1);
+        ctx.poll_jobs();
+        assert_eq!(ctx.lib.version, v + 1);
+        ctx.poll_jobs();
+        assert_eq!(ctx.lib.version, v + 1);
         std::fs::remove_dir_all(&root).ok();
     }
 }

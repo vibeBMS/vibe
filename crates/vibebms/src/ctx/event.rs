@@ -69,3 +69,52 @@ impl From<crate::ir::Polled> for AppEvent {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{archive, ir, skinstore, songfetch};
+
+    /// Each service's report is the event `Ctx` acts on for it, with what
+    /// it carries.
+    #[test]
+    fn each_report_is_its_event() {
+        let scores = || {
+            Box::new(crate::ir::download::Download {
+                title: "me".into(),
+                ..Default::default()
+            })
+        };
+        let got = vec![
+            AppEvent::from(archive::Polled::Toast("a".into())),
+            archive::Polled::Rescan.into(),
+            archive::Polled::Browse("https://a".into()).into(),
+            archive::Polled::LibraryChanged.into(),
+            songfetch::Polled::Toast("s".into()).into(),
+            songfetch::Polled::Rescan.into(),
+            songfetch::Polled::Browse("https://s".into()).into(),
+            skinstore::Polled::Toast("k".into()).into(),
+            skinstore::Polled::SkinsChanged.into(),
+            skinstore::Polled::OpenUrl("https://k".into()).into(),
+            ir::Polled::Toast("i".into()).into(),
+            ir::Polled::Changed.into(),
+            ir::Polled::Scores(scores()).into(),
+        ];
+        let want = vec![
+            AppEvent::Toast("a".into()),
+            AppEvent::Rescan,
+            AppEvent::Browse("https://a".into()),
+            AppEvent::LibraryChanged,
+            AppEvent::Toast("s".into()),
+            AppEvent::Rescan,
+            AppEvent::Browse("https://s".into()),
+            AppEvent::Toast("k".into()),
+            AppEvent::SkinsChanged,
+            AppEvent::OpenUrl("https://k".into()),
+            AppEvent::Toast("i".into()),
+            AppEvent::IrChanged,
+            AppEvent::IrScores(scores()),
+        ];
+        assert_eq!(got, want);
+    }
+}

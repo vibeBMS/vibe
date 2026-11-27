@@ -266,13 +266,11 @@ fn apply_options(cli: &Cli, config: &mut Config) -> Result<(), String> {
     Ok(())
 }
 
-impl Overrides {
-    /// `cli`'s options applied to `config`.
-    pub fn apply(cli: &Cli, config: &mut Config) -> Result<Overrides, String> {
-        let unchanged = config.clone();
-        apply_options(cli, config)?;
-        Overrides::between(&unchanged, config)
-    }
+/// `cli`'s options applied to `config`, and what they changed.
+fn apply(cli: &Cli, config: &mut Config) -> Result<Overrides, String> {
+    let unchanged = config.clone();
+    apply_options(cli, config)?;
+    Overrides::between(&unchanged, config)
 }
 
 /// Windows release builds have no console of their own: print to the
@@ -349,7 +347,7 @@ pub fn run_before_window(paths: &crate::paths::Paths) -> Result<Launch, i32> {
         None => {}
     }
     let mut config = crate::profiles::load_config(paths);
-    let overrides = match Overrides::apply(&cli, &mut config) {
+    let overrides = match apply(&cli, &mut config) {
         Ok(o) => o,
         Err(e) => {
             attach_console();
@@ -604,7 +602,7 @@ mod tests {
     }
 
     #[test]
-    fn overrides_apply_and_are_not_saved() {
+    fn options_apply_to_the_config() {
         let cli = parse(
             "--gauge ex-hard --random S-RANDOM --hs 2.5 --judge lr2 --ln force_cn \
              --set play.sudden=0.25 --set display.show_fps=true",
@@ -612,7 +610,7 @@ mod tests {
         .unwrap();
         let mut c = Config::default();
         let saved = c.clone();
-        let ov = Overrides::apply(&cli, &mut c).unwrap();
+        let ov = apply(&cli, &mut c).unwrap();
         assert_eq!(c.play.gauge, GaugeType::ExHard);
         assert_eq!(c.play.random_1p, LaneOption::SRandom);
         assert_eq!(c.play.hispeed, 2.5);
@@ -620,27 +618,22 @@ mod tests {
         assert!(c.play.ln_pref().force);
         assert_eq!(c.play.sudden, 0.25);
         assert!(c.display.show_fps);
-        assert!(!ov.is_empty());
-        // saved as before; a setting changed in the game since is kept
+        // what they changed, against the config as it was
         assert_eq!(ov.for_saving(&c).unwrap(), saved);
-        c.play.hispeed = 4.0;
-        let s = ov.for_saving(&c).unwrap();
-        assert_eq!(s.play.hispeed, 4.0);
-        assert_eq!(s.play.gauge, saved.play.gauge);
         // values that are none of the option's
         let mut c = Config::default();
-        assert!(Overrides::apply(&parse("--gauge hardest").unwrap(), &mut c).is_err());
-        assert!(Overrides::apply(&parse("--hs fast").unwrap(), &mut c).is_err());
-        assert!(Overrides::apply(&parse("--set play.nothing=1").unwrap(), &mut c).is_err());
-        assert!(Overrides::apply(&parse("--set play.hispeed=fast").unwrap(), &mut c).is_err());
+        assert!(apply(&parse("--gauge hardest").unwrap(), &mut c).is_err());
+        assert!(apply(&parse("--hs fast").unwrap(), &mut c).is_err());
+        assert!(apply(&parse("--set play.nothing=1").unwrap(), &mut c).is_err());
+        assert!(apply(&parse("--set play.hispeed=fast").unwrap(), &mut c).is_err());
         // a setting at its default (not written) can be set
-        Overrides::apply(&parse("--set play.freq=2").unwrap(), &mut c).unwrap();
+        apply(&parse("--set play.freq=2").unwrap(), &mut c).unwrap();
         assert_eq!(c.play.freq, 2);
         // nothing asked, or the value it has: nothing overridden
         let before = c.clone();
         for args in ["", "song.bme", "--set play.freq=2"] {
-            let ov = Overrides::apply(&parse(args).unwrap(), &mut c).unwrap();
-            assert!(ov.is_empty() && ov.for_saving(&c).is_none(), "{args}");
+            let ov = apply(&parse(args).unwrap(), &mut c).unwrap();
+            assert!(ov.is_empty(), "{args}");
             assert_eq!(c, before);
         }
     }

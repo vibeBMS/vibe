@@ -109,3 +109,31 @@ impl Overrides {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The config is saved as it was before: each setting still at this
+    /// launch's value at its value before, one not written before not
+    /// written again, one changed in the game since as it is.
+    #[test]
+    fn what_differs_is_not_saved() {
+        let before = Config::default();
+        let mut after = before.clone();
+        after.play.hispeed = 2.5;
+        after.play.freq = 2;
+        after.display.show_fps = !before.display.show_fps;
+        let ov = Overrides::between(&before, &after).unwrap();
+        assert!(!ov.is_empty());
+        assert_eq!(ov.for_saving(&after).unwrap(), before);
+        after.play.hispeed = 4.0;
+        let s = ov.for_saving(&after).unwrap();
+        assert_eq!(s.play.hispeed, 4.0);
+        assert_eq!(s.play.freq, before.play.freq);
+        assert_eq!(s.display.show_fps, before.display.show_fps);
+        // the usual launch: nothing to undo
+        let none = Overrides::between(&before, &before).unwrap();
+        assert!(none.is_empty() && none.for_saving(&before).is_none());
+    }
+}
