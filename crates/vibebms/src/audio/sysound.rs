@@ -975,7 +975,7 @@ mod tests {
             .flat_map(|s| Form::ALL.map(|f| s.key(f)))
             .collect();
         assert_eq!(keys.len(), Sound::ALL.len() * 3);
-        assert!(keys.iter().all(|k| *k < u64::MAX - 2));
+        assert!(keys.iter().all(|k| *k < crate::audio::PREVIEW_KEY));
     }
 
     /// RANDOM: a set drawn among those found, again when asked.

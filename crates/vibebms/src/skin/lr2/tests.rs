@@ -557,3 +557,65 @@ fn what_a_skin_asks_for_is_within_limits() {
     std::fs::remove_dir_all(&dir).ok();
     assert!(e.contains("too many includes"), "{e}");
 }
+
+/// A code past i32 means what its low 32 bits do (each field was always
+/// read as an i32).
+#[test]
+fn codes_past_i32_are_read_as_i32() {
+    let dir = std::env::temp_dir().join(format!("vibebms-lr2wide-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let csv = "#INFORMATION,6,Wide,me\n#IMAGE,a.png\n\
+#STRETCH,4294967297\n#SRC_IMAGE,0,0,0,0,10,10,1,1,0,0\n\
+#DST_IMAGE,0,0,0,0,10,10,4294967297,255,255,255,255\n#STRETCH,0\n\
+#SRC_NUMBER,0,0,0,0,110,20,11,1,0,0,71,4294967297,6\n#DST_NUMBER,0,0,10,20,12,20,0,255,255,255,255\n\
+#SRC_TEXT,0,0,10,2147483648\n#DST_TEXT,0,0,320,40,200,20,0,255,255,255,255\n\
+#SRC_TEXT,0,0,10,4294967297\n#DST_TEXT,0,0,320,80,200,20,0,255,255,255,255\n\
+#SRC_SLIDER,0,0,0,0,20,20,1,1,0,0,4294967296,100,4\n#DST_SLIDER,0,0,450,320,20,20,0,255,255,255,255\n\
+#SRC_BARGRAPH,0,0,0,0,100,20,1,1,0,0,1,4294967297\n#DST_BARGRAPH,0,0,300,220,100,20,0,255,255,255,255\n";
+    std::fs::write(dir.join("w.lr2skin"), csv).unwrap();
+    let size = |_: &Path| Some((128, 64));
+    let s = load(
+        &dir.join("w.lr2skin"),
+        &dir,
+        &HashMap::new(),
+        &|_| None,
+        &size,
+    )
+    .unwrap();
+    std::fs::remove_dir_all(&dir).ok();
+    let o = &s.objects;
+    // 4294967297 is 1: fit, slow first
+    assert_eq!(
+        (o[0].dst.stretch, o[0].dst.acc),
+        (Stretch::Fit, Acc::Accelerate)
+    );
+    // the digits first, the blank places after them
+    let Kind::Number { font, .. } = &o[1].kind else {
+        panic!("{:?}", o[1].kind)
+    };
+    assert_eq!(font.style.align, Align::Left);
+    // 2147483648 is negative: left, the box not moved; 4294967297 centred
+    let align = |k: &Kind| match k {
+        Kind::Text { style, .. } => style.align,
+        k => panic!("{k:?}"),
+    };
+    assert_eq!(
+        (align(&o[2].kind), o[2].dst.keys[0].rect.x),
+        (Align::Left, 320.0)
+    );
+    assert_eq!(
+        (align(&o[3].kind), o[3].dst.keys[0].rect.x),
+        (Align::Center, 220.0)
+    );
+    // 4294967296 is 0: up; the bar's 4294967297 is 1: up
+    assert!(
+        matches!(o[4].kind, Kind::Slider { dir: Dir::Up, .. }),
+        "{:?}",
+        o[4].kind
+    );
+    assert!(
+        matches!(o[5].kind, Kind::Bar { dir: Dir::Up, .. }),
+        "{:?}",
+        o[5].kind
+    );
+}

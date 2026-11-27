@@ -167,6 +167,13 @@ impl Text {
         Text::with_fonts(extra_dirs, system_fonts())
     }
 
+    /// The bundled font alone: the same glyphs on every machine and in
+    /// every UI language.
+    #[cfg(test)]
+    pub(crate) fn built_in() -> Text {
+        Text::with_fonts(&[], fontdb::Database::new())
+    }
+
     /// The user's fonts in `extra_dirs`, then those of `db`.
     fn with_fonts(extra_dirs: &[&Path], db: fontdb::Database) -> Text {
         let mut fonts = Vec::new();

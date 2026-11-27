@@ -8,7 +8,7 @@ use crate::gfx::{Draw, Rect};
 #[derive(Debug, Default)]
 pub struct OkCancel {
     /// true OK, false Cancel.
-    pub(super) hits: HitMap<bool>,
+    hits: HitMap<bool>,
 }
 
 impl OkCancel {
@@ -26,6 +26,16 @@ impl OkCancel {
     pub fn ok_only(&mut self, r: Rect) {
         self.hits.clear();
         self.hits.push(r, true);
+    }
+
+    /// As drawn with OK at `ok` and Cancel at `cancel` (tests: without a
+    /// `Draw`).
+    #[cfg(test)]
+    pub(super) fn placed(ok: Rect, cancel: Rect) -> OkCancel {
+        let mut b = OkCancel::default();
+        b.hits.push(ok, true);
+        b.hits.push(cancel, false);
+        b
     }
 
     /// The button at (`x`, `y`): true OK, false Cancel.

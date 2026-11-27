@@ -447,6 +447,51 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
+    /// A tap on a bar chooses it, a tap on the chosen one decides it; a
+    /// drag's lift on a bar does neither.
+    #[test]
+    fn a_tap_chooses_a_bar_a_drags_lift_does_not() {
+        let root = std::env::temp_dir().join(format!("vibebms-seltap-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        let mut s = SelectScene::new(&mut ctx);
+        // (RANDOM SELECT bars: one decided says there is nothing to pick)
+        s.bars = vec![Bar::Random; 10];
+        s.bar_pitch = Some(40.0);
+        for i in 0..10 {
+            let r = crate::gfx::Rect::new(0.0, 100.0 + 40.0 * i as f32, 200.0, 40.0);
+            s.bar_rects.push(r, i);
+        }
+        let bar = |i: usize| 120.0 + 40.0 * i as f32;
+        let tap = |s: &mut SelectScene, ctx: &mut Ctx, y: f32| {
+            assert!(matches!(
+                s.input_event(ctx, &ptr(1, Phase::Down, y)),
+                Next::Stay
+            ));
+            s.input_event(ctx, &ptr(1, Phase::Up, y))
+        };
+        tap(&mut s, &mut ctx, bar(3));
+        assert_eq!(s.cursor, 3);
+        // down on bar 3, two bars down, up on bar 5: dragged, not chosen
+        s.input_event(&mut ctx, &ptr(1, Phase::Down, bar(3)));
+        s.input_event(&mut ctx, &ptr(1, Phase::Move, bar(5)));
+        assert_eq!(s.cursor, 8);
+        s.input_event(&mut ctx, &ptr(1, Phase::Up, bar(5)));
+        assert_eq!(s.cursor, 8);
+        assert!(ctx.toasts.is_empty());
+        // another pointer's lift on a bar chooses nothing
+        s.input_event(&mut ctx, &ptr(1, Phase::Down, bar(0)));
+        s.input_event(&mut ctx, &ptr(2, Phase::Up, bar(0)));
+        assert_eq!(s.cursor, 8);
+        // a tap on bar 0 chooses it, a second one decides it
+        tap(&mut s, &mut ctx, bar(0));
+        assert_eq!(s.cursor, 0);
+        assert!(ctx.toasts.is_empty());
+        tap(&mut s, &mut ctx, bar(0));
+        assert_eq!(s.cursor, 0);
+        assert_eq!(ctx.toasts.len(), 1, "{:?}", ctx.toasts);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
     /// F12 scans for what changed; the files left out for stopping the game
     /// stay left out (a crash each, at every F12, otherwise).
     #[test]

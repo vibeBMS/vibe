@@ -159,7 +159,7 @@ impl<'a> Ctx<'a> {
                 .unwrap_or(out.keys.last().map(|k| k.angle as f64).unwrap_or(0.0))
                 as f32;
             if out.keys.is_empty() {
-                out.acc = Acc::of(cur[5] as i64);
+                out.acc = Acc::of(cur[5] as i32);
             }
             let (x, y, w, h) = (cur[1] as f32, cur[2] as f32, cur[3] as f32, cur[4] as f32);
             let c = |n: f64| n.clamp(0.0, 255.0) as f32 / 255.0;
@@ -243,7 +243,7 @@ impl<'a> Ctx<'a> {
                 style: NumberStyle {
                     digits,
                     keta: i(def, "digit", 1).clamp(1, NumberStyle::PLACES as i64) as usize,
-                    align: Align::of_number(i(def, "align", 0)),
+                    align: Align::of_number(i(def, "align", 0) as i32),
                     // beatoraja zeropadding: 0 = none, 1 = '0', 2 = the
                     // padding image (the 11th; '0' for fonts without one)
                     pad: match i(def, "zeropadding", 0) {
@@ -517,8 +517,8 @@ fn text(cx: &mut Ctx, skin: &mut Skin, _: &Value, id: &str, _: &mut Dst) -> Opti
         id: cx.value_id(t, ScriptKind::Str),
         style: TextStyle {
             font: cx.bitmap_font(t, &mut skin.fonts),
-            align: Align::of_text(i(t, "align", 0)),
-            overflow: Overflow::of(i(t, "overflow", 0)),
+            align: Align::of_text(i(t, "align", 0) as i32),
+            overflow: Overflow::of(i(t, "overflow", 0) as i32),
             face: cx.face(t),
             fx: text_fx(t),
             size: text_size(t),
@@ -540,7 +540,7 @@ fn slider(cx: &mut Ctx, _: &mut Skin, _: &Value, id: &str, _: &mut Dst) -> Optio
             Some(v) => cx.dyn_id(Some(v), ScriptKind::Float).unwrap_or(0),
             None => i(sl, "type", 0) as i32,
         },
-        dir: Dir::of_slider(i(sl, "angle", 0)),
+        dir: Dir::of_slider(i(sl, "angle", 0) as i32),
         range: i(sl, "range", 0) as f32,
     }))
 }
@@ -577,7 +577,7 @@ fn bar_graph(cx: &mut Ctx, _: &mut Skin, _: &Value, id: &str, _: &mut Dst) -> Op
                 Some(v) => cx.dyn_id(Some(v), ScriptKind::Float).unwrap_or(0),
                 None => i(g, "type", 0) as i32,
             },
-            dir: Dir::of_bar(i(g, "angle", 1)),
+            dir: Dir::of_bar(i(g, "angle", 1) as i32),
         }),
     })
 }
@@ -752,7 +752,7 @@ fn judge(cx: &mut Ctx, skin: &mut Skin, _: &Value, id: &str, _: &mut Dst) -> Opt
                 key.rect.y = jh - y_up - key.rect.h;
             }
             let style = NumberStyle {
-                align: Align::Left,
+                align: Align::Right,
                 pad: None,
                 ..font.style
             };

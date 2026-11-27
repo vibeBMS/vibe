@@ -126,7 +126,7 @@ fn add_dst_signed(dst: &mut Dst, v: &[i64; 22], mirror: bool) {
         h = -h;
     }
     if dst.keys.is_empty() {
-        dst.acc = Acc::of(v[7]);
+        dst.acc = Acc::of(v[7] as i32);
         dst.blend = crate::gfx::Blend::from_skin(v[12] as i32);
         dst.center = v[15].clamp(0, 9) as usize;
         dst.loop_ms = v[16];

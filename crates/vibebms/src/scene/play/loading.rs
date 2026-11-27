@@ -209,8 +209,8 @@ impl Loading {
             if play.bga == BgaMode::On {
                 bga.add(&index, &chart.images);
             }
-            let stagefile = chart_image(&dir, &chart.meta.stagefile);
-            let backbmp = chart_image(&dir, &chart.meta.backbmp);
+            let stagefile = chart_picture(&dir, &chart.meta.stagefile);
+            let backbmp = chart_picture(&dir, &chart.meta.backbmp);
             Ok(Box::new(Loaded {
                 chart,
                 bank,
@@ -302,7 +302,7 @@ impl Loading {
 }
 
 /// A chart's `#STAGEFILE`, `#BACKBMP` (`name`, in `dir`).
-fn chart_image(dir: &Path, name: &str) -> Option<Picture> {
+fn chart_picture(dir: &Path, name: &str) -> Option<Picture> {
     crate::library::chart_image(dir, name).and_then(|p| crate::gfx::load_picture(&p, &|_| {}))
 }
 
@@ -473,8 +473,8 @@ fn load_nonstop(
         .first()
         .and_then(|p| p.parent())
         .unwrap_or(Path::new(""));
-    let stagefile = chart_image(first, &chart.meta.stagefile);
-    let backbmp = chart_image(first, &chart.meta.backbmp);
+    let stagefile = chart_picture(first, &chart.meta.stagefile);
+    let backbmp = chart_picture(first, &chart.meta.backbmp);
     Ok(Box::new(Loaded {
         chart,
         bank,

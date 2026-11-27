@@ -429,10 +429,11 @@ impl Gpu {
             .then_some(self.config.desired_maximum_frame_latency as f64)
     }
 
-    /// Draw and present a frame (from `gfx`'s textures); how long it waited for its image (with
-    /// FIFO, the display holding it back: Vulkan, DX12 and Metal wait
-    /// there). An image that could not be had is an error, its frame not
-    /// drawn (a covered window's, on macOS: none, quietly).
+    /// Draw and present a frame (from `gfx`'s textures); how long it
+    /// waited for its image (with FIFO, the display holding it back:
+    /// Vulkan, DX12 and Metal wait there). An image that could not be had
+    /// is an error, its frame not drawn (a covered window's, on macOS:
+    /// none, quietly).
     pub fn render(
         &mut self,
         gfx: &Gfx,

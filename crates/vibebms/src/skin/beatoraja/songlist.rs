@@ -60,7 +60,7 @@ pub(super) fn songlist(cx: &Ctx, sl: &Value, h: f32) -> SongListSkin {
         let def = cx.find("text", &id_of(t));
         let get = |k: &str| def.map(|d| i(d, k, 0) as i32).unwrap_or(0);
         let mut d = rel(t);
-        let align = Align::of_text(get("align") as i64);
+        let align = Align::of_text(get("align"));
         let k = align.share();
         for key in &mut d.keys {
             key.rect.x -= key.rect.w * k; // anchored like other beatoraja text
@@ -69,7 +69,7 @@ pub(super) fn songlist(cx: &Ctx, sl: &Value, h: f32) -> SongListSkin {
             dst: d,
             style: TextStyle {
                 align,
-                overflow: Overflow::of(get("overflow") as i64),
+                overflow: Overflow::of(get("overflow")),
                 font: None,
                 face: def.and_then(|t| cx.face(t)),
                 fx: def.map(text_fx).unwrap_or_default(),

@@ -41,11 +41,12 @@ pub struct Counts {
 impl Counts {
     pub const MAX: usize = 11;
 
-    /// `c`, of at most [`Counts::MAX`].
+    /// The first [`Counts::MAX`] of `c`.
     pub fn new(c: &[u32]) -> Counts {
+        let len = c.len().min(Counts::MAX);
         let mut n = [0; Counts::MAX];
-        n[..c.len()].copy_from_slice(c);
-        Counts { n, len: c.len() }
+        n[..len].copy_from_slice(&c[..len]);
+        Counts { n, len }
     }
 }
 
@@ -59,5 +60,18 @@ impl std::ops::Deref for Counts {
 impl std::fmt::Debug for Counts {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         (**self).fmt(f)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// More counts than there are kinds: the first ones, without a panic.
+    #[test]
+    fn counts_keep_at_most_their_kinds() {
+        let many: Vec<u32> = (1..=14).collect();
+        assert_eq!(&*Counts::new(&many), &many[..Counts::MAX]);
+        assert_eq!(&*Counts::new(&[3, 1]), &[3, 1]);
     }
 }

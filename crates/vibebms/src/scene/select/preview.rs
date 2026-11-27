@@ -127,6 +127,16 @@ impl SelectScene {
         }
     }
 
+    /// How long the cursor has rested, by the wall clock (a test's own
+    /// clock if it set one).
+    fn since_move(&self) -> Duration {
+        #[cfg(test)]
+        if let Some(now) = self.clock {
+            return now.saturating_duration_since(self.last_move);
+        }
+        self.last_move.elapsed()
+    }
+
     pub(super) fn update_preview(&mut self, ctx: &mut Ctx) {
         // a preview made of a chart's sounds: played when its chart still
         // waits for it
@@ -157,10 +167,7 @@ impl SelectScene {
             return;
         }
         // (none while the app is silenced: not in use)
-        if !ctx.config.audio.preview
-            || self.last_move.elapsed() < PREVIEW_AFTER
-            || ctx.audio.mute.on()
-        {
+        if !ctx.config.audio.preview || self.since_move() < PREVIEW_AFTER || ctx.audio.mute.on() {
             return;
         }
         let Some((_, song)) = self.selected_song(ctx) else {
@@ -168,10 +175,7 @@ impl SelectScene {
         };
         if self.preview_for.is_some() {
             // a preview to be made once the one before is done
-            if self.preview_wait
-                && !self.generated.busy()
-                && self.last_move.elapsed() >= GENERATE_AFTER
-            {
+            if self.preview_wait && !self.generated.busy() && self.since_move() >= GENERATE_AFTER {
                 self.generated.start(&song.path);
             }
             return;
@@ -200,7 +204,7 @@ impl SelectScene {
                 }
             }
         }
-        if self.last_move.elapsed() < RANKING_AFTER {
+        if self.since_move() < RANKING_AFTER {
             return;
         }
         let Some((_, song)) = self.selected_song(ctx) else {
@@ -262,7 +266,7 @@ impl SelectScene {
         if key.as_deref() == self.banner.as_ref().map(|b| b.0.as_str()) {
             return;
         }
-        if key.is_some() && self.last_move.elapsed() < BANNER_AFTER {
+        if key.is_some() && self.since_move() < BANNER_AFTER {
             return; // don't decode while scrolling fast
         }
         self.free_banner(gfx);

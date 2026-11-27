@@ -63,6 +63,9 @@ pub struct SelectScene {
     bar_pitch: Option<f32>,
     drag: Option<crate::ui::DragScroll>,
     last_move: Instant,
+    /// Tests: the time the cursor's rest is measured to.
+    #[cfg(test)]
+    clock: Option<Instant>,
     /// Up / down held: the cursor moves on.
     held_nav: Option<Repeat<Nav>>,
     /// The library's charts by hash, copies of one chart as one.
@@ -90,7 +93,7 @@ pub struct SelectScene {
     banner_job: Option<crate::gfx::ImageJobs>,
     ranking: HashMap<String, Rank>,
     quit_armed: Option<Instant>,
-    pub(crate) host: SkinHost,
+    host: SkinHost,
     /// The sound set's BGM is playing; the panel its sounds last saw.
     bgm_on: bool,
     sound_panel: usize,
@@ -134,6 +137,8 @@ impl SelectScene {
             bar_pitch: None,
             drag: None,
             last_move: Instant::now(),
+            #[cfg(test)]
+            clock: None,
             held_nav: None,
             charts: Default::default(),
             song_dirs: HashMap::new(),
@@ -241,6 +246,20 @@ impl SelectScene {
         self.scroll = self.cursor as f32;
         self.moved(ctx);
         true
+    }
+
+    /// Its skin's host (tests).
+    #[cfg(test)]
+    pub(crate) fn host(&mut self) -> &mut SkinHost {
+        &mut self.host
+    }
+
+    /// What waits for the cursor to rest (the preview, the banner, the
+    /// ranking) sees `now` as the time from here on, not the wall clock's
+    /// (tests).
+    #[cfg(test)]
+    pub(crate) fn set_clock(&mut self, now: Instant) {
+        self.clock = Some(now);
     }
 
     /// The cursor moved: the preview of the bar left stops.

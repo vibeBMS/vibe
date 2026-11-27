@@ -342,7 +342,8 @@ mod tests {
     /// ends the press.
     #[test]
     fn a_drag_scrolls_the_text() {
-        let ctx = Ctx::for_test(std::env::temp_dir().join("vibebms-readdrag"));
+        let root = std::env::temp_dir().join(format!("vibebms-readdrag-{}", std::process::id()));
+        let ctx = Ctx::for_test(root.clone());
         let mut r = Reader::new("t".into(), Vec::new());
         r.wrapped = vec![String::new(); 40];
         r.rows = 10.0;
@@ -369,6 +370,7 @@ mod tests {
         assert_eq!(r.scroll, 0.0);
         assert!(r.input(&ctx, &ptr(1, Phase::Down, 300.0)));
         assert!(!r.input(&ctx, &ptr(1, Phase::Up, 300.0)));
+        std::fs::remove_dir_all(&root).ok();
     }
 
     /// The chart's text files are read (Shift_JIS too), each after its

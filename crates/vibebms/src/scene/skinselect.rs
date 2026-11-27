@@ -726,6 +726,73 @@ mod tests {
         ));
     }
 
+    fn key(code: KeyCode, repeat: bool) -> InputEv {
+        InputEv::Key {
+            code,
+            pressed: true,
+            repeat,
+            time: Instant::now(),
+            text: None,
+        }
+    }
+
+    /// Until the skin takes input the keys bound to the lanes do nothing
+    /// but leave; its own keys and the turntable act at once; held keys
+    /// act again.
+    #[test]
+    fn keys_wait_for_the_skin_but_to_leave() {
+        let root = std::env::temp_dir().join(format!("vibebms-ssk-{}", std::process::id()));
+        write(
+            &root.join("skins/a/select.json"),
+            r#"{"type": 5, "name": "A", "w": 1280, "h": 720,
+            "property": [{"name": "Color", "item": [{"name": "Red", "op": 900},
+            {"name": "Blue", "op": 901}]}]}"#,
+        );
+        let mut ctx = Ctx::for_test(root.clone());
+        let mut s = SkinSelectScene::new(Some(SkinType::Select));
+        s.step_skin(&mut ctx, 1);
+        assert_eq!(s.items(&ctx).len(), 1);
+        s.host = SkinHost::with_input_delay(60_000);
+        let changes = s.changes;
+        // a white key (decide) and the turntable's key: not yet
+        s.input(&mut ctx, &key(KeyCode::KeyZ, false));
+        s.input(&mut ctx, &key(KeyCode::ControlLeft, false));
+        assert_eq!((s.changes, s.list.sel), (changes, 0));
+        // the turntable turned: the option row
+        let axis = |value| InputEv::Axis {
+            id: 9,
+            value,
+            time: Instant::now(),
+        };
+        s.input(&mut ctx, &axis(0.0));
+        s.input(&mut ctx, &axis(0.1));
+        assert_eq!(s.list.sel, 1);
+        // → changes it, held too
+        s.input(&mut ctx, &key(KeyCode::ArrowRight, false));
+        s.input(&mut ctx, &key(KeyCode::ArrowRight, true));
+        assert_eq!(s.changes, changes + 2);
+        // the skin takes input: the turntable's key, held, moves up
+        s.host.created = Instant::now() - crate::platform::Duration::from_secs(61);
+        s.input(&mut ctx, &key(KeyCode::ShiftLeft, true));
+        assert_eq!(s.list.sel, 0);
+        // a button let go does nothing
+        ctx.config.keys.p1.keys[0].pad = vec![7];
+        let pad = |pressed| InputEv::Pad {
+            id: 7,
+            pressed,
+            time: Instant::now(),
+        };
+        s.input(&mut ctx, &pad(false));
+        assert_eq!(s.changes, changes + 2);
+        s.input(&mut ctx, &pad(true));
+        assert_eq!(s.changes, changes + 3);
+        // Esc leaves before the skin takes input
+        s.host = SkinHost::with_input_delay(60_000);
+        s.input(&mut ctx, &key(KeyCode::Escape, false));
+        assert!(s.host.leaving.is_some());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
     #[test]
     fn choose_skins_and_options() {
         let root = std::env::temp_dir().join(format!("vibebms-ssc-{}", std::process::id()));

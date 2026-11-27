@@ -381,7 +381,7 @@ pub fn nav_from_key(code: KeyCode, cfg: &KeyConfig) -> Option<Nav> {
 
 /// As [`nav_from_pad`], with buttons bound to the turntable moving up /
 /// down (the screens whose rows a controller walks).
-pub fn nav_from_pad_rows(id: u64, cfg: &KeyConfig) -> Option<Nav> {
+fn nav_from_pad_rows(id: u64, cfg: &KeyConfig) -> Option<Nav> {
     let p = &cfg.p1;
     if p.scratch_up.pad.contains(&id) {
         return Some(Nav::Up);
