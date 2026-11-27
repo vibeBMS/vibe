@@ -2,9 +2,9 @@
 //! its stage file and back image.
 
 use super::session::Session;
+use crate::gfx::video::Video;
 use crate::gfx::{Gfx, ImageTex, Picture, TexId};
 use crate::platform::Instant;
-use crate::video::Video;
 use std::path::PathBuf;
 
 /// How long before a video is first shown its decoder is started (µs of

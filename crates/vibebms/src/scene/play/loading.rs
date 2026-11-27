@@ -7,10 +7,10 @@ use crate::audio::loudness::Loudness;
 use crate::config::{BgaMode, PlayConfig};
 use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
+use crate::gfx::theme;
 use crate::gfx::{with_alpha, Draw, Picture, Rect};
 use crate::platform::vfs::{DirIndex, Prefetch};
 use crate::platform::{Instant, Job};
-use crate::theme;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -364,8 +364,8 @@ impl BgaFiles {
 
     /// Where the file a chart names `name` is kept, read if it was not yet.
     fn file(&mut self, index: &DirIndex, name: &str) -> Option<Kept> {
+        use crate::gfx::video::{is_video, VIDEO_EXTS};
         use crate::platform::vfs::IMAGE_EXTS;
-        use crate::video::{is_video, VIDEO_EXTS};
         let (path, video) = match index.find(name, IMAGE_EXTS) {
             Some(p) => {
                 let video = is_video(&p);

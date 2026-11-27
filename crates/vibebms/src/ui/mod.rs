@@ -13,8 +13,8 @@ pub use notice::Notice;
 pub use text_input::{TextEvent, TextInput};
 
 use crate::gfx::text::{Align, TextStyle};
+use crate::gfx::theme::{ACCENT, BACKGROUND, PANEL, TEXT, TEXT_DIM};
 use crate::gfx::{with_alpha, Draw, Rect};
-use crate::theme::{ACCENT, BACKGROUND, PANEL, TEXT, TEXT_DIM};
 
 /// How far (in UI units) a press may move and still be a tap, not a drag.
 pub const DRAG_SLOP: f32 = 10.0;

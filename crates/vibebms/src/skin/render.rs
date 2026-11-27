@@ -24,7 +24,7 @@ pub struct LoadedSkin {
     /// The skin's own images are in: it is drawn.
     ready: bool,
     /// Images that are videos (looping from when the skin loaded).
-    videos: Vec<(usize, crate::video::Video)>,
+    videos: Vec<(usize, crate::gfx::video::Video)>,
     /// Animated images (GIF, WebP, APNG), from when the skin loaded; their
     /// textures are in `tex`.
     anims: Vec<crate::gfx::ImageTex>,
@@ -211,8 +211,8 @@ impl LoadedSkin {
             let Some(p) = p.as_ref().filter(|_| !lazy[i] && used[i]) else {
                 continue;
             };
-            if crate::video::is_video(p) {
-                if let Some(v) = crate::video::Video::open(p, true) {
+            if crate::gfx::video::is_video(p) {
+                if let Some(v) = crate::gfx::video::Video::open(p, true) {
                     self.videos.push((i, v));
                 }
                 continue;

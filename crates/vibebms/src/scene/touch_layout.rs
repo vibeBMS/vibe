@@ -13,11 +13,11 @@
 use crate::config::{Side, TouchConfig, TouchSide, TouchStyle};
 use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
+use crate::gfx::theme;
 use crate::gfx::{rgba, with_alpha, Draw, Gfx, Rect};
 use crate::input::{nav_from_pad, InputEv, Nav, Phase};
 use crate::platform::Instant;
 use crate::scene::{Next, Scene};
-use crate::theme;
 use crate::touch::{self, TouchInput, Zone};
 use crate::ui;
 use std::collections::HashMap;

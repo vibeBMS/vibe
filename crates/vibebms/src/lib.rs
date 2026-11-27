@@ -26,11 +26,9 @@ pub mod scene;
 pub mod scoredb;
 pub mod screenshot;
 pub mod skin;
-pub mod theme;
 pub mod touch;
 pub mod ui;
 pub mod update;
-pub mod video;
 #[cfg(target_arch = "wasm32")]
 pub mod web;
 

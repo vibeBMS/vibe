@@ -7,10 +7,10 @@
 
 use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
+use crate::gfx::theme;
 use crate::gfx::Draw;
 use crate::input::InputEv;
 use crate::platform::Instant;
-use crate::theme;
 use std::sync::{Mutex, OnceLock};
 use vibebms_audio::diag::{self, Samples, Stats};
 

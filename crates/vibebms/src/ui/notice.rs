@@ -2,9 +2,9 @@ use super::HitMap;
 use crate::config::KeyConfig;
 use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
+use crate::gfx::theme;
 use crate::gfx::{Draw, Rect};
 use crate::input::{nav_from_key, nav_from_pad_rows, InputEv, Nav, Phase};
-use crate::theme;
 use winit::keyboard::KeyCode;
 
 /// A message over the screen that asks OK or Cancel: its title, its text

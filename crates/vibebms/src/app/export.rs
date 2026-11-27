@@ -341,14 +341,14 @@ struct OfflineVideos;
 
 impl OfflineVideos {
     fn on() -> OfflineVideos {
-        crate::video::set_offline(true);
+        crate::gfx::video::set_offline(true);
         OfflineVideos
     }
 }
 
 impl Drop for OfflineVideos {
     fn drop(&mut self) {
-        crate::video::set_offline(false);
+        crate::gfx::video::set_offline(false);
     }
 }
 
@@ -367,7 +367,7 @@ pub fn export_video(
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(u64, Option<u64>, u32),
 ) -> Result<Exported, String> {
-    let ffmpeg = crate::video::ffmpeg()
+    let ffmpeg = crate::gfx::video::ffmpeg()
         .ok_or("ffmpeg was not found: install it, or set VIBEBMS_FFMPEG to its path")?;
     let (w, h) = opts.size;
     let fps = opts.fps.max(1);
@@ -517,7 +517,7 @@ pub fn export_video(
             pointer: None,
         };
         scene.draw(&mut ctx, &mut d, t);
-        let px = off.frame(&batch, crate::theme::BACKGROUND)?;
+        let px = off.frame(&batch, crate::gfx::theme::BACKGROUND)?;
         if let Err(e) = pipe.write_all(&px) {
             if cancel.load(Ordering::Relaxed) {
                 return Err(format!("at frame {frames}"));
@@ -707,7 +707,7 @@ mod tests {
     /// Skipped without ffmpeg or a GPU (or software one) to draw with.
     #[test]
     fn exports_an_autoplay_and_a_replay() {
-        let Some(ffmpeg) = crate::video::ffmpeg() else {
+        let Some(ffmpeg) = crate::gfx::video::ffmpeg() else {
             eprintln!("ffmpeg not installed: skipped");
             return;
         };

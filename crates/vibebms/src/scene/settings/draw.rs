@@ -6,8 +6,8 @@ use super::row::{Act, Kind, Row, Tone};
 use super::{online, skins, Page, SettingsScene, Target, View, SESSION};
 use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
+use crate::gfx::theme::{ACCENT, BACKGROUND, PANEL, TEXT, TEXT_DIM};
 use crate::gfx::{rgba, with_alpha, Color, Draw, Rect};
-use crate::theme::{ACCENT, BACKGROUND, PANEL, TEXT, TEXT_DIM};
 use crate::ui;
 use crate::ui::{ellipsize, wrap};
 

@@ -5,6 +5,7 @@ use crate::audio::sysound::Sound;
 use crate::config::SubmitPolicy;
 use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
+use crate::gfx::theme;
 use crate::gfx::{Draw, Gfx, Rect};
 use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
 use crate::library::{BestScore, RecordKey};
@@ -16,7 +17,6 @@ use crate::scene::result_skin::{
 use crate::scene::skin_host::{SkinHost, Tap};
 use crate::scene::{skinned, Next, Scene};
 use crate::skin::SkinType;
-use crate::theme;
 use vibebms_core::gauge::GaugeType;
 use vibebms_core::judge::Judge;
 use vibebms_core::judge::JudgePreset;

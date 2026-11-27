@@ -13,6 +13,8 @@ mod jobs;
 mod offscreen;
 pub mod text;
 mod texture;
+pub mod theme;
+pub mod video;
 
 pub use self::image::{key_black, load_picture, load_picture_bytes, Picture};
 pub use anim::{Animation, ImageTex};

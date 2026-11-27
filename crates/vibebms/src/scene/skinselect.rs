@@ -20,13 +20,13 @@ use super::skinvals::{self, ms_since};
 use crate::audio::sysound::Sound;
 use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
+use crate::gfx::theme;
 use crate::gfx::{with_alpha, Draw, Gfx, Rect};
 use crate::input::{nav_from_key, nav_from_pad_rows, AxisStepper, InputEv, Nav, Phase};
 use crate::platform::Instant;
 use crate::scene::{Next, Scene};
 use crate::skin::render::{Hooks, LoadedSkin};
 use crate::skin::{CustomOffset, CustomOption, SkinState, SkinType, OFFSET_FIELDS};
-use crate::theme;
 use crate::ui::{self, ListView};
 use winit::keyboard::KeyCode;
 
