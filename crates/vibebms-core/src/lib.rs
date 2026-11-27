@@ -150,6 +150,14 @@ pub fn load_chart_bytes(
 /// File extensions recognised as playable charts.
 pub const CHART_EXTENSIONS: &[&str] = &["bms", "bme", "bml", "pms", "bmson"];
 
+/// Whether `p` names a chart: its extension is one of [`CHART_EXTENSIONS`], in any case.
+pub fn is_chart(p: &std::path::Path) -> bool {
+    p.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| CHART_EXTENSIONS.iter().any(|x| x.eq_ignore_ascii_case(e)))
+        .unwrap_or(false)
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChartError {
     Io(String),

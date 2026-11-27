@@ -2,10 +2,11 @@
 
 use super::control::adjust_cover;
 use super::{PlayScene, Stage};
-use crate::app::{Ctx, Next};
+use crate::app::Ctx;
 use crate::config::HISPEED_STEP;
 use crate::input::{InputEv, LaneEv};
 use crate::platform::Instant;
+use crate::scene::Next;
 use vibebms_core::record::InputSource;
 use winit::keyboard::KeyCode;
 

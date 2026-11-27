@@ -412,7 +412,7 @@ mod imp {
                         // a chart's bytes stay until the library has read
                         // it (the scan may be about to: a file swapped out
                         // here is not read until read in again)
-                        if matches!(n.data, Data::Bytes(_)) && crate::library::is_chart(&to) {
+                        if matches!(n.data, Data::Bytes(_)) && vibebms_core::is_chart(&to) {
                             fs.stored_charts.insert(to.clone(), file);
                         } else {
                             n.data = Data::File(file);
@@ -588,7 +588,7 @@ mod imp {
         use bmseeker::unpack::{unpack, Blob, BUDGET};
         let stem = super::super::arcfs::archive_folder(name).unwrap_or_else(|| "archive".into());
         let base = dir.join(stem);
-        match unpack(Blob::Bytes(bytes), &crate::placement::Vfs, &base, BUDGET) {
+        match unpack(Blob::Bytes(bytes), &crate::platform::Vfs, &base, BUDGET) {
             Ok(m) => m.len(),
             Err(e) => {
                 log::warn!("{name}: {e}");
@@ -849,6 +849,27 @@ pub fn native_path(p: &Path) -> Option<PathBuf> {
 
 pub fn read_to_string(p: &Path) -> io::Result<String> {
     String::from_utf8(read(p)?).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+}
+
+/// `p` can be read whole: it has at most `max` bytes and is no device or
+/// pipe (which have no end, whatever size they state). For the files a
+/// skin names.
+pub fn readable(p: &Path, max: u64) -> bool {
+    // (a file inside an archive or compiled in has no entry on the disk)
+    #[cfg(not(target_arch = "wasm32"))]
+    if std::fs::metadata(p).is_ok_and(|m| !m.is_file()) {
+        return false;
+    }
+    stamp(p).1 as u64 <= max
+}
+
+/// `p`'s bytes, if it is [`readable`] with `max`.
+pub fn read_capped(p: &Path, max: u64) -> io::Result<Vec<u8>> {
+    if !readable(p, max) {
+        let why = format!("{}: too large, or no file", p.display());
+        return Err(io::Error::new(io::ErrorKind::InvalidData, why));
+    }
+    read(p)
 }
 
 /// `p` as it is on disk when only the letter case differs (skins made

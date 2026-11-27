@@ -16,10 +16,11 @@ pub use ctx::{AppEvent, Ctx};
 
 use crate::config::Config;
 use crate::gfx::text::{Align, Text, TextStyle};
-use crate::gfx::{rgba, with_alpha, Batch, Gfx, Rect, TexId};
+use crate::gfx::{rgba, with_alpha, Batch, Draw, Gfx, Rect};
 use crate::input::{InputEv, Phase};
 use crate::paths::Paths;
 use crate::platform::{Duration, Instant, Job};
+use crate::scene::{Next, Scene};
 use crate::theme;
 use std::sync::Arc;
 use vibebms_audio::Mixer;
@@ -27,96 +28,6 @@ use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::window::{Fullscreen, Window, WindowId};
-
-pub enum Next {
-    Stay,
-    Push(Box<dyn Scene>),
-    Replace(Box<dyn Scene>),
-    Pop,
-    Quit,
-}
-
-pub struct Draw<'a> {
-    pub gfx: &'a Gfx,
-    pub text: &'a mut Text,
-    pub b: &'a mut Batch,
-    /// Where the mouse is ([`ctx::Input::pointer`]), for skins' hover images.
-    pub pointer: Option<(f32, f32)>,
-}
-
-impl Draw<'_> {
-    pub fn text(&mut self, s: &str, x: f32, y: f32, style: TextStyle) -> f32 {
-        self.text.draw(self.gfx, self.b, s, x, y, style)
-    }
-    pub fn measure(&mut self, s: &str, size: f32) -> f32 {
-        self.text.measure(self.gfx, s, size)
-    }
-    /// Draw a texture letterboxed into `r`.
-    pub fn image_fit(&mut self, tex: TexId, r: Rect, alpha: f32) {
-        let Some((w, h)) = self.gfx.texture_size(tex) else {
-            return;
-        };
-        let s = (r.w / w as f32).min(r.h / h as f32);
-        let (dw, dh) = (w as f32 * s, h as f32 * s);
-        self.b.quad(
-            tex,
-            Rect::new(r.x + (r.w - dw) * 0.5, r.y + (r.h - dh) * 0.5, dw, dh),
-            [0.0, 0.0, 1.0, 1.0],
-            [1.0, 1.0, 1.0, alpha],
-        );
-    }
-    /// Draw a texture covering `r` (cropped).
-    pub fn image_cover(&mut self, tex: TexId, r: Rect, alpha: f32) {
-        let Some((w, h)) = self.gfx.texture_size(tex) else {
-            return;
-        };
-        let (tw, th) = (w as f32, h as f32);
-        let s = (r.w / tw).max(r.h / th);
-        let (uw, uh) = (r.w / (tw * s), r.h / (th * s));
-        let (u0, v0) = ((1.0 - uw) * 0.5, (1.0 - uh) * 0.5);
-        self.b
-            .quad(tex, r, [u0, v0, u0 + uw, v0 + uh], [1.0, 1.0, 1.0, alpha]);
-    }
-}
-
-pub trait Scene {
-    fn update(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, now: Instant) -> Next;
-    fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant);
-    fn input(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next;
-    /// Another scene was pushed over it (it is not drawn until
-    /// [`resumed`](Self::resumed)): textures may be let go.
-    fn covered(&mut self, _gfx: &mut Gfx) {}
-    /// Became the top scene again.
-    fn resumed(&mut self, _ctx: &mut Ctx) {}
-    /// About to be removed: release textures/sounds.
-    fn exit(&mut self, _ctx: &mut Ctx, _gfx: &mut Gfx) {}
-    /// The screen needs all of it (play): the web page hides its own
-    /// buttons meanwhile.
-    fn full_screen(&self) -> bool {
-        false
-    }
-    /// A chart is being played (`activity`: heard without the focus).
-    fn in_play(&self) -> bool {
-        false
-    }
-    /// Wants every frame redrawn ASAP (gameplay).
-    fn realtime(&self) -> bool {
-        false
-    }
-    /// What a screenshot of it shows, for its file name: title,
-    /// difficulty, lamp, EX score (as far as the scene has them).
-    fn screenshot_label(&self, _ctx: &Ctx) -> Vec<String> {
-        Vec::new()
-    }
-    /// The screen it is, for Discord and OBS (`integrations`); `None`: the
-    /// one under it says (settings over song select is song select).
-    fn activity(&self) -> Option<crate::integrations::Activity> {
-        None
-    }
-}
-
-/// Songs are downloaded in an in-app browser (desktop, Android, iOS).
-pub const IN_APP_BROWSER: bool = cfg!(in_app_browser);
 
 struct Running {
     window: Arc<Window>,
@@ -267,7 +178,9 @@ pub fn run() {
         // (the first scan waits for them)
         let replays = app.paths.replays();
         let skins = app.paths.skins.clone();
-        crate::platform::opfs::start(&app.paths.root, crate::platform::vfs::mount, move |n| {
+        let root = &app.paths.root;
+        let root_replays = crate::replay::dir(root);
+        crate::platform::opfs::start(root, root_replays, crate::platform::vfs::mount, move |n| {
             if n > 0 {
                 log::info!("library: {n} files kept in the browser");
             }

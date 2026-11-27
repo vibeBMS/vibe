@@ -1057,17 +1057,6 @@ impl Marks {
     }
 }
 
-pub(crate) fn is_chart(p: &Path) -> bool {
-    p.extension()
-        .and_then(|e| e.to_str())
-        .map(|e| {
-            vibebms_core::CHART_EXTENSIONS
-                .iter()
-                .any(|x| x.eq_ignore_ascii_case(e))
-        })
-        .unwrap_or(false)
-}
-
 /// What the scan finds below a folder.
 #[derive(Default)]
 struct Found {
@@ -1100,7 +1089,7 @@ fn walk(dir: &Path, depth: usize, skip: &HashSet<PathBuf>, out: &mut Found) {
             if !skip.contains(&e.path) {
                 walk(&e.path, depth + 1, skip, out);
             }
-        } else if is_chart(&e.path) {
+        } else if vibebms_core::is_chart(&e.path) {
             out.charts.push(e.path);
         } else if arcfs::is_archive(&e.path) {
             out.archives.push(e.path);
@@ -1327,7 +1316,7 @@ pub fn song_from_chart(path: &Path, folder: String, c: &vibebms_core::Chart) -> 
     Song {
         note_kinds,
         density,
-        judge: Some(crate::scene::skinvals::judge_rank_number(m)),
+        judge: Some(m.judge_rank_number()),
         ln_profile: Some(c.ln_profile().bits()),
         path: path.to_string_lossy().into_owned(),
         folder,

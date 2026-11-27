@@ -3,9 +3,8 @@
 //! timing / hit error visualizer. Without skin colours they take the
 //! built-in skin's look.
 
-use crate::app::Draw;
 use crate::gfx::text::{Align, TextStyle};
-use crate::gfx::{rgba, with_alpha, Color, Rect};
+use crate::gfx::{rgba, with_alpha, Color, Draw, Rect};
 use crate::skin::{BpmGraph, GaugeGraph, NotesGraph, TimingGraph, VisualizerGraph};
 use vibebms_core::engine::PlayNote;
 use vibebms_core::gauge::GaugeType;

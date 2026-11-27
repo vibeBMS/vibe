@@ -147,7 +147,7 @@ fn take_in(
 ) -> Vec<Done> {
     let req = bmseeker::install::request(q, check, file, &Default::default());
     bmseeker::install::take(
-        &crate::placement::Vfs,
+        &crate::platform::Vfs,
         bmseeker::unpack::Blob::Bytes(bytes),
         &req,
         &root.join("downloads"),
@@ -243,7 +243,7 @@ impl SongFetch {
             // song's progress
             let cx = cx.with_progress(progress.clone());
             let sources = bmseeker::sources::Sources::from_config(&cx.config, Vec::new());
-            let store = Arc::new(crate::placement::Vfs);
+            let store = Arc::new(crate::platform::Vfs);
             let job = bmseeker::install::EntryJob::new(
                 store,
                 root.join("downloads"),

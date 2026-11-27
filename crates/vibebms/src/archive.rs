@@ -14,16 +14,6 @@ use std::path::{Path, PathBuf};
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::mpsc::Sender;
 
-/// The mirror's list of events.
-pub const CATALOG: &str = "https://raw.githubusercontent.com/vibeBMS/BMS/main/events.json";
-
-/// Mirrors read unless the configuration names others: a list of events
-/// (`…/events.json`) or one event's `index.json`.
-pub const DEFAULT_INDEXES: &[&str] = &[CATALOG];
-
-/// The default before the list of events (BOF22 alone).
-pub const OLD_DEFAULT: &str = "https://github.com/vibeBMS/BMS/releases/download/bof22/index.json";
-
 /// Re-read an index after this long (s).
 const REFRESH_S: u64 = 86_400;
 
@@ -659,6 +649,7 @@ fn fetch_work(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{CATALOG, OLD_DEFAULT};
 
     #[test]
     fn names() {

@@ -137,8 +137,8 @@ vibebms_core::choices! {
 
 impl ReplayPick {
     /// The replays it looks for, in order.
-    pub fn slots(self) -> Vec<crate::replay::Slot> {
-        use crate::replay::Slot;
+    pub fn slots(self) -> Vec<vibebms_core::replay::Slot> {
+        use vibebms_core::replay::Slot;
         match self {
             ReplayPick::Auto => vec![Slot::Best, Slot::Last],
             ReplayPick::Best => vec![Slot::Best],
@@ -203,7 +203,7 @@ impl SelectConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::replay::Slot;
+    use vibebms_core::replay::Slot;
 
     #[test]
     fn replay_pick_and_watch_speed() {

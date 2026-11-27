@@ -73,7 +73,7 @@ fn playable(path: &Path) -> bool {
         }
         _ => true,
     };
-    local && path.is_absolute() && crate::library::is_chart(path) && path.is_file()
+    local && path.is_absolute() && vibebms_core::is_chart(path) && path.is_file()
 }
 
 /// The line `s` sends within [`PATIENCE`], without its line break; `None`

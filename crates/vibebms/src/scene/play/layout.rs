@@ -5,6 +5,7 @@ use super::PlayScene;
 use crate::app::Ctx;
 use crate::config::Side;
 use crate::gfx::Rect;
+use crate::input;
 use crate::perspective::{Depths, Fan};
 use crate::skin::render::Xf;
 use crate::skin::LaneSkin;
@@ -174,7 +175,7 @@ impl PlayScene {
             };
             return (
                 screen,
-                vec![zone(touch::START, b[0]), zone(touch::SELECT, b[1])],
+                vec![zone(input::START, b[0]), zone(input::SELECT, b[1])],
             );
         }
         if areas.is_empty() {
@@ -190,8 +191,8 @@ impl PlayScene {
             let mm = ctx.px_per_mm();
             let (view, one) = touch::system_buttons(screen, aspect, mm, false);
             let (view, mut two) = touch::system_buttons(view, aspect, mm, true);
-            two[0].lane = touch::START2;
-            two[1].lane = touch::SELECT2;
+            two[0].lane = input::START2;
+            two[1].lane = input::SELECT2;
             return (view, one.into_iter().chain(two).collect());
         }
         let side2 = ctx.config.play.side == Side::P2;

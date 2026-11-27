@@ -4,7 +4,6 @@ use super::session::Feed;
 use super::sound::voice;
 use super::*;
 use crate::config::{Bpms, PlayConfig};
-use crate::touch;
 use std::path::Path;
 use vibebms_core::bot;
 use vibebms_core::engine::{Engine, Op};
@@ -476,8 +475,8 @@ fn bot_replay() {
         ops: e.recorded().to_vec(),
         course: None,
     };
-    crate::replay::save(&r, &root, crate::replay::Slot::Best).unwrap();
-    crate::replay::save(&r, &root, crate::replay::Slot::Last).unwrap();
+    crate::replay::save(&r, &root, vibebms_core::replay::Slot::Best).unwrap();
+    crate::replay::save(&r, &root, vibebms_core::replay::Slot::Last).unwrap();
     println!("EX {} of {}", r.ex_score, e.score.max_ex());
 }
 
@@ -506,7 +505,7 @@ fn vs_players_have_their_own_voices_and_controls() {
         mode,
         &mut two,
         &bpm,
-        &ev(touch::START2, true)
+        &ev(crate::input::START2, true)
     ));
     // a blue key of 2P: +0.25
     assert!(control(&mut c[1], mode, &mut two, &bpm, &ev(9, true)));

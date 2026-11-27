@@ -3,9 +3,9 @@
 //! scene draws it.
 
 use super::SelectScene;
-use crate::app::{Ctx, Draw};
+use crate::app::Ctx;
 use crate::gfx::text::{Align, TextStyle};
-use crate::gfx::Rect;
+use crate::gfx::{Draw, Rect};
 use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
 use crate::platform::vfs::{self, Prefetch};
 use crate::theme;

@@ -33,7 +33,7 @@ impl Index {
     pub fn new(stamp: (i64, i64), format: &str, files: BTreeMap<PathBuf, u64>) -> Index {
         let chart_dirs = files
             .keys()
-            .filter(|p| crate::library::is_chart(p))
+            .filter(|p| vibebms_core::is_chart(p))
             .map(|p| p.parent().map(Path::to_path_buf).unwrap_or_default())
             .collect();
         Index {
@@ -66,7 +66,7 @@ impl Index {
 
     /// Its charts.
     pub fn charts(&self) -> impl Iterator<Item = &PathBuf> {
-        self.files.keys().filter(|p| crate::library::is_chart(p))
+        self.files.keys().filter(|p| vibebms_core::is_chart(p))
     }
 
     /// The files at and below `dir`.

@@ -121,6 +121,12 @@ without wasm-opt, plus the CJK fonts (see Reproducible builds).
   Edit the script and run it to make them again; CI checks with `--check` that the committed files are what it
   makes. The committed files are made with Pillow 12.3.0 and Inter 4.0, as CI's check uses: other versions draw other
   pixels.
+- How the app's code is layered: each module of `crates/vibebms/src` is in a layer of `tools/check_layers.py`'s table
+  (lowest first: the file formats and the UI's text, `platform`, the library, the settings, drawing and input, skins,
+  sound, the services, the widgets, the scenes, and the shell, `app/`) and uses only the layers below its own. The
+  uses of a higher layer that remain are listed in the script, each with its reason. CI's test job runs it: it fails
+  on a use of a higher layer it does not list, on a listed use that is gone, and on a module in no layer, so a change
+  that adds a module gives it a layer, and one that removes a listed use takes it off the list.
 - The logo and icons: `tools/gen_logo.py` (fonttools, cairosvg, Pillow) writes `assets/logo/` and the platforms'
   icons.
 

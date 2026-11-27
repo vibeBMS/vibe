@@ -11,10 +11,10 @@ use crate::app::Ctx;
 use crate::gfx::Gfx;
 use crate::input::LaneMapper;
 use crate::platform::{Duration, Instant};
-use crate::replay::Slot;
 use vibebms_core::chart::NO_SOUND;
 use vibebms_core::play::build_engine;
 use vibebms_core::record::{ChartFacts, RuleFacts};
+use vibebms_core::replay::Slot;
 
 impl PlayScene {
     pub(super) fn setup(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, l: Box<Loaded>) {

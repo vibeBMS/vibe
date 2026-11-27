@@ -18,10 +18,10 @@ use super::preview::Rank;
 use super::status::{self, Keep, SIBLINGS};
 use super::tree::{table, Bar, BulkBar, Node};
 use super::{SelectScene, REFERENCE_BPMS};
-use crate::app::{Ctx, Draw};
+use crate::app::Ctx;
 use crate::config::{Bpms, HiSpeedMode, KeyFilter, RandomSelect, SortMode};
 use crate::gfx::text::{Align, TextStyle};
-use crate::gfx::{Rect, TexId};
+use crate::gfx::{Draw, Rect, TexId};
 use crate::library::{BestScore, Song};
 use crate::scene::skinvals::*;
 use crate::skin::render::{Hooks, LoadedSkin, Xf};
@@ -1403,8 +1403,8 @@ mod tests {
     /// skin again; with nothing changed it keeps the one it has.
     #[test]
     fn back_from_settings_the_changed_skin_is_loaded() {
-        use crate::app::Scene;
         use crate::scene::skinned;
+        use crate::scene::Scene;
         use crate::skin::SkinType;
         let root =
             std::env::temp_dir().join(format!("vibebms-select-reskin-{}", std::process::id()));

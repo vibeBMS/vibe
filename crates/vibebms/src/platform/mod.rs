@@ -8,6 +8,9 @@
 pub mod android;
 pub mod arcfs;
 mod drive;
+mod files;
+#[cfg(any(target_os = "ios", test))]
+pub mod hid;
 pub mod http;
 #[cfg(target_os = "ios")]
 pub mod ios;
@@ -21,6 +24,7 @@ mod time;
 pub mod vfs;
 
 pub use drive::{load_table, run_job};
+pub use files::Vfs;
 pub use http::{http_get, stream};
 pub use thread::{after, parallel_for, spawn, Job};
 #[cfg(any(target_os = "ios", target_arch = "wasm32", test))]

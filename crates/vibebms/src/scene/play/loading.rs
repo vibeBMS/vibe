@@ -3,10 +3,10 @@
 
 use super::bga::Files;
 use super::{PlayRequest, Versus};
-use crate::app::{Ctx, Draw};
+use crate::app::Ctx;
 use crate::config::{BgaMode, PlayConfig};
 use crate::gfx::text::{Align, TextStyle};
-use crate::gfx::{with_alpha, Picture, Rect};
+use crate::gfx::{with_alpha, Draw, Picture, Rect};
 use crate::loudness::Loudness;
 use crate::platform::vfs::{DirIndex, Prefetch};
 use crate::platform::{Instant, Job};

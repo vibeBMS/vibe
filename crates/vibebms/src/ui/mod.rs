@@ -12,9 +12,8 @@ pub use list::ListView;
 pub use notice::Notice;
 pub use text_input::{TextEvent, TextInput};
 
-use crate::app::Draw;
 use crate::gfx::text::{Align, TextStyle};
-use crate::gfx::{with_alpha, Rect};
+use crate::gfx::{with_alpha, Draw, Rect};
 use crate::theme::{ACCENT, BACKGROUND, PANEL, TEXT, TEXT_DIM};
 
 /// How far (in UI units) a press may move and still be a tap, not a drag.

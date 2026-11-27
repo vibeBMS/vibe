@@ -683,7 +683,7 @@ fn constant_texts() {
     std::fs::write(dir.join("r.json"), json).unwrap();
     // (larger than a font a skin brings is read)
     let big = std::fs::File::create(dir.join("big.ttf")).unwrap();
-    big.set_len(crate::skin::FONT_MAX + 1).unwrap();
+    big.set_len(crate::gfx::text::FONT_MAX + 1).unwrap();
     let s = load(&dir.join("r.json"), &HashMap::new(), &|_| Some((1, 1))).unwrap();
     std::fs::remove_dir_all(&dir).ok();
     let Kind::Text { constant, face, .. } = &s.objects[0].kind else {

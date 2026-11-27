@@ -6,9 +6,8 @@
 
 use super::scroll::Scroll;
 use super::skin::PlayState;
-use crate::app::Draw;
 use crate::gfx::text::{Align, TextStyle};
-use crate::gfx::{rgba, with_alpha, Blend, Color};
+use crate::gfx::{rgba, with_alpha, Blend, Color, Draw};
 use crate::perspective::{Depths, Fan, FanLane};
 use crate::platform::Instant;
 use crate::touch::Shape;
@@ -152,7 +151,7 @@ pub(super) fn draw(st: &PlayState, d: &mut Draw) {
                 .touch
                 .zones
                 .iter()
-                .filter(|z| z.lane < crate::touch::SYSTEM)
+                .filter(|z| z.lane < crate::input::SYSTEM)
             {
                 let (Shape::Strip(rows), Some(l)) =
                     (&z.shape, f.lanes.iter().find(|l| l.lane == z.lane as usize))

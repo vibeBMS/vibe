@@ -6,7 +6,7 @@ use super::input::PanelKey;
 use super::skin::{panel_of_op, PANELS, PANEL_TILES};
 use super::status::SIBLINGS;
 use super::{SelectScene, REFERENCE_BPMS};
-use crate::app::{Ctx, Next};
+use crate::app::Ctx;
 use crate::config::{AudioSettings, PlayConfig};
 use crate::config::{
     Bpms, DifficultyFilter, HsFix, HsType, KeyFilter, RandomSelect, ReplayPick, SortMode, Versus,
@@ -16,11 +16,11 @@ use crate::gfx::Rect;
 use crate::input::{Nav, Repeat};
 use crate::library::{Favorites, Song};
 use crate::platform::{Duration, Instant};
-use crate::scene::option_panel;
 use crate::scene::play_opts::{self as po, PlayOpt};
 use crate::scene::skin_host::Tap;
 use crate::scene::target::{self, Rival};
 use crate::scene::{cycle, onoff};
+use crate::scene::{option_panel, Next};
 use crate::sysound::Sound;
 use vibebms_audio::Bus;
 

@@ -14,6 +14,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use vibebms_audio::Mixer;
 use vibebms_core::judge::JudgePreset;
+use vibebms_core::replay::Slot;
 
 /// What a background subsystem's `poll` reports, for the app to act on.
 #[derive(Debug, PartialEq)]
@@ -405,7 +406,7 @@ impl Ctx {
         self.lib.db = Some(Library::open(
             &self.paths.cache,
             &self.paths.scores,
-            |sha, ln| crate::replay::rule_of_old(&player, sha, ln, crate::replay::Slot::Best),
+            |sha, ln| crate::replay::rule_of_old(&player, sha, ln, Slot::Best),
         ));
         self.lib.courses = crate::courses::CourseStore::open(&self.paths.scores);
     }
@@ -686,7 +687,7 @@ impl Ctx {
             }
         }
         if !pages.is_empty() {
-            if super::IN_APP_BROWSER {
+            if crate::browser::IN_APP_BROWSER {
                 self.net.browse(pages);
             } else {
                 for p in &pages {

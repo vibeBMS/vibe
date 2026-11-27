@@ -1,8 +1,6 @@
 //! Device input -> lanes.
 
 pub mod gamepad;
-#[cfg(any(target_os = "ios", test))]
-pub mod hid;
 
 use crate::config::{KeyConfig, LaneKeys, SideKeys};
 use crate::platform::{Duration, Instant};
@@ -70,6 +68,15 @@ pub struct LaneEv {
     pub time: Instant,
 }
 
+/// Pseudo lanes of the START and SELECT buttons (the hi-speed panel), and
+/// the second player's in VS.
+pub const START: u8 = 254;
+pub const SELECT: u8 = 255;
+pub const START2: u8 = 252;
+pub const SELECT2: u8 = 253;
+/// The first pseudo lane: lanes from here on are buttons, not keys.
+pub const SYSTEM: u8 = START2;
+
 struct AxisState {
     last: Option<f32>,
     dir: i8,
@@ -135,10 +142,10 @@ impl LaneMapper {
         // START / SELECT: the hi-speed panel (pseudo lanes; a key bound to
         // a lane too stays the lane's)
         let controls = |m: &mut LaneMapper| {
-            add(&cfg.start, crate::touch::START as usize, 0, m);
-            add(&cfg.select, crate::touch::SELECT as usize, 0, m);
-            add(&cfg.p2_start, crate::touch::START2 as usize, 0, m);
-            add(&cfg.p2_select, crate::touch::SELECT2 as usize, 0, m);
+            add(&cfg.start, START as usize, 0, m);
+            add(&cfg.select, SELECT as usize, 0, m);
+            add(&cfg.p2_start, START2 as usize, 0, m);
+            add(&cfg.p2_select, SELECT2 as usize, 0, m);
         };
         if let Some(own) = cfg.few(mode) {
             for (i, lk) in own.iter().take(mode.lane_count()).enumerate() {

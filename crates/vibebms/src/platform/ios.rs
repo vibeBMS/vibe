@@ -11,8 +11,7 @@
 //! field's). The GameController framework's keyboard has them, on a queue
 //! of their own as they come ([`poll_keyboard`], [`take_keys`]).
 
-use crate::input::hid;
-use crate::platform::{event_instant, Instant};
+use crate::platform::{event_instant, hid, Instant};
 use block2::RcBlock;
 use dispatch2::{DispatchQoS, DispatchQueue, DispatchQueueAttr, GlobalQueueIdentifier};
 use objc2::rc::Retained;

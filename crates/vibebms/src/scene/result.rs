@@ -1,10 +1,10 @@
 //! Result screen: lamp, score, judge breakdown, gauge graph, timing histogram,
 //! saving best scores, and what became of the play at each IR.
 
-use crate::app::{Ctx, Draw, Next, Scene};
+use crate::app::Ctx;
 use crate::config::SubmitPolicy;
 use crate::gfx::text::{Align, TextStyle};
-use crate::gfx::{Gfx, Rect};
+use crate::gfx::{Draw, Gfx, Rect};
 use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
 use crate::library::{BestScore, RecordKey};
 use crate::platform::{Duration, Instant};
@@ -13,7 +13,7 @@ use crate::scene::result_skin::{
     ResultHooks, ResultState, EVENT_CONTINUE, EVENT_REPLAY, EVENT_RETRY, EVENT_SAVE_SLOT,
 };
 use crate::scene::skin_host::{SkinHost, Tap};
-use crate::scene::skinned;
+use crate::scene::{skinned, Next, Scene};
 use crate::skin::SkinType;
 use crate::sysound::Sound;
 use crate::theme;
@@ -21,6 +21,7 @@ use vibebms_core::gauge::GaugeType;
 use vibebms_core::judge::Judge;
 use vibebms_core::judge::JudgePreset;
 use vibebms_core::record::PlayRecord;
+use vibebms_core::replay::{Slot, SAVED};
 use vibebms_core::score::{Assist, ClearType, Score};
 use vibebms_core::{LnType, PlayMode};
 use winit::keyboard::KeyCode;
@@ -180,7 +181,7 @@ impl ResultScene {
         // every play of its own keeps its replay as the chart's latest
         // (a BATTLE play's would replace a single play's: it is not kept)
         if let Some(r) = d.replay.as_ref().filter(|r| r.keepable()) {
-            if let Err(e) = crate::replay::save(r, &ctx.paths.player, crate::replay::Slot::Last) {
+            if let Err(e) = crate::replay::save(r, &ctx.paths.player, Slot::Last) {
                 log::warn!("replay: {e}");
                 // (none is kept as the best either)
                 if e == vibebms_core::replay::TOO_LONG {
@@ -229,8 +230,7 @@ impl ResultScene {
                 .as_ref()
                 .filter(|r| r.keepable() && ranked && d.score.ex_score() > best_before)
             {
-                if let Err(e) = crate::replay::save(r, &ctx.paths.player, crate::replay::Slot::Best)
-                {
+                if let Err(e) = crate::replay::save(r, &ctx.paths.player, Slot::Best) {
                     log::warn!("replay: {e}");
                 }
             }
@@ -364,7 +364,7 @@ impl ResultScene {
             ctx.toast(tr!("No replay of this play to keep").to_string());
             return;
         };
-        let slot = crate::replay::Slot::Saved(n);
+        let slot = Slot::Saved(n);
         match crate::replay::save(r, &ctx.paths.player, slot) {
             Ok(()) => {
                 ctx.play_sound(crate::sysound::Sound::OptionChange);
@@ -622,9 +622,7 @@ fn slot_key(code: KeyCode) -> Option<u8> {
 /// The saved slot of a skin event (`EVENT_SAVE_SLOT` on).
 fn save_slot(event: i32) -> Option<u8> {
     let n = event - EVENT_SAVE_SLOT + 1;
-    (1..=crate::replay::SAVED as i32)
-        .contains(&n)
-        .then_some(n as u8)
+    (1..=SAVED as i32).contains(&n).then_some(n as u8)
 }
 
 /// The sound set's sounds of a result: those it starts with, in the order

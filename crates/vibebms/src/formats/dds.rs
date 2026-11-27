@@ -11,10 +11,10 @@ pub fn size(b: &[u8]) -> Option<(u32, u32)> {
 }
 
 /// Decode to RGBA8 (`None` too for an image larger than is decoded:
-/// `gfx::fits`).
+/// [`super::fits`]).
 pub fn decode(b: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
     let (w, h) = size(b)?;
-    if w == 0 || h == 0 || !crate::gfx::fits(w, h) {
+    if w == 0 || h == 0 || !super::fits(w, h) {
         return None;
     }
     let flags = u32_at(b, 80)?;

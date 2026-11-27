@@ -3,11 +3,12 @@
 
 use super::tree::{event, table, Bar, BulkBar, CourseBar, Missing, Node};
 use super::SelectScene;
-use crate::app::{Ctx, Next};
+use crate::app::Ctx;
 use crate::config::Versus;
 use crate::replay;
 use crate::scene::play::{self, CourseRun, PlayRequest, PlayScene};
 use crate::scene::practice::PracticeScene;
+use crate::scene::Next;
 use vibebms_core::course::{CourseDef, CourseKind, MAX_STAGES};
 use vibebms_core::rng::JavaRandom;
 
@@ -428,7 +429,7 @@ impl SelectScene {
             .into_iter()
             .filter(|u| u.starts_with("http://") || u.starts_with("https://"))
             .collect();
-        if crate::app::IN_APP_BROWSER && !pages.is_empty() {
+        if crate::browser::IN_APP_BROWSER && !pages.is_empty() {
             ctx.toast(tr!("Download {title} in the browser window", title = title));
             ctx.net
                 .browse(pages.iter().map(|u| u.to_string()).collect());

@@ -5,18 +5,19 @@
 //! sounds are mixed offline at the chart's sample rate into a WAV file,
 //! which a second `ffmpeg` run puts beside the frames.
 
-use super::{Ctx, Draw, Next, Scene};
+use super::Ctx;
 use crate::gfx::text::Text;
-use crate::gfx::{Batch, Offscreen};
+use crate::gfx::{Batch, Draw, Offscreen};
 use crate::paths::Paths;
 use crate::platform::{Duration, Instant};
-use crate::replay::Slot;
 use crate::scene::play::{PlayRequest, PlayScene};
+use crate::scene::{Next, Scene};
 use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use vibebms_audio::Mixer;
+use vibebms_core::replay::Slot;
 
 pub const USAGE: &str = "\
 usage: vibebms export video <chart> [--replay <best|last|1-4>] [--out <file.mp4>]
@@ -64,7 +65,7 @@ impl VideoExport {
                     e.replay = Some(slot(&v).ok_or_else(|| {
                         format!(
                             "--replay {v:?}: best, last or a slot 1-{}",
-                            crate::replay::SAVED
+                            vibebms_core::replay::SAVED
                         )
                     })?);
                 }
@@ -122,7 +123,7 @@ fn slot(s: &str) -> Option<Slot> {
         "last" => Some(Slot::Last),
         n => {
             let n: u8 = n.strip_prefix("slot").unwrap_or(n).parse().ok()?;
-            (1..=crate::replay::SAVED)
+            (1..=vibebms_core::replay::SAVED)
                 .contains(&n)
                 .then_some(Slot::Saved(n))
         }

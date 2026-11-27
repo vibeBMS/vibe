@@ -8,9 +8,10 @@
 //! battle for the chart. Subcommands: `songs scan`, `songs list [--json]`,
 //! `export video` (`export`).
 
-use super::{Ctx, Scene};
+use super::Ctx;
 use crate::config::Config;
 use crate::scene::play::{ghost_for, vs_refusal, PlayRequest, PlayScene, Versus};
+use crate::scene::Scene;
 use serde::Serialize;
 use std::path::PathBuf;
 use vibebms_core::Labeled;
@@ -611,9 +612,9 @@ pub(super) fn play_scene(ctx: &mut Ctx, cli: &Cli) -> Option<Box<dyn Scene>> {
     // --ghost best|last: G-BATTLE against that replay
     let ghost = cli.ghost.as_deref().map(|g| {
         let slot = if g == "last" {
-            crate::replay::Slot::Last
+            vibebms_core::replay::Slot::Last
         } else {
-            crate::replay::Slot::Best
+            vibebms_core::replay::Slot::Best
         };
         ghost_for(ctx, &song, slot).map(|r| (r, slot))
     });

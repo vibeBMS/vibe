@@ -3,10 +3,11 @@
 use super::options::SelectOption;
 use super::tree::Node;
 use super::SelectScene;
-use crate::app::{Ctx, Next};
+use crate::app::Ctx;
 use crate::config::{KeyConfig, LaneKeys};
 use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase, Repeat};
 use crate::platform::{Duration, Instant};
+use crate::scene::Next;
 use crate::ui::{TextEvent, TextInput, DRAG_SLOP};
 use winit::keyboard::KeyCode;
 
