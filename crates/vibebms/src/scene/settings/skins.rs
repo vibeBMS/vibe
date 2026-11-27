@@ -6,7 +6,7 @@ use super::{Armed, Confirm, Screen, Sub};
 use crate::ctx::Ctx;
 use crate::net::skinstore::{SkinEntry, State};
 use crate::platform::IS_WEB;
-use crate::scene::play_skin::{configured_path, PERSPECTIVE};
+use crate::scene::play::choice::{configured_path, PERSPECTIVE};
 use crate::scene::skinned;
 use crate::scene::skinselect::TYPES;
 use crate::skin::{SkinType, OFFSET_FIELDS};

@@ -297,35 +297,6 @@ impl SelectScene {
             self.scroll = (self.scroll + diff * k).rem_euclid(n);
         }
     }
-
-    fn draw_skinned(&mut self, ctx: &Ctx, d: &mut Draw, now: Instant) {
-        let view = Rect::new(0.0, 0.0, ctx.view.width, ctx.view.height);
-        let (bars, pitch) = {
-            let st = SelectState::new(self, ctx);
-            let mut hooks = SelectHooks {
-                st: &st,
-                banner: self
-                    .banner
-                    .as_ref()
-                    .and_then(|b| b.1.as_ref())
-                    .map(|t| t.tex),
-                bars: HitMap::default(),
-                pitch: None,
-            };
-            self.host.draw(d, view, now, &st, &mut hooks);
-            (hooks.bars, hooks.pitch)
-        };
-        self.bar_rects = bars;
-        self.bar_pitch = pitch;
-        // search box (typing is not part of skins), in the upper half,
-        // above an on-screen keyboard
-        if let Some(t) = self.search_edit.as_mut() {
-            let (w, h, ui) = (ctx.view.width, ctx.view.height, ctx.ui());
-            let r = Rect::new(w * 0.25, h * 0.22, w * 0.5, 44.0 * ui);
-            t.draw_box(ctx, d, r, &format!("{}: ", tr!("SEARCH")));
-        }
-        self.draw_reader(ctx, d);
-    }
 }
 
 impl Scene for SelectScene {
@@ -435,6 +406,31 @@ impl Scene for SelectScene {
     }
 
     fn draw(&mut self, ctx: &Ctx, d: &mut Draw, now: Instant) {
-        self.draw_skinned(ctx, d, now);
+        let view = Rect::new(0.0, 0.0, ctx.view.width, ctx.view.height);
+        let (bars, pitch) = {
+            let st = SelectState::new(self, ctx);
+            let mut hooks = SelectHooks {
+                st: &st,
+                banner: self
+                    .banner
+                    .as_ref()
+                    .and_then(|b| b.1.as_ref())
+                    .map(|t| t.tex),
+                bars: HitMap::default(),
+                pitch: None,
+            };
+            self.host.draw(d, view, now, &st, &mut hooks);
+            (hooks.bars, hooks.pitch)
+        };
+        self.bar_rects = bars;
+        self.bar_pitch = pitch;
+        // search box (typing is not part of skins), in the upper half,
+        // above an on-screen keyboard
+        if let Some(t) = self.search_edit.as_mut() {
+            let (w, h, ui) = (ctx.view.width, ctx.view.height, ctx.ui());
+            let r = Rect::new(w * 0.25, h * 0.22, w * 0.5, 44.0 * ui);
+            t.draw_box(ctx, d, r, &format!("{}: ", tr!("SEARCH")));
+        }
+        self.draw_reader(ctx, d);
     }
 }

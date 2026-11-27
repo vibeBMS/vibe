@@ -184,7 +184,7 @@ impl TouchLayoutScene {
         let aspect = *self
             .aspects
             .entry((self.mode, ctx.portrait()))
-            .or_insert_with(|| super::play_skin::aspect(ctx, mode));
+            .or_insert_with(|| super::play::choice::aspect(ctx, mode));
         let screen = Rect::new(0.0, 0.0, ctx.view.width, Self::area(ctx).y);
         let right = touch::system_right(&ctx.config.touch, mode, Self::side2(ctx), ctx.portrait());
         touch::system_buttons(screen, aspect, ctx.px_per_mm(), right)

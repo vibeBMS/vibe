@@ -3,6 +3,7 @@
 //! the end.
 
 mod bga;
+pub mod choice;
 mod control;
 mod finish;
 mod guide;

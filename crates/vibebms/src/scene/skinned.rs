@@ -25,7 +25,7 @@ pub fn default_skin(kind: SkinType, portrait: bool) -> Option<PathBuf> {
 /// The configured skin for a screen (`None` = the built-in default).
 pub fn configured_skin(ctx: &Ctx, kind: SkinType) -> Option<PathBuf> {
     let v = ctx.config.skins.get(kind.config_key()?)?;
-    super::play_skin::configured_path(ctx, v)
+    super::play::choice::configured_path(ctx, v)
 }
 
 /// What a screen's skin is made from: the skin chosen for it, its custom
@@ -125,7 +125,7 @@ pub fn settle(ctx: &mut Ctx, now: crate::platform::Instant) {
         return;
     };
     let chosen = kind.key().and_then(|k| ctx.config.skins.get(k)) == Some(&value);
-    let path = (super::play_skin::configured_path(ctx, &value))
+    let path = (super::play::choice::configured_path(ctx, &value))
         .filter(|_| chosen && kind != SkinType::SoundSet);
     if let Some(path) = path {
         let loaded = crate::skin::load_file(
@@ -157,7 +157,7 @@ pub fn recover(ctx: &mut Ctx) {
 /// one is), which the player is told.
 fn set_aside(ctx: &mut Ctx, skins: &[PathBuf]) {
     let chosen = |value: &String| {
-        super::play_skin::configured_path(ctx, value).is_some_and(|p| skins.contains(&p))
+        super::play::choice::configured_path(ctx, value).is_some_and(|p| skins.contains(&p))
     };
     let aside: std::collections::BTreeSet<String> =
         (ctx.config.skins.values().filter(|v| chosen(v)).cloned()).collect();
@@ -196,7 +196,7 @@ pub fn skin_choices(ctx: &Ctx, kind: SkinType) -> Vec<String> {
     }
     // play skins: the built-in perspective one too
     if kind.mode().is_some() && !kind.is_battle() {
-        out.push(super::play_skin::PERSPECTIVE.into());
+        out.push(super::play::choice::PERSPECTIVE.into());
     }
     // (a battle slot takes double play skins too)
     let fits = |t: SkinType| {
@@ -215,12 +215,14 @@ pub fn skin_choices(ctx: &Ctx, kind: SkinType) -> Vec<String> {
 /// The skin file a choice of a type stands for (the built-in default for
 /// an empty one, where there is one).
 pub fn choice_path(ctx: &Ctx, kind: SkinType, value: &str) -> Option<PathBuf> {
-    if let Some(p) = super::play_skin::options_path(ctx, kind, value) {
+    if let Some(p) = super::play::choice::options_path(ctx, kind, value) {
         return Some(p);
     }
     match kind.mode() {
-        Some(m) if kind.is_battle() => Some(super::play_skin::battle_skin(m, ctx.touch_enabled())),
-        Some(m) => Some(super::play_skin::default_skin(
+        Some(m) if kind.is_battle() => {
+            Some(super::play::choice::battle_skin(m, ctx.touch_enabled()))
+        }
+        Some(m) => Some(super::play::choice::default_skin(
             m,
             ctx.config.play.side == crate::config::Side::P2,
             ctx.portrait(),
@@ -232,7 +234,7 @@ pub fn choice_path(ctx: &Ctx, kind: SkinType, value: &str) -> Option<PathBuf> {
 
 /// (name, author) of a choice of a type.
 pub fn choice_name(ctx: &Ctx, kind: SkinType, value: &str) -> (String, String) {
-    let Some(p) = super::play_skin::configured_path(ctx, value) else {
+    let Some(p) = super::play::choice::configured_path(ctx, value) else {
         return ("DEFAULT".into(), "vibeBMS".into());
     };
     if kind == SkinType::SoundSet {
