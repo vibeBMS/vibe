@@ -332,6 +332,52 @@ impl SelectScene {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
+    use crate::platform::Instant;
+
+    fn ptr(id: u64, phase: Phase, y: f32) -> InputEv {
+        InputEv::Pointer {
+            id,
+            phase,
+            x: 50.0,
+            y,
+            time: Instant::now(),
+            touch: true,
+        }
+    }
+
+    /// A drag scrolls the text by lines (within it) once past the slop; a
+    /// tap outside the box closes it, a drag's lift does not; any lift
+    /// ends the press.
+    #[test]
+    fn a_drag_scrolls_the_text() {
+        let ctx = Ctx::for_test(std::env::temp_dir().join("vibebms-readdrag"));
+        let mut r = Reader::new("t".into(), Vec::new());
+        r.wrapped = vec![String::new(); 40];
+        r.rows = 10.0;
+        let line = LINE * ctx.ui();
+        let slop = DRAG_SLOP * ctx.ui();
+        assert!(r.input(&ctx, &ptr(1, Phase::Down, 300.0)));
+        assert!(r.input(&ctx, &ptr(1, Phase::Move, 300.0 - slop)));
+        assert_eq!(r.scroll, 0.0);
+        assert!(r.input(&ctx, &ptr(1, Phase::Move, 300.0 - 3.0 * line)));
+        assert_eq!(r.scroll, 3.0);
+        assert!(r.input(&ctx, &ptr(2, Phase::Move, 0.0)));
+        assert_eq!(r.scroll, 3.0);
+        // not past the end, nor above the start
+        assert!(r.input(&ctx, &ptr(1, Phase::Move, 300.0 - 100.0 * line)));
+        assert_eq!(r.scroll, 30.0);
+        assert!(r.input(&ctx, &ptr(1, Phase::Move, 300.0 + 10.0 * line)));
+        assert_eq!(r.scroll, 0.0);
+        // a drag's lift (outside the box) keeps it open
+        assert!(r.input(&ctx, &ptr(1, Phase::Up, 300.0)));
+        // a tap there closes it; another pointer's lift ends a press
+        assert!(r.input(&ctx, &ptr(1, Phase::Down, 300.0)));
+        assert!(r.input(&ctx, &ptr(2, Phase::Up, 300.0)));
+        assert!(r.input(&ctx, &ptr(1, Phase::Move, 0.0)));
+        assert_eq!(r.scroll, 0.0);
+        assert!(r.input(&ctx, &ptr(1, Phase::Down, 300.0)));
+        assert!(!r.input(&ctx, &ptr(1, Phase::Up, 300.0)));
+    }
 
     /// The chart's text files are read (Shift_JIS too), each after its
     /// name when there are several.

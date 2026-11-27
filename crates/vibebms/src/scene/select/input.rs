@@ -418,6 +418,52 @@ fn is_play_key(keys: &KeyConfig, code: KeyCode) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scene::select::Bar;
+
+    fn ptr(id: u64, phase: Phase, y: f32) -> InputEv {
+        InputEv::Pointer {
+            id,
+            phase,
+            x: 50.0,
+            y,
+            time: Instant::now(),
+            touch: true,
+        }
+    }
+
+    /// A drag on the list moves it by bars (the skin's pitch apart, around
+    /// its ends) once past the slop, and the cursor with it; another
+    /// pointer's lift ends the press.
+    #[test]
+    fn a_drag_scrolls_the_list_by_bars() {
+        let root = std::env::temp_dir().join(format!("vibebms-seldrag-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        let mut s = SelectScene::new(&mut ctx);
+        s.bars = (0..10).map(Bar::Song).collect();
+        s.bar_pitch = Some(40.0);
+        let slop = DRAG_SLOP * ctx.ui();
+        s.input_event(&mut ctx, &ptr(1, Phase::Down, 300.0));
+        // within the slop: nothing moves
+        s.input_event(&mut ctx, &ptr(1, Phase::Move, 300.0 - slop));
+        assert_eq!((s.scroll, s.cursor), (0.0, 0));
+        // 100 px up: 2.5 bars on, the cursor on the nearest
+        s.input_event(&mut ctx, &ptr(1, Phase::Move, 200.0));
+        assert_eq!((s.scroll, s.cursor), (2.5, 3));
+        // another pointer does not move it
+        s.input_event(&mut ctx, &ptr(2, Phase::Move, 100.0));
+        assert_eq!(s.scroll, 2.5);
+        // back past the top: around the end
+        s.input_event(&mut ctx, &ptr(1, Phase::Move, 380.0));
+        assert_eq!((s.scroll, s.cursor), (8.0, 8));
+        // the slop once passed, back near the start still drags
+        s.input_event(&mut ctx, &ptr(1, Phase::Move, 340.0));
+        assert_eq!((s.scroll, s.cursor), (9.0, 9));
+        // any lift ends the press
+        s.input_event(&mut ctx, &ptr(2, Phase::Up, 340.0));
+        s.input_event(&mut ctx, &ptr(1, Phase::Move, 200.0));
+        assert_eq!(s.scroll, 9.0);
+        std::fs::remove_dir_all(&root).ok();
+    }
 
     /// F12 scans for what changed; the files left out for stopping the game
     /// stay left out (a crash each, at every F12, otherwise).
