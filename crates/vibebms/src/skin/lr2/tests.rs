@@ -1,4 +1,5 @@
 use super::*;
+use vibebms_core::judge::Judge;
 
 /// [`load_with`] with only options chosen.
 fn load(

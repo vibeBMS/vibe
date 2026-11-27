@@ -9,7 +9,8 @@
 //! Scripts reach the game through beatoraja's `main_state`, `timer_util`
 //! and `event_util` modules (as globals in JSON skins).
 
-use super::{Home, SkinState};
+use super::load::Home;
+use super::state::SkinState;
 use std::collections::HashMap;
 
 /// First synthetic id of a script value.
@@ -933,7 +934,8 @@ end
     /// hook).
     fn source<'a>(lua: &'a Lua, path: &Path) -> mlua::Result<mlua::chunk::Chunk<'a>> {
         in_time(lua)?;
-        let src = crate::skin::read_text(path).map_err(|e| mlua::Error::runtime(e.to_string()))?;
+        let src =
+            crate::skin::load::read_text(path).map_err(|e| mlua::Error::runtime(e.to_string()))?;
         Ok(text_chunk(lua, src, path))
     }
 
@@ -1044,7 +1046,7 @@ end
             // io reads the skin's files; what scripts write goes nowhere
             let read = lua.create_function(move |lua, p: String| {
                 in_time(lua)?;
-                let data = find(&p, false).and_then(|p| crate::skin::read_text(&p).ok());
+                let data = find(&p, false).and_then(|p| crate::skin::load::read_text(&p).ok());
                 match data {
                     Some(d) => Ok(LV::String(lua.create_string(d)?)),
                     None => Ok(LV::Nil),

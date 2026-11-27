@@ -1151,13 +1151,13 @@ fn a_lua_skin_that_does_not_end_does_not_hold_the_listing() {
     assert!(read(&skins[0], None, None).is_err());
     assert!(t.elapsed() < script::LOAD_TIME);
     let read: fn(&PathBuf) -> bool = |p| crate::skin::header_read(p).is_some();
-    assert!(crate::skin::lr2::find_skins(&dir).is_empty());
+    assert!(crate::skin::find_skins(&dir).is_empty());
     assert_eq!(
         skins.iter().map(read).collect::<Vec<_>>(),
         [true, false, false]
     );
     for _ in 0..2 {
-        crate::skin::lr2::find_skins(&dir);
+        crate::skin::find_skins(&dir);
     }
     assert!(skins.iter().all(read));
     std::fs::remove_dir_all(&dir).ok();

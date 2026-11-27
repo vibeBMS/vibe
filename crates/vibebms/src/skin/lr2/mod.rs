@@ -19,7 +19,13 @@
 
 mod commands;
 
-use super::*;
+use super::graph::*;
+use super::images::*;
+use super::load::*;
+use super::model::*;
+use super::options::*;
+use super::types::*;
+use crate::gfx::Rect;
 use crate::platform::vfs;
 use commands::{LaneImage, Line};
 use std::collections::HashMap;
@@ -751,85 +757,6 @@ pub fn glob_path(p: &Path) -> PathBuf {
         .next()
         .unwrap_or_else(|| p.to_path_buf())
 }
-
-/// The files matching a `*` in the file name of `p` (sorted), else `p`.
-pub fn glob_paths(p: &Path) -> Vec<PathBuf> {
-    let name = p
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let Some((pre, post)) = name.split_once('*') else {
-        return vec![p.to_path_buf()];
-    };
-    let (pre, post) = (pre.to_lowercase(), post.to_lowercase());
-    let dir = p.parent().unwrap_or(Path::new(""));
-    let mut c: Vec<PathBuf> = vfs::read_dir(dir)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|e| e.path)
-        .filter(|c| {
-            let n = c
-                .file_name()
-                .map(|n| n.to_string_lossy().to_lowercase())
-                .unwrap_or_default();
-            n.starts_with(&pre) && n.ends_with(&post) && n.len() >= pre.len() + post.len()
-        })
-        .collect();
-    c.sort();
-    c
-}
-
-/// Play skins below `dir`, the skins folder: LR2 (`.lr2skin`) and
-/// beatoraja (`.json`, `.luaskin`).
-pub fn find_skins(dir: &Path) -> Vec<(PathBuf, SkinType, String)> {
-    fn walk(d: &Path, depth: usize, out: &mut Vec<PathBuf>) {
-        if depth > 4 {
-            return;
-        }
-        for e in vfs::read_dir(d).unwrap_or_default() {
-            let ext = e
-                .path
-                .extension()
-                .map(|x| x.to_string_lossy().to_lowercase())
-                .unwrap_or_default();
-            if e.is_dir {
-                walk(&e.path, depth + 1, out);
-            } else if matches!(ext.as_str(), "lr2skin" | "json" | "luaskin") {
-                out.push(e.path);
-            }
-        }
-    }
-    let mut files = Vec::new();
-    walk(dir, 0, &mut files);
-    files.sort();
-    // a Lua skin runs to say what it is: once those of a listing have
-    // taken `LIST_TIME`, the ones not read before wait for the next
-    let mut spent = std::time::Duration::ZERO;
-    let mut found = Vec::new();
-    for p in files {
-        let lua = p
-            .extension()
-            .is_some_and(|e| e.eq_ignore_ascii_case("luaskin"));
-        let runs = lua && super::header_read(&p).is_none();
-        if runs && spent >= LIST_TIME {
-            continue;
-        }
-        let start = crate::platform::Instant::now();
-        let header = super::header(&p, dir);
-        if runs {
-            spent += start.elapsed();
-        }
-        found.extend(header.map(|(t, n)| (p, t, n)));
-    }
-    found
-}
-
-/// Time a listing of the skins gives Lua skins to say what they are (a
-/// folder of skins that take long to); the rest come with a later one.
-#[cfg(not(test))]
-const LIST_TIME: std::time::Duration = std::time::Duration::from_secs(4);
-#[cfg(test)]
-const LIST_TIME: std::time::Duration = super::script::HEADER_TIME;
 
 #[cfg(test)]
 mod tests;

@@ -3,7 +3,7 @@
 use super::script::Overlay;
 use super::*;
 use crate::gfx::text::{Align, TextStyle};
-use crate::gfx::{Draw, Gfx, ImageJobs, ImageTex, TexId};
+use crate::gfx::{Draw, Gfx, ImageJobs, ImageTex, Rect, TexId};
 
 /// A skin with its textures uploaded.
 pub struct LoadedSkin {

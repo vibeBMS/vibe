@@ -204,7 +204,7 @@ pub fn skin_choices(ctx: &Ctx, kind: SkinType) -> Vec<String> {
             || (kind == SkinType::CourseResult && t == SkinType::Result)
             || (kind.is_battle() && t.battle_pair() == Some(kind))
     };
-    for (p, t, _) in crate::skin::lr2::find_skins(&ctx.paths.skins) {
+    for (p, t, _) in crate::skin::find_skins(&ctx.paths.skins) {
         if fits(t) {
             out.push(rel(p));
         }

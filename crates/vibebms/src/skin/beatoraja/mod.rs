@@ -14,8 +14,15 @@ mod songlist;
 
 pub(crate) use objects::{gauge_colors, hex_color};
 
+use super::graph::*;
+use super::images::*;
+use super::load::*;
+use super::model::*;
+use super::options::*;
 use super::script::{self, ScriptKind};
-use super::*;
+use super::state::SkinState;
+use super::types::*;
+use crate::gfx::Rect;
 use crate::platform::vfs;
 use files::{filepath_chosen, filepath_files, filepaths, FilePath};
 use json::{add_missing_commas, merge_double_braces, parse};
@@ -418,7 +425,7 @@ pub fn load_with(
     };
     if kind == SkinType::SkinSelect {
         let ss = sk.get("skinSelect");
-        skin.skin_select = Some(crate::skin::SkinSelectInfo {
+        skin.skin_select = Some(SkinSelectInfo {
             default_category: ss.map(|v| i(v, "defaultCategory", 0)).unwrap_or(0) as i32,
             custom_property_count: ss
                 .map(|v| i(v, "customPropertyCount", -1))

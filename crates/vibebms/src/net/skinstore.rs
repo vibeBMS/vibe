@@ -1394,7 +1394,7 @@ mod tests {
         match rx.recv().unwrap() {
             Ok(folders) => {
                 println!("INSTALLED {folders:?}");
-                let found = crate::skin::lr2::find_skins(&skins);
+                let found = crate::skin::find_skins(&skins);
                 for (path, t, name) in &found {
                     println!("SKIN {t:?} {name} {}", path.display());
                 }

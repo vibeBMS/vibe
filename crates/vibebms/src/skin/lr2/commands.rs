@@ -3,6 +3,7 @@
 //! field (lanes, notes, judgements); `#DST_*` lines of other objects last.
 
 use super::*;
+use vibebms_core::judge::Judge;
 
 /// A command line: its name (upper case), fields and their numbers, and
 /// its first field as text.
@@ -583,7 +584,9 @@ impl Loader<'_> {
                 self.cur = None;
                 if v[1] == 0 {
                     self.push(Kind::Graph(Graph::Gauge(GaugeGraph {
-                        colors: Some(super::beatoraja::gauge_colors(&serde_json::Value::Null)),
+                        colors: Some(crate::skin::beatoraja::gauge_colors(
+                            &serde_json::Value::Null,
+                        )),
                         line_width: v[6].max(1) as f32,
                         delay: (v[14] - v[13]).max(0),
                     })));
