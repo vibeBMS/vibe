@@ -73,11 +73,8 @@ impl LoadedSkin {
         if total == 0 {
             return;
         }
-        let order: Vec<usize> = if rank {
-            (0..counts.len()).collect()
-        } else {
-            (0..counts.len()).rev().collect()
-        };
+        let n = counts.len();
+        let order = (0..n).map(|k| if rank { k } else { n - 1 - k });
         // animated image sets: one row of segment images per animation frame
         let set = src
             .filter(|s| s.cycle > 0 && s.frames.len() >= 22)
@@ -389,7 +386,7 @@ impl LoadedSkin {
         if let Some(c) = combo_part {
             if let Some(cf) = c.dst.eval(now, st) {
                 let keta = c.font.style.keta;
-                let digits = combo.to_string().len().min(keta);
+                let digits = (combo.ilog10() as usize + 1).min(keta);
                 let cw = cf.rect.w * xf.sx * digits as f32;
                 if js.shift {
                     jr.x -= cw * 0.5;

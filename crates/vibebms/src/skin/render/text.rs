@@ -144,18 +144,17 @@ impl LoadedSkin {
         size: Option<f32>,
     ) {
         let (r, color) = (fr.rect, fr.color);
-        let chars: Vec<char> = s.chars().filter(|c| f.glyphs.contains_key(c)).collect();
-        let glyphs: Vec<&(usize, [f32; 4])> =
-            chars.iter().filter_map(|c| f.glyphs.get(c)).collect();
-        if glyphs.is_empty() || f.size <= 0.0 {
+        let glyphs = || s.chars().filter_map(|c| f.glyphs.get(&c));
+        if glyphs().next().is_none() || f.size <= 0.0 {
             return;
         }
         let k = r.h / f.size;
         if !f.metrics.is_empty() {
-            self.bmfont_text(d, f, &chars, fr, align, size);
+            self.bmfont_text(d, f, s, fr, align, size);
             return;
         }
-        let width = glyphs.iter().map(|g| g.1[2]).sum::<f32>() * k + f.margin * glyphs.len() as f32;
+        let n = glyphs().count();
+        let width = glyphs().map(|g| g.1[2]).sum::<f32>() * k + f.margin * n as f32;
         let scale = if r.w > 0.0 && r.w < width {
             r.w / width
         } else {
@@ -163,7 +162,7 @@ impl LoadedSkin {
         };
         let a = align.share();
         let mut x = r.x + r.w * a - width * scale * a;
-        for (img, g) in glyphs {
+        for (img, g) in glyphs() {
             let tw = g[2] * scale * k;
             if let Some((t, uv)) = self.uv(*img, *g) {
                 d.b.quad(t, Rect::new(x, r.y, tw, r.h), uv, color);
@@ -179,15 +178,16 @@ impl LoadedSkin {
         &self,
         d: &mut Draw,
         f: &BitmapFont,
-        chars: &[char],
+        s: &str,
         fr: &Frame,
         align: Align,
         size: Option<f32>,
     ) {
         let (r, color) = (fr.rect, fr.color);
         let k = bmfont_scale(f, r.h, size);
-        let adv = |c: &char| f.metrics.get(c).map(|m| m[2]).unwrap_or(0.0);
-        let width = chars.iter().map(adv).sum::<f32>() * k;
+        let chars = || s.chars().filter(|c| f.glyphs.contains_key(c));
+        let adv = |c: char| f.metrics.get(&c).map(|m| m[2]).unwrap_or(0.0);
+        let width = chars().map(adv).sum::<f32>() * k;
         let scale = if r.w > 0.0 && r.w < width {
             r.w / width
         } else {
@@ -195,8 +195,8 @@ impl LoadedSkin {
         };
         let a = align.share();
         let mut x = r.x + r.w * a - width * scale * a;
-        for c in chars {
-            let (Some((img, g)), Some(m)) = (f.glyphs.get(c), f.metrics.get(c)) else {
+        for c in chars() {
+            let (Some((img, g)), Some(m)) = (f.glyphs.get(&c), f.metrics.get(&c)) else {
                 continue;
             };
             if let Some((t, uv)) = self.uv(*img, *g) {

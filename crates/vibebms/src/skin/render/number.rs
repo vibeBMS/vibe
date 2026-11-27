@@ -29,7 +29,8 @@ impl LoadedSkin {
         }
         let neg = value < 0;
         let mut v = value.unsigned_abs();
-        let mut slots: Vec<Option<usize>> = vec![None; keta];
+        let mut places = [None; NumberStyle::PLACES];
+        let slots = &mut places[..keta];
         for j in (0..keta).rev() {
             if v > 0 || j == keta - 1 {
                 slots[j] = Some((v % 10) as usize);

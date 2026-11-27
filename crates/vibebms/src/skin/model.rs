@@ -183,11 +183,16 @@ pub struct NumberStyle {
     /// Images of a set: 10 (0-9), 11 (and padding), 12 (signed: 24, a
     /// positive and a negative set of 0-9, padding, sign).
     pub digits: usize,
-    /// Places.
+    /// Places (1 to [`NumberStyle::PLACES`]).
     pub keta: usize,
     pub align: Align,
     /// Glyph drawn in leading places (`None` = blank).
     pub pad: Option<usize>,
+}
+
+impl NumberStyle {
+    /// The places a number may have.
+    pub const PLACES: usize = 32;
 }
 
 /// A number font: its digit images and how they are set.

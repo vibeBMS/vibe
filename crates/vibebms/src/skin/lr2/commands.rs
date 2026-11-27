@@ -289,7 +289,7 @@ impl Loader<'_> {
                             src: s,
                             style: NumberStyle {
                                 digits,
-                                keta: v[13].clamp(1, 32) as usize,
+                                keta: v[13].clamp(1, NumberStyle::PLACES as i64) as usize,
                                 align: Align::of_number(v[12]),
                                 pad: (digits > 10).then_some(10),
                             },
@@ -302,7 +302,7 @@ impl Loader<'_> {
                     };
                     let style = NumberStyle {
                         digits,
-                        keta: v[13].clamp(1, 32) as usize,
+                        keta: v[13].clamp(1, NumberStyle::PLACES as i64) as usize,
                         align: Align::Left,
                         pad: None,
                     };
@@ -506,7 +506,7 @@ impl Loader<'_> {
                     src: s_,
                     style: NumberStyle {
                         digits,
-                        keta: v[13].clamp(1, 32) as usize,
+                        keta: v[13].clamp(1, NumberStyle::PLACES as i64) as usize,
                         align: Align::of_number(v[12]),
                         pad: None,
                     },

@@ -242,7 +242,7 @@ impl<'a> Ctx<'a> {
                 src,
                 style: NumberStyle {
                     digits,
-                    keta: i(def, "digit", 1).clamp(1, 32) as usize,
+                    keta: i(def, "digit", 1).clamp(1, NumberStyle::PLACES as i64) as usize,
                     align: Align::of_number(i(def, "align", 0)),
                     // beatoraja zeropadding: 0 = none, 1 = '0', 2 = the
                     // padding image (the 11th; '0' for fonts without one)
