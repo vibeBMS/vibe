@@ -2,10 +2,12 @@
 //! one at a time) and the IR outbox (rewritten whole); and the document of
 //! the accounts' keys ([`secret`]), kept apart.
 //!
-//! Natively they are files under the data root. On the web they are kept
-//! in OPFS by its worker ([`super::opfs`]), as `store/<path>`; a browser
-//! without OPFS keeps them in `localStorage`, a history there only its
-//! newest [`FALLBACK_LINES`] lines ([`limited`] says so).
+//! Natively the history and the outbox are files under the data root. On
+//! the web they are kept in OPFS by its worker ([`super::opfs`]), as
+//! `store/<path>`; a browser without OPFS keeps them in `localStorage`, a
+//! history there only its newest [`FALLBACK_LINES`] lines ([`limited`] says
+//! so). The keys' document is kept where each platform keeps such things
+//! ([`secret`]).
 //!
 //! Every line ends with a line break. A line cut short (the program or the
 //! page ended while writing it) is ended by the next [`append`], so it
@@ -92,10 +94,14 @@ pub const LOCK_RETRY_MS: f64 = 10_000.0;
 /// - iOS: the Keychain, this device only (the data folder is `Documents`,
 ///   seen in Files and in backups);
 /// - web: the page's `localStorage`, which any script of the site can read.
+///
+/// `ir::creds` is its one reader and writer, and what keeps each key to the
+/// server it was entered for: nothing outside the crate reads or writes it
+/// (where it is kept, [`Kept`], is no secret).
 pub mod secret {
     use std::io;
 
-    pub use imp::{kept, place, read, write, Place};
+    pub(crate) use imp::{kept, place, read, write, Place};
 
     /// Where the document is kept ([`kept`]).
     #[derive(Clone, Copy, Debug)]

@@ -389,7 +389,6 @@ pub fn export_video(
     let offline = crate::config::AudioSettings {
         buffer_frames: 0,
         sample_rate: rate,
-        #[cfg(windows)]
         exclusive: false,
         ..config.audio.clone()
     };
