@@ -1,11 +1,11 @@
-//! Skin support (LR2 `.lr2skin` / CSV and beatoraja JSON / Lua skins) for the
-//! play, music select and result screens.
+//! Skins (LR2 `.lr2skin` / CSV, beatoraja JSON / Lua) for the game's
+//! screens.
 //!
-//! The loader ([`lr2`]) turns a skin into a renderer-independent model; this
-//! module evaluates the keyframe animations against a [`SkinState`] provided
-//! by the scene. Semantics (coordinate system, easing, loop rules, number
-//! layout, timer/option/number ids) follow LR2 as documented by beatoraja's
-//! open-source LR2 skin loader.
+//! A loader ([`lr2`], [`beatoraja`]) reads a skin file into the model
+//! ([`Skin`]), whose animations are evaluated against the [`SkinState`] a
+//! scene provides ([`Dst::eval`]); [`render`] draws it. This module picks
+//! the loader for a file ([`load_file`], [`header`]) and lists the skins
+//! in a folder ([`find_skins`]).
 
 pub mod beatoraja;
 mod eval;
