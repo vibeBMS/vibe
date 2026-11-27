@@ -23,7 +23,9 @@ mod thread;
 mod time;
 pub mod vfs;
 
-pub use drive::{load_table, run_job};
+#[cfg(test)]
+pub(crate) use drive::in_page;
+pub use drive::{load_table, run_job, Launch};
 pub use files::Vfs;
 pub use http::{http_get, stream};
 pub use thread::{after, parallel_for, spawn, Job};

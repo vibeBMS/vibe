@@ -134,8 +134,11 @@
 "the replay was played in another LN mode" = "the replay was played in another LN mode"
 
 # net/events.rs
+"Event list {list}: more than {n} events, not read" = "Event list {list}: more than {n} events, not read"
+"Event index {index}: more than {n} works, not read" = "Event index {index}: more than {n} works, not read"
 "Added {name} ({n} files)" = "Added {name} ({n} files)"
 "No direct download: opening its page" = "No direct download: opening its page"
+"Event list {list}: {n} events left out" = "Event list {list}: {n} events left out"
 
 # net/hosts.rs
 """

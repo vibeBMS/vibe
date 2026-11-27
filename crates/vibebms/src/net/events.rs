@@ -6,13 +6,17 @@
 //! mirror and unpacks into `bms/<EVENT>/` on choosing it, or opens its
 //! author's download page.
 
-use crate::platform::Job;
+use crate::net::hosts::Context;
+use crate::platform::{Job, Launch};
+use bmseeker::fs::{Fs, Store};
 use bmseeker::install::job::{Effect, Fed, Files, Got, Missed, Step};
 use bmseeker::manbow::mirror::{self, File, Work};
+use bmseeker::net::{Answer, Kind, Next, Request};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
+use std::sync::Mutex;
 
 /// Re-read an index after this long (s).
 const REFRESH_S: u64 = 86_400;
@@ -20,6 +24,14 @@ const REFRESH_S: u64 = 86_400;
 /// Re-read a list of events after this long (s): it is small, and the
 /// URLs of the indexes in it may change.
 const CATALOG_REFRESH_S: u64 = 600;
+
+/// The most events a list may name, and works an index may have (the
+/// published mirror: 32 events, a few hundred works an index): each event
+/// is a request at every start and a folder in the music select, and each
+/// work is matched against the library when its folder opens. A list or an
+/// index with more is not read.
+const MAX_EVENTS: usize = 2_000;
+const MAX_WORKS: usize = 20_000;
 
 /// An event as the music select lists it, with its index's works (and as
 /// it is cached).
@@ -37,6 +49,10 @@ pub struct Event {
     pub mirrored: bool,
     pub works: Vec<Work>,
     pub fetched_at: u64,
+    /// Named by a list (not by the player): its index is asked for as a
+    /// download's links are ([`fetch_listed`]).
+    #[serde(skip)]
+    pub listed: bool,
 }
 
 impl Event {
@@ -77,19 +93,51 @@ pub fn event_name(url: &str) -> Option<String> {
     folder_name(tag.unwrap_or("archive"))
 }
 
-/// Whether the index a list names is read: over `https`, on the host the
-/// list came from. The list is another party's text, and the app fetches
-/// what it names by itself.
-fn index_of_list(index: &str, list: &str) -> bool {
-    use crate::platform::http::origin;
-    origin(index).is_some_and(|o| o.starts_with("https://") && origin(list) == Some(o))
+/// Whether an index a list names is asked for: an https address, written
+/// plainly (no user name in it, and no white space or control character
+/// anywhere, so that the address checked is the one asked). Where it is and
+/// where it leads are kept to as a download's links are ([`fetch_listed`]).
+fn listed_index(index: &str) -> bool {
+    !index.contains(|c: char| c.is_whitespace() || c.is_control())
+        && crate::platform::http::origin(index).is_some_and(|o| o.starts_with("https://"))
 }
 
-/// Fetch a list or an index: at most what [`mirror`] reads of one.
+/// Fetch a list or an index the player gave (wherever it is: their own
+/// choice): at most what [`mirror`] reads of one.
 fn fetch(url: &str, map: impl FnOnce(Result<Vec<u8>, String>) -> Msg + Send + 'static) -> Job<Msg> {
     Job::start(|tx, _| {
         crate::platform::http::http_get_within(url, mirror::MAX_BYTES as u64, move |r| {
             let _ = tx.send(map(r));
+        })
+    })
+}
+
+/// An index a list names, read.
+struct ListedIndex(String);
+
+impl bmseeker::net::Task for ListedIndex {
+    type Output = Result<Vec<Work>, String>;
+    fn start(&mut self) -> Next<Self::Output> {
+        // (`Kind::Api`'s limit is what the mirror's reader reads)
+        Next::Ask(Request::Get(self.0.clone(), Kind::Api))
+    }
+    fn feed(&mut self, answer: Answer) -> Next<Self::Output> {
+        Next::Done((answer.map_err(|e| e.to_string())).and_then(|b| mirror::parse_index(&b)))
+    }
+}
+
+/// Fetch and read an index a list names ([`listed_index`]). A list is
+/// another party's text, and the app fetches what it names by itself: so
+/// as the links of a download are ([`crate::platform::run_job`]), kept to
+/// `cx`'s refusals, natively asking no host of this machine or its
+/// networks, at its address or where a redirect leads, and following no
+/// redirect from https to http.
+fn fetch_listed(url: &str, cx: &Context) -> Job<Msg> {
+    let url = url.to_string();
+    Job::start(|tx, _| {
+        let job = bmseeker::install::job::TaskJob::new(ListedIndex(url.clone()));
+        crate::platform::run_job(job, cx, move |r| {
+            let _ = tx.send(Msg::Index(url, r));
         })
     })
 }
@@ -178,6 +226,7 @@ impl Archives {
             let c = crate::platform::vfs::read(&Self::cache_file(paths, u))
                 .ok()
                 .and_then(|b| serde_json::from_slice::<Catalog>(&b).ok())
+                .filter(|c| c.events.len() <= MAX_EVENTS)
                 .unwrap_or_else(|| Catalog {
                     url: u.clone(),
                     ..Default::default()
@@ -193,25 +242,29 @@ impl Archives {
     }
 
     /// The events of the configured URLs in order: each catalog's, then
-    /// single indexes (their works from the cache).
-    fn rebuild(&mut self, paths: &crate::paths::Paths) {
-        let mut old = std::mem::take(&mut self.events);
+    /// single indexes (their works from the cache). Returns each list that
+    /// had entries left out (a name or an index it may not have), and how
+    /// many.
+    fn rebuild(&mut self, paths: &crate::paths::Paths) -> Vec<(String, usize)> {
+        let mut old: HashMap<String, Event> =
+            self.events.drain(..).map(|e| (e.url.clone(), e)).collect();
         let mut wanted: Vec<Event> = Vec::new();
+        let mut left_out = Vec::new();
         for u in &self.sources {
             if is_catalog(u) {
                 let Some(c) = self.catalogs.iter().find(|c| &c.url == u) else {
                     continue;
                 };
+                let mut n = 0;
                 for e in c.events.iter().filter(|e| !e.index.is_empty()) {
                     let Some(name) = folder_name(&e.tag) else {
                         log::warn!("archive events {u}: {:?} is no folder name", e.tag);
+                        n += 1;
                         continue;
                     };
-                    if !index_of_list(&e.index, u) {
-                        log::warn!(
-                            "archive events {u}: {:?} is not an https URL on its host",
-                            e.index
-                        );
+                    if !listed_index(&e.index) {
+                        log::warn!("archive events {u}: {:?} is not a plain https URL", e.index);
+                        n += 1;
                         continue;
                     }
                     wanted.push(Event {
@@ -220,8 +273,12 @@ impl Archives {
                         label: e.name.clone(),
                         title: e.title.clone(),
                         mirrored: e.mirror,
+                        listed: true,
                         ..Default::default()
                     });
+                }
+                if n > 0 {
+                    left_out.push((u.clone(), n));
                 }
             } else if let Some(name) = event_name(u) {
                 wanted.push(Event {
@@ -234,17 +291,18 @@ impl Archives {
                 log::warn!("archive index {u}: its URL names no event");
             }
         }
+        let mut seen = HashSet::new();
         for w in wanted {
-            if self.events.iter().any(|e| e.url == w.url) {
+            if !seen.insert(w.url.clone()) {
                 continue;
             }
             // the works: from the last run, else from the cache
-            let cached = match old.iter().position(|e| e.url == w.url) {
-                Some(i) => Some(old.swap_remove(i)),
-                None => crate::platform::vfs::read(&Self::cache_file(paths, &w.url))
+            let cached = old.remove(&w.url).or_else(|| {
+                crate::platform::vfs::read(&Self::cache_file(paths, &w.url))
                     .ok()
-                    .and_then(|b| serde_json::from_slice::<Event>(&b).ok()),
-            };
+                    .and_then(|b| serde_json::from_slice::<Event>(&b).ok())
+                    .filter(|c| c.works.len() <= MAX_WORKS)
+            });
             let (works, fetched_at) = cached.map(|c| (c.works, c.fetched_at)).unwrap_or_default();
             self.events.push(Event {
                 works,
@@ -252,11 +310,13 @@ impl Archives {
                 ..w
             });
         }
+        left_out
     }
 
     /// Fetch the lists of events and the indexes older than a day (all
-    /// with `force`).
-    pub fn refresh(&mut self, force: bool) {
+    /// with `force`); an index a list names kept to `cx`
+    /// ([`fetch_listed`]).
+    pub fn refresh(&mut self, cx: &Context, force: bool) {
         let now = crate::platform::unix_now();
         let lists: Vec<String> = self
             .catalogs
@@ -270,17 +330,20 @@ impl Archives {
                 Msg::Catalog(u, r.and_then(|b| mirror::parse_catalog(&b)))
             }));
         }
-        let todo: Vec<String> = self
+        let todo: Vec<(String, bool)> = self
             .events
             .iter()
             .filter(|e| force || now.saturating_sub(e.fetched_at) >= REFRESH_S)
-            .map(|e| e.url.clone())
+            .map(|e| (e.url.clone(), e.listed))
             .collect();
-        for url in todo {
+        for (url, listed) in todo {
             let u = url.clone();
-            self.jobs.push(fetch(&url, move |r| {
-                Msg::Index(u, r.and_then(|b| mirror::parse_index(&b)))
-            }));
+            self.jobs.push(match listed {
+                true => fetch_listed(&url, cx),
+                false => fetch(&url, move |r| {
+                    Msg::Index(u, r.and_then(|b| mirror::parse_index(&b)))
+                }),
+            });
         }
     }
 
@@ -338,24 +401,37 @@ impl Archives {
         let event = name.clone();
         self.jobs.push(Job::start(|tx, _| {
             let done = tx.clone();
-            fetch_work(root, cx, files, &event, tx, move |r| {
+            let launch = crate::platform::run_job;
+            fetch_work(root, cx, files, &event, tx, launch, move |r| {
                 let _ = done.send(Msg::Done(name, num, r));
             })
         }));
-        Ok(if size > 0 {
-            format!("Downloading {title} ({} MB)…", (size + (1 << 19)) >> 20)
-        } else {
-            format!("Downloading {title}…")
-        })
+        let name = match size {
+            0 => title,
+            _ => format!("{title} ({} MB)", (size + (1 << 19)) >> 20),
+        };
+        Ok(tr!("Downloading {name}…", name = name))
     }
 
-    /// What happened since the last frame.
-    pub fn poll(&mut self, paths: &crate::paths::Paths) -> Vec<Polled> {
+    /// What happened since the last frame; the events new in a list fetched
+    /// ([`Archives::refresh`], kept to `cx`).
+    pub fn poll(&mut self, paths: &crate::paths::Paths, cx: &Context) -> Vec<Polled> {
         let msgs = Job::drain_all(&mut self.jobs);
         let mut out = Vec::new();
-        let (mut changed, mut new_events) = (false, false);
+        let (mut changed, mut fetched) = (false, Vec::new());
         for m in msgs {
             match m {
+                Msg::Catalog(url, Ok(entries)) if entries.len() > MAX_EVENTS => {
+                    log::warn!(
+                        "archive events {url}: {} events, more than {MAX_EVENTS}: not read",
+                        entries.len()
+                    );
+                    out.push(Polled::Toast(tr!(
+                        "Event list {list}: more than {n} events, not read",
+                        list = url,
+                        n = MAX_EVENTS
+                    )));
+                }
                 Msg::Catalog(url, Ok(entries)) => {
                     if let Some(c) = self.catalogs.iter_mut().find(|c| c.url == url) {
                         c.events = entries;
@@ -364,10 +440,21 @@ impl Archives {
                             let _ = crate::platform::vfs::create_dir_all(&Self::dir(paths));
                             let _ = crate::platform::vfs::write(&Self::cache_file(paths, &url), &j);
                         }
-                        new_events = true;
+                        fetched.push(url);
                     }
                 }
                 Msg::Catalog(url, Err(e)) => log::warn!("archive events {url}: {e}"),
+                Msg::Index(url, Ok(works)) if works.len() > MAX_WORKS => {
+                    log::warn!(
+                        "archive index {url}: {} works, more than {MAX_WORKS}: not read",
+                        works.len()
+                    );
+                    out.push(Polled::Toast(tr!(
+                        "Event index {index}: more than {n} works, not read",
+                        index = url,
+                        n = MAX_WORKS
+                    )));
+                }
                 Msg::Index(url, Ok(works)) => {
                     if let Some(ev) = self.events.iter_mut().find(|e| e.url == url) {
                         ev.works = works;
@@ -415,10 +502,19 @@ impl Archives {
                 }
             }
         }
-        if new_events {
-            self.rebuild(paths);
+        if !fetched.is_empty() {
+            for (list, n) in self.rebuild(paths) {
+                if fetched.contains(&list) {
+                    log::warn!("archive events {list}: {n} events left out");
+                    out.push(Polled::Toast(tr!(
+                        "Event list {list}: {n} events left out",
+                        list = list,
+                        n = n
+                    )));
+                }
+            }
             // the events new in the list
-            self.refresh(false);
+            self.refresh(cx, false);
             changed = true;
         }
         if changed {
@@ -503,7 +599,9 @@ impl Telling {
     fn tell(&self, step: &Step<Result<Vec<Got>, Missed>>) {
         if let Step::Do(Effect::Download { slot, .. }) = step {
             if let Some((_, n)) = self.slots.iter().skip(1).find(|(s, _)| s == slot) {
-                let _ = self.tx.send(Msg::Status(format!("Downloading {n}…")));
+                let _ = self
+                    .tx
+                    .send(Msg::Status(tr!("Downloading {name}…", name = n)));
             }
         }
     }
@@ -523,19 +621,103 @@ impl bmseeker::install::job::Job for Telling {
     }
 }
 
+/// The player's files ([`crate::platform::Vfs`]) as a work is unpacked
+/// into them, each file it writes noted: what a work that fails takes back
+/// ([`take_back`]).
+#[derive(Default)]
+struct Noting(Mutex<Vec<PathBuf>>);
+
+const VFS: &crate::platform::Vfs = &crate::platform::Vfs;
+
+impl Noting {
+    fn note<T>(&self, p: &Path, r: std::io::Result<T>) -> std::io::Result<T> {
+        if r.is_ok() {
+            self.0
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(p.to_path_buf());
+        }
+        r
+    }
+}
+
+impl Fs for Noting {
+    fn read(&self, p: &Path) -> std::io::Result<Vec<u8>> {
+        VFS.read(p)
+    }
+    fn read_dir(&self, p: &Path) -> std::io::Result<Vec<bmseeker::fs::Entry>> {
+        VFS.read_dir(p)
+    }
+    fn rename(&self, from: &Path, to: &Path) -> std::io::Result<()> {
+        self.note(to, VFS.rename(from, to))
+    }
+    fn stamp(&self, p: &Path) -> Option<(i64, u64)> {
+        VFS.stamp(p)
+    }
+    fn remove(&self, p: &Path) -> std::io::Result<()> {
+        VFS.remove(p)
+    }
+    fn keeps_times(&self) -> bool {
+        VFS.keeps_times()
+    }
+}
+
+impl Store for Noting {
+    fn create(
+        &self,
+        p: &Path,
+        mtime: Option<i64>,
+    ) -> std::io::Result<Box<dyn std::io::Write + '_>> {
+        self.note(p, VFS.create(p, mtime))
+    }
+    fn remove_dir(&self, p: &Path) {
+        VFS.remove_dir(p)
+    }
+    fn open(&self, p: &Path) -> std::io::Result<Box<dyn bmseeker::fs::ReadSeek + Send>> {
+        VFS.open(p)
+    }
+    fn create_dir_all(&self, p: &Path) {
+        VFS.create_dir_all(p)
+    }
+    fn create_new_dir(&self, p: &Path) -> std::io::Result<()> {
+        VFS.create_new_dir(p)
+    }
+    fn copy(&self, from: &Path, to: &Path) -> std::io::Result<()> {
+        self.note(to, VFS.copy(from, to))
+    }
+}
+
+/// What a work that failed wrote into its folder `dest` taken back, so
+/// that no part of a song is listed and trying again starts clean: the
+/// folder, when it was not there before (`was`), else the files it wrote
+/// (`noted`), never one that was there.
+fn take_back(dest: &Path, was: bool, noted: Noting) {
+    if !was {
+        if crate::platform::vfs::is_dir(dest) {
+            crate::platform::vfs::remove_dir(dest);
+        }
+        return;
+    }
+    for f in noted.0.into_inner().unwrap_or_else(|e| e.into_inner()) {
+        let _ = crate::platform::vfs::remove_file(&f);
+    }
+}
+
 /// Download a work's files (bmseeker's `Files`, a status for each after
 /// the first: `tx`) and unpack them into `bms/<event>/<archive>` (add-ons
 /// into the same folder); then `done` with that folder (relative to the
 /// data root) and the number of files written. The files come into their
-/// slots below `downloads/` natively, into memory on the web
-/// ([`crate::platform::run_job`]); either is unpacked into the player's
-/// files ([`crate::platform::Vfs`]).
+/// slots below `downloads/` natively, into memory on the web (`launch`:
+/// [`crate::platform::run_job`]); either is unpacked into the player's
+/// files ([`crate::platform::Vfs`]), and what a work that fails wrote there
+/// is taken back ([`take_back`]).
 fn fetch_work(
     root: &Path,
-    cx: &crate::net::hosts::Context,
+    cx: &Context,
     files: Vec<File>,
     event: &str,
     tx: Sender<Msg>,
+    launch: Launch<Telling>,
     done: impl FnOnce(Result<(PathBuf, usize), Fail>) + Send + 'static,
 ) {
     let stem = work_stem(&files);
@@ -556,28 +738,36 @@ fn fetch_work(
             .collect(),
     };
     let tmps: Vec<PathBuf> = job.slots.iter().map(|(s, _)| s.clone()).collect();
-    crate::platform::run_job(job, cx, move |got| {
-        let r = (|| {
-            let got = got.map_err(|m| missed(&files, m))?;
-            let mut n = 0;
-            for (f, g) in files.iter().zip(got) {
-                let name = if f.original.is_empty() {
-                    // an author's link: an archive (its own bytes tell
-                    // which), named as one so that a file that is none is
-                    // refused
-                    format!("{}.zip", file_name(f))
-                } else {
-                    file_name(f)
-                };
-                n += bmseeker::import::unpack_into(&crate::platform::Vfs, g.blob, &name, &dest)?;
+    launch(
+        job,
+        cx,
+        Box::new(move |got| {
+            let (was, noted) = (crate::platform::vfs::is_dir(&dest), Noting::default());
+            let r = (|| {
+                let got = got.map_err(|m| missed(&files, m))?;
+                let mut n = 0;
+                for (f, g) in files.iter().zip(got) {
+                    let name = if f.original.is_empty() {
+                        // an author's link: an archive (its own bytes tell
+                        // which), named as one so that a file that is none is
+                        // refused
+                        format!("{}.zip", file_name(f))
+                    } else {
+                        file_name(f)
+                    };
+                    n += bmseeker::import::unpack_into(&noted, g.blob, &name, &dest)?;
+                }
+                Ok((rel, n))
+            })();
+            if r.is_err() {
+                take_back(&dest, was, noted);
             }
-            Ok((rel, n))
-        })();
-        for t in &tmps {
-            let _ = crate::platform::vfs::remove_file(t);
-        }
-        done(r)
-    });
+            for t in &tmps {
+                let _ = crate::platform::vfs::remove_file(t);
+            }
+            done(r)
+        }),
+    );
 }
 
 #[cfg(test)]
@@ -771,77 +961,154 @@ mod tests {
             ..Default::default()
         }];
         let (done, r) = std::sync::mpsc::channel();
-        fetch_work(&root.join("data"), &cx, files, "../..", tx, move |r| {
-            let _ = done.send(r);
-        });
+        let launch = crate::platform::run_job;
+        fetch_work(
+            &root.join("data"),
+            &cx,
+            files,
+            "../..",
+            tx,
+            launch,
+            move |r| {
+                let _ = done.send(r);
+            },
+        );
         let r = r.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
         assert!(matches!(r, Err(Fail::Msg(e)) if e == NO_FOLDER));
         assert!(!root.exists());
     }
 
-    /// A work's mirrored files come one after another, each after the
-    /// first told, and are unpacked into its folder (an archive's files,
-    /// an add-on as it is); nothing stays in the downloads.
-    #[test]
-    fn a_work_is_fetched_and_unpacked() {
-        let root = std::env::temp_dir().join(format!("vibebms-archive-got-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        let tar = bmseeker::testkit::tar(&[("a.bms", "#TITLE A"), ("01.ogg", "o")]);
-        let answer = |body: &[u8]| -> &'static str {
-            let body = std::str::from_utf8(body).unwrap();
-            let head = "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length";
-            Box::leak(format!("{head}: {}\r\n\r\n{body}", body.len()).into_boxed_str())
-        };
-        let serve = |body: &[u8]| {
-            let (url, _) = crate::platform::http::tests::serve(vec![answer(body)]);
-            format!("{url}/f")
-        };
-        let files = vec![
-            File {
-                name: "001.tar".into(),
-                url: serve(&tar),
-                original: "Song.tar".into(),
-                ..Default::default()
-            },
-            File {
-                name: "002.txt".into(),
-                url: serve(b"read me"),
-                original: "readme.txt".into(),
-                ..Default::default()
-            },
-        ];
-        // (the test's server is on this machine)
-        let cx = crate::net::hosts::Context::new(bmseeker::config::Config {
+    /// An answer of `body`, whole.
+    fn answer(body: &[u8]) -> &'static str {
+        let body = std::str::from_utf8(body).unwrap();
+        let head = "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length";
+        Box::leak(format!("{head}: {}\r\n\r\n{body}", body.len()).into_boxed_str())
+    }
+
+    /// A server of `body`, once: its URL.
+    fn served(body: &[u8]) -> String {
+        let (url, _) = crate::platform::http::tests::serve(vec![answer(body)]);
+        format!("{url}/f")
+    }
+
+    /// What asks for a work's files: natively's own, and the web's driver
+    /// (which every target builds in tests: the files come into memory).
+    fn launchers() -> [(&'static str, Launch<Telling>); 2] {
+        [
+            ("thread", crate::platform::run_job),
+            ("page", crate::platform::in_page),
+        ]
+    }
+
+    /// Work `files` of event `EV` fetched into `root` through `launch`
+    /// (from this machine's test servers): how it ended, and what was told.
+    fn fetch_into(
+        root: &Path,
+        files: Vec<File>,
+        launch: Launch<Telling>,
+    ) -> (Result<(PathBuf, usize), Fail>, Vec<String>) {
+        let cx = Context::new(bmseeker::config::Config {
             local_hosts: true,
             ..Default::default()
         });
         let (tx, told) = std::sync::mpsc::channel();
         let (done, r) = std::sync::mpsc::channel();
-        fetch_work(&root, &cx, files, "EV", tx, move |r| {
+        fetch_work(root, &cx, files, "EV", tx, launch, move |r| {
             let _ = done.send(r);
         });
         let r = r.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
-        let dir = root.join("bms/EV/Song");
-        let (rel, n) = match r {
-            Ok(got) => got,
-            Err(Fail::Msg(e) | Fail::Page(e)) => panic!("{e}"),
-        };
-        assert_eq!((root.join(rel), n), (dir.clone(), 3));
-        assert_eq!(std::fs::read(dir.join("a.bms")).unwrap(), b"#TITLE A");
-        assert_eq!(std::fs::read(dir.join("readme.txt")).unwrap(), b"read me");
-        let told: Vec<String> = told
-            .try_iter()
+        let told = (told.try_iter())
             .filter_map(|m| match m {
                 Msg::Status(s) => Some(s),
                 _ => None,
             })
             .collect();
-        assert_eq!(told, ["Downloading readme.txt…"]);
-        assert_eq!(
-            std::fs::read_dir(root.join("downloads")).unwrap().count(),
-            0
-        );
-        std::fs::remove_dir_all(&root).ok();
+        (r, told)
+    }
+
+    /// A song's archive, its readme, and (`addon`) an add-on archive that
+    /// is none, each from a test server.
+    fn song(addon: bool) -> Vec<File> {
+        let tar = bmseeker::testkit::tar(&[("a.bms", "#TITLE A"), ("01.ogg", "o")]);
+        let file = |n: &str, body: &[u8], original: &str| File {
+            name: n.into(),
+            url: served(body),
+            original: original.into(),
+            ..Default::default()
+        };
+        let mut files = vec![
+            file("001.tar", &tar, "Song.tar"),
+            file("002.txt", b"read me", "readme.txt"),
+        ];
+        if addon {
+            files.push(file("003.zip", b"<html>", "addon.zip"));
+        }
+        files
+    }
+
+    /// A work's mirrored files come one after another, each after the
+    /// first told, and are unpacked into its folder (an archive's files,
+    /// an add-on as it is); nothing stays in the downloads. So as files
+    /// natively, and as bytes in memory as on the web.
+    #[test]
+    fn a_work_is_fetched_and_unpacked() {
+        for (how, launch) in launchers() {
+            let root = std::env::temp_dir()
+                .join(format!("vibebms-archive-got-{how}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            let (r, told) = fetch_into(&root, song(false), launch);
+            let dir = root.join("bms/EV/Song");
+            let (rel, n) = match r {
+                Ok(got) => got,
+                Err(Fail::Msg(e) | Fail::Page(e)) => panic!("{how}: {e}"),
+            };
+            assert_eq!((root.join(rel), n), (dir.clone(), 3), "{how}");
+            assert_eq!(std::fs::read(dir.join("a.bms")).unwrap(), b"#TITLE A");
+            assert_eq!(std::fs::read(dir.join("readme.txt")).unwrap(), b"read me");
+            assert_eq!(told, ["Downloading readme.txt…"], "{how}");
+            assert_eq!(
+                std::fs::read_dir(root.join("downloads")).unwrap().count(),
+                0,
+                "{how}"
+            );
+            std::fs::remove_dir_all(&root).ok();
+        }
+    }
+
+    /// A work that fails takes back what it wrote: its folder when it made
+    /// it, else the files it added, the player's own kept; trying again
+    /// then works (a file of the failed try is not in the way).
+    #[test]
+    fn a_failed_work_is_taken_back() {
+        for (how, launch) in launchers() {
+            let root = std::env::temp_dir().join(format!(
+                "vibebms-archive-failed-{how}-{}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&root);
+            let dir = root.join("bms/EV/Song");
+            let failed = |r: Result<(PathBuf, usize), Fail>| match r {
+                Err(Fail::Msg(e)) => e.contains("not an archive"),
+                _ => false,
+            };
+            // a folder of its own
+            assert!(failed(fetch_into(&root, song(true), launch).0), "{how}");
+            assert!(!dir.exists(), "{how}");
+            assert!(fetch_into(&root, song(false), launch).0.is_ok(), "{how}");
+            assert!(dir.join("a.bms").is_file());
+            // a folder that was there
+            std::fs::remove_dir_all(&dir).unwrap();
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("mine.txt"), "mine").unwrap();
+            assert!(failed(fetch_into(&root, song(true), launch).0), "{how}");
+            let left: Vec<_> = (std::fs::read_dir(&dir).unwrap().flatten())
+                .map(|e| e.file_name())
+                .collect();
+            assert_eq!(left, ["mine.txt"], "{how}");
+            assert!(fetch_into(&root, song(false), launch).0.is_ok(), "{how}");
+            assert!(dir.join("readme.txt").is_file() && dir.join("mine.txt").is_file());
+            std::fs::remove_dir_all(&root).ok();
+        }
     }
 
     #[test]
@@ -877,58 +1144,248 @@ mod tests {
         assert_eq!(tags, ["kept", "numbered"]);
     }
 
-    /// A list's index is read only over https from the list's own host.
+    /// A list's index is asked for at a plain https address only, on any
+    /// host (a copy of a list elsewhere names the mirror's indexes): not
+    /// over http, with a user name, or with white space or a control
+    /// character in or around it (the address checked is the one asked).
+    /// The list says how many it left out.
     #[test]
-    fn an_index_is_on_its_lists_host() {
+    fn a_lists_indexes_are_plain_https() {
         let good = [
             format!("{MIRROR}/bof22/index.json"),
             "https://RAW.githubusercontent.com:443/vibeBMS/BMS/main/x/index.json".into(),
+            "https://github.com/vibeBMS/BMS/releases/download/bof22/index.json".into(),
+            "https://example.com/x/index.json".into(),
         ];
         let bad = [
             "http://raw.githubusercontent.com/vibeBMS/BMS/main/x/index.json",
-            "https://raw.githubusercontent.com:8443/x/index.json",
-            "https://raw.githubusercontent.com.example/x/index.json",
-            "https://raw.githubusercontent.com@example.com/x/index.json",
-            "https://example.com/x/index.json",
-            "https://127.0.0.1/x/index.json",
             "http://192.168.1.1/x/index.json",
+            "http://127.0.0.1/x/index.json",
+            "https://user@example.com/x/index.json",
+            "https://raw.githubusercontent.com@example.com/x/index.json",
+            "https://example.com\\@b.example/x/index.json",
+            " https://example.com/x/index.json",
+            "https://example.com/x/index.json\n",
+            "\u{3000}https://example.com/x/index.json",
+            "https://example.com/x/index\u{a0}.json",
+            "https://example.com/x/\tindex.json",
+            "https://example.com/x/\u{0}index.json",
             "file:///etc/x/index.json",
             "/x/index.json",
         ];
         for u in &good {
-            assert!(index_of_list(u, CATALOG), "{u}");
+            assert!(listed_index(u), "{u}");
         }
         for u in bad {
-            assert!(!index_of_list(u, CATALOG), "{u}");
+            assert!(!listed_index(u), "{u:?}");
         }
-        // a list served over http names no index
-        assert!(!index_of_list(
-            "http://h/x/index.json",
-            "http://h/events.json"
-        ));
-        assert!(index_of_list(
-            "https://h/x/index.json",
-            "https://h/l/events.json"
-        ));
 
-        let entries = [good[0].as_str(), bad[4], bad[6]].map(|u| mirror::Event {
+        let list = "https://lists.example/events.json";
+        let entries = [good[2].as_str(), good[3].as_str(), bad[0], bad[6]];
+        let entries = entries.map(|u| mirror::Event {
             tag: format!("e{}", u.len()),
             index: u.to_string(),
             ..Default::default()
         });
         let mut a = Archives {
-            sources: vec![CATALOG.into()],
+            sources: vec![list.into()],
             catalogs: vec![Catalog {
-                url: CATALOG.into(),
+                url: list.into(),
                 events: entries.into(),
                 fetched_at: 1,
             }],
             ..Default::default()
         };
         let paths = crate::paths::Paths::at(std::env::temp_dir().join("vibebms-archive-test-4"));
+        assert_eq!(a.rebuild(&paths), [(list.to_string(), 2)]);
+        let urls: Vec<(&str, bool)> = a
+            .events
+            .iter()
+            .map(|e| (e.url.as_str(), e.listed))
+            .collect();
+        assert_eq!(urls, [(good[2].as_str(), true), (good[3].as_str(), true)]);
+    }
+
+    /// What `job` sends first.
+    fn first(job: Job<Msg>) -> Msg {
+        let mut jobs = vec![job];
+        let start = std::time::Instant::now();
+        loop {
+            if let Some(m) = Job::drain_all(&mut jobs).into_iter().next() {
+                return m;
+            }
+            assert!(start.elapsed() < std::time::Duration::from_secs(20));
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
+    /// Index `url` as fetched for a list (`local`: hosts of this machine
+    /// allowed, as for the test servers).
+    fn listed(url: &str, local: bool) -> Result<Vec<Work>, String> {
+        let cx = Context::new(bmseeker::config::Config {
+            local_hosts: local,
+            ..Default::default()
+        });
+        match first(fetch_listed(url, &cx)) {
+            Msg::Index(u, r) if u == url => r,
+            _ => panic!("not the index's answer"),
+        }
+    }
+
+    /// An index a list names is asked for as a download's links are: no
+    /// address of this machine or its networks, and no redirect to an
+    /// address that is no plain web link.
+    #[test]
+    fn a_listed_index_is_kept_to_the_downloads_rules() {
+        let index = br#"[{"num": 1, "title": "W", "artist": "A", "team": "", "kind": "",
+            "page": "p", "files": []}]"#;
+        assert_eq!(listed(&served(index), true).unwrap()[0].title, "W");
+        let refused = |r: Result<Vec<Work>, String>| r.is_err_and(|e| e.contains("local_hosts"));
+        assert!(refused(listed(&served(index), false)));
+        for u in [
+            "https://127.0.0.1:9/x/index.json",
+            "https://localhost/x/index.json",
+            "https://192.168.1.1/x/index.json",
+            "https://10.0.0.1/x/index.json",
+            "https://169.254.169.254/x/index.json",
+            "https://[::1]/x/index.json",
+        ] {
+            assert!(refused(listed(u, false)), "{u}");
+        }
+        // a redirect is kept to the same rules as the address asked
+        let to = served(index).replacen("http://", "http://user@", 1);
+        let moved = format!("HTTP/1.1 302 Found\r\nLocation: {to}\r\nContent-Length: 0\r\n\r\n");
+        let (from, _) =
+            crate::platform::http::tests::serve(vec![Box::leak(moved.into_boxed_str())]);
+        let r = listed(&format!("{from}/f"), true);
+        assert!(r.is_err_and(|e| e.contains("redirect")));
+    }
+
+    /// A list or an index of more than [`MAX_EVENTS`] events or
+    /// [`MAX_WORKS`] works is not read, and the player is told; one cached
+    /// is as none.
+    #[test]
+    fn a_list_or_an_index_too_long_is_not_read() {
+        let root =
+            std::env::temp_dir().join(format!("vibebms-archive-long-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let paths = crate::paths::Paths::at(root.clone());
+        let ev = format!("{MIRROR}/ev/index.json");
+        let entry = mirror::Event {
+            tag: "ev".into(),
+            index: ev.clone(),
+            ..Default::default()
+        };
+        let mut a = Archives {
+            sources: vec![CATALOG.into()],
+            catalogs: vec![Catalog {
+                url: CATALOG.into(),
+                events: vec![entry.clone()],
+                fetched_at: 1,
+            }],
+            ..Default::default()
+        };
         a.rebuild(&paths);
-        let urls: Vec<&str> = a.events.iter().map(|e| e.url.as_str()).collect();
-        assert_eq!(urls, [good[0].as_str()]);
+        let (events, works) = (
+            vec![entry; MAX_EVENTS + 1],
+            vec![Work::default(); MAX_WORKS + 1],
+        );
+        let sent = [
+            Msg::Catalog(CATALOG.into(), Ok(events.clone())),
+            Msg::Index(ev.clone(), Ok(works)),
+        ];
+        a.jobs.push(Job::start(|tx, _| {
+            for m in sent {
+                let _ = tx.send(m);
+            }
+        }));
+        let cx = crate::net::hosts::context(&Default::default());
+        let out = a.poll(&paths, &cx);
+        assert_eq!(
+            out,
+            [
+                Polled::Toast(format!(
+                    "Event list {CATALOG}: more than 2000 events, not read"
+                )),
+                Polled::Toast(format!("Event index {ev}: more than 20000 works, not read")),
+            ]
+        );
+        assert_eq!(
+            (a.catalogs[0].events.len(), a.events[0].works.len()),
+            (1, 0)
+        );
+        std::fs::create_dir_all(Archives::dir(&paths)).unwrap();
+        let cached = Catalog {
+            url: CATALOG.into(),
+            events,
+            fetched_at: 5,
+        };
+        let file = Archives::cache_file(&paths, CATALOG);
+        std::fs::write(file, serde_json::to_vec(&cached).unwrap()).unwrap();
+        let a = Archives::load(&paths, &[CATALOG.into()]);
+        assert_eq!((a.catalogs[0].fetched_at, a.events.len()), (0, 0));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// A list fetched with entries left out says so, once for that list.
+    #[test]
+    fn a_list_tells_what_it_left_out() {
+        let root =
+            std::env::temp_dir().join(format!("vibebms-archive-told-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let paths = crate::paths::Paths::at(root.clone());
+        let (other, single) = (
+            "https://lists.example/events.json".to_string(),
+            "https://y/download/ok/index.json".to_string(),
+        );
+        let entry = |tag: &str, index: &str| mirror::Event {
+            tag: tag.into(),
+            index: index.into(),
+            ..Default::default()
+        };
+        let mut a = Archives {
+            sources: vec![CATALOG.into(), other.clone(), single],
+            catalogs: [CATALOG, &other]
+                .map(|u| Catalog {
+                    url: u.into(),
+                    ..Default::default()
+                })
+                .into(),
+            ..Default::default()
+        };
+        let sent = [
+            (
+                CATALOG.to_string(),
+                vec![
+                    entry("ok", "https://a.invalid/ok/index.json"),
+                    entry("plain", "http://a.invalid/p/index.json"),
+                    entry("../up", "https://a.invalid/u/index.json"),
+                ],
+            ),
+            (
+                other.clone(),
+                vec![entry("spaced", " https://a.invalid/s/index.json")],
+            ),
+        ];
+        a.jobs.push(Job::start(|tx, _| {
+            for (u, l) in sent {
+                let _ = tx.send(Msg::Catalog(u, Ok(l)));
+            }
+        }));
+        let cx = crate::net::hosts::context(&Default::default());
+        let told: Vec<Polled> = (a.poll(&paths, &cx).into_iter())
+            .filter(|p| matches!(p, Polled::Toast(_)))
+            .collect();
+        assert_eq!(
+            told,
+            [
+                Polled::Toast(format!("Event list {CATALOG}: 2 events left out")),
+                Polled::Toast(format!("Event list {other}: 1 events left out")),
+            ]
+        );
+        let names: Vec<&str> = a.events.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["OK", "OK"]);
+        std::fs::remove_dir_all(&root).ok();
     }
 
     /// The list and indexes cached by an earlier version (its own types)
@@ -944,10 +1401,13 @@ mod tests {
             format!("{MIRROR}/boftt/index.json"),
             format!("{MIRROR}/bofnt/index.json"),
         );
+        // (an index on another host than the list, as the mirror once was)
+        let r22 = "https://github.com/vibeBMS/BMS/releases/download/bof22/index.json";
         let list = format!(
             r#"{{"url":"{CATALOG}","events":[{{"tag":"boftt","name":"BOF:TT","title":"T",
             "mirror":true,"index":"{tt}"}},{{"tag":"bofnt","name":"BOF:NT","title":"N",
-            "mirror":false,"index":"{nt}"}}],"fetched_at":5}}"#
+            "mirror":false,"index":"{nt}"}},{{"tag":"bof22","name":"BOF22","title":"B",
+            "mirror":true,"index":"{r22}"}}],"fetched_at":5}}"#
         );
         let index = format!(
             r#"{{"url":"{tt}","name":"BOFTT","label":"BOF:TT","title":"T","mirrored":true,
@@ -971,7 +1431,14 @@ mod tests {
             .iter()
             .map(|e| (e.name.as_str(), e.label(), e.works.len(), e.fetched_at))
             .collect();
-        assert_eq!(got, [("BOFTT", "BOF:TT", 1, 7), ("BOFNT", "BOF:NT", 0, 0)]);
+        assert_eq!(
+            got,
+            [
+                ("BOFTT", "BOF:TT", 1, 7),
+                ("BOFNT", "BOF:NT", 0, 0),
+                ("BOF22", "BOF22", 0, 0)
+            ]
+        );
         assert_eq!(a.events[0].works[0].files[0].original, "w.zip");
         assert!(a.can_download(0, 42));
         std::fs::remove_dir_all(&root).ok();

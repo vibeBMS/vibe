@@ -1003,3 +1003,8 @@ _untranslated = [
 "{hosts} refused, skipped" = "{hosts} 拒绝，已跳过"
 "Unpacking…" = "正在解压…"
 "Adding to the library…" = "正在添加到曲库…"
+
+# Event lists
+"Event list {list}: {n} events left out" = "活动列表 {list}：已略去 {n} 个活动"
+"Event list {list}: more than {n} events, not read" = "活动列表 {list}：活动超过 {n} 个，未读取"
+"Event index {index}: more than {n} works, not read" = "活动索引 {index}：作品超过 {n} 个，未读取"

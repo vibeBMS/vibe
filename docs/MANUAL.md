@@ -583,7 +583,11 @@ The BOF events of [vibeBMS/BMS](https://github.com/vibeBMS/BMS) (BOF22 to BOF200
 - For the others the app downloads from the authors' links. A link that needs a person on its page, or gives a page
   instead of an archive, opens that page.
 - The web build works the same way, through the vibeBMS proxy (see [Web build](#web-build)).
-- Other event lists or indexes can be added in the settings (`archives`).
+- Other event lists or indexes can be added in the settings (`archives`). An index a list names is read only from
+  a plain `https` address, through redirects that stay `https`, as a download's links are (the desktop and mobile
+  builds ask no address of this computer or its network); entries that name another are left out, and the game says
+  how many. A list names at most 2,000 events and an index at
+  most 20,000 works, or it is not read.
 
 ## Replays and ghosts
 

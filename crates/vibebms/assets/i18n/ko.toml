@@ -1002,3 +1002,8 @@ _untranslated = [
 "{hosts} refused, skipped" = "{hosts} 거부됨, 건너뜀"
 "Unpacking…" = "압축 푸는 중…"
 "Adding to the library…" = "라이브러리에 추가하는 중…"
+
+# Event lists
+"Event list {list}: {n} events left out" = "이벤트 목록 {list}: 이벤트 {n}개 제외됨"
+"Event list {list}: more than {n} events, not read" = "이벤트 목록 {list}: 이벤트가 {n}개를 넘어 읽지 않음"
+"Event index {index}: more than {n} works, not read" = "이벤트 색인 {index}: 작품이 {n}개를 넘어 읽지 않음"
