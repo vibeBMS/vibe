@@ -66,6 +66,15 @@ class CheckLayers(unittest.TestCase):
                     "    #[test]\n    fn t() {\n        %s();\n    }\n}\n" % (lit, UP))
             self.assertEqual(self.run_on({"formats/mod.rs": text}), (0, self.run_on({})[1]), lit)
 
+    def test_a_path_attribute_fails(self):
+        code, out = self.run_on({
+            "formats/mod.rs": '#[path = "../scene/low/helper.rs"]\npub mod helper;\n',
+            "scene/low/helper.rs": "pub fn h() {\n    %s();\n}\n" % UP,
+        })
+        self.assertEqual(code, 1, out)
+        self.assertIn("formats/mod.rs:", out)
+        self.assertIn("#[path]", out)
+
 
 if __name__ == "__main__":
     unittest.main()

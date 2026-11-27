@@ -13,7 +13,8 @@ uses is read from its text, with comments, strings and test code left out
 the item. A use of a higher layer fails unless UPWARD lists it; a use
 UPWARD lists that no longer exists fails too, so the list is shortened
 when one goes. What a value's method reaches without naming its type is
-not seen.
+not seen. A `#[path]` attribute fails: a module's layer is read from where
+its file is.
 """
 import os
 import re
@@ -225,13 +226,18 @@ def uses(src):
         return "", (full or [""])[0]
 
     found = defaultdict(list)
+    odd = []
     for f, text in texts.items():
         mod = module_of(src, f)
         if any(under(mod, t) for t in tests):
             continue
         here = mod.split("::") if mod else []
-        text = cut_tests(text)
         at = "%s:%%d" % os.path.relpath(f, src)
+        # (a module's layer is read from where its file is)
+        for m in re.finditer(r"#\s*\[\s*path\b", text):
+            line = text.count("\n", 0, m.start()) + 1
+            odd.append(at % line + ": a #[path] attribute: keep the file where its `mod` line puts it")
+        text = cut_tests(text)
         inline = [(m.end(), item_end(text, m.end() - 1), m.group(1))
                   for m in re.finditer(r"\bmod\s+(\w+)\s*\{", text)]
         aliases = {}
@@ -262,15 +268,15 @@ def uses(src):
             if macros.get(m.group(1), mod) != mod:
                 to = macros[m.group(1)]
                 found[(mod, to, m.group(1) + "!")].append(at % (text.count("\n", 0, m.start()) + 1))
-    return modules - {t for t in modules if any(under(t, x) for x in tests)}, found
+    return modules - {t for t in modules if any(under(t, x) for x in tests)}, found, odd
 
 
 def main():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     src = sys.argv[1] if len(sys.argv) > 1 else os.path.join(root, "crates", "vibebms", "src")
-    modules, found = uses(src)
-    bad = ["%s: no layer (add it to LAYERS in tools/check_layers.py)" % (m or "lib")
-           for m in sorted(modules) if layer_of(m) is None]
+    modules, found, odd = uses(src)
+    bad = odd + ["%s: no layer (add it to LAYERS in tools/check_layers.py)" % (m or "lib")
+                 for m in sorted(modules) if layer_of(m) is None]
     if bad:
         print("\n".join(bad))
         return 1
