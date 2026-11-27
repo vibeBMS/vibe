@@ -25,9 +25,9 @@ pub enum AppEvent {
     IrScores(Box<crate::ir::download::Download>),
 }
 
-impl From<crate::archive::Polled> for AppEvent {
-    fn from(p: crate::archive::Polled) -> AppEvent {
-        use crate::archive::Polled as P;
+impl From<crate::net::events::Polled> for AppEvent {
+    fn from(p: crate::net::events::Polled) -> AppEvent {
+        use crate::net::events::Polled as P;
         match p {
             P::Toast(s) => AppEvent::Toast(s),
             P::Rescan => AppEvent::Rescan,
@@ -37,9 +37,9 @@ impl From<crate::archive::Polled> for AppEvent {
     }
 }
 
-impl From<crate::songfetch::Polled> for AppEvent {
-    fn from(p: crate::songfetch::Polled) -> AppEvent {
-        use crate::songfetch::Polled as P;
+impl From<crate::net::songfetch::Polled> for AppEvent {
+    fn from(p: crate::net::songfetch::Polled) -> AppEvent {
+        use crate::net::songfetch::Polled as P;
         match p {
             P::Toast(s) => AppEvent::Toast(s),
             P::Rescan => AppEvent::Rescan,
@@ -48,9 +48,9 @@ impl From<crate::songfetch::Polled> for AppEvent {
     }
 }
 
-impl From<crate::skinstore::Polled> for AppEvent {
-    fn from(p: crate::skinstore::Polled) -> AppEvent {
-        use crate::skinstore::Polled as P;
+impl From<crate::net::skinstore::Polled> for AppEvent {
+    fn from(p: crate::net::skinstore::Polled) -> AppEvent {
+        use crate::net::skinstore::Polled as P;
         match p {
             P::Toast(s) => AppEvent::Toast(s),
             P::SkinsChanged => AppEvent::SkinsChanged,
@@ -73,7 +73,8 @@ impl From<crate::ir::Polled> for AppEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{archive, ir, skinstore, songfetch};
+    use crate::ir;
+    use crate::net::{events, skinstore, songfetch};
 
     /// Each service's report is the event `Ctx` acts on for it, with what
     /// it carries.
@@ -86,10 +87,10 @@ mod tests {
             })
         };
         let got = vec![
-            AppEvent::from(archive::Polled::Toast("a".into())),
-            archive::Polled::Rescan.into(),
-            archive::Polled::Browse("https://a".into()).into(),
-            archive::Polled::LibraryChanged.into(),
+            AppEvent::from(events::Polled::Toast("a".into())),
+            events::Polled::Rescan.into(),
+            events::Polled::Browse("https://a".into()).into(),
+            events::Polled::LibraryChanged.into(),
             songfetch::Polled::Toast("s".into()).into(),
             songfetch::Polled::Rescan.into(),
             songfetch::Polled::Browse("https://s".into()).into(),

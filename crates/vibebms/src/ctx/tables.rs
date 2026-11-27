@@ -22,7 +22,7 @@ pub struct Tables {
     /// Tables being fetched.
     job: Option<Job<TableMsg>>,
     /// Links for table songs whose own are missing or dead.
-    pub links: crate::links::LinkLists,
+    pub links: crate::net::links::LinkLists,
 }
 
 fn cache_file(paths: &Paths, url: &str) -> PathBuf {

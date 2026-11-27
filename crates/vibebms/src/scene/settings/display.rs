@@ -172,10 +172,10 @@ pub(super) fn rows(b: &mut Rows) {
             tr!("Loudness target"),
             format!("{:.0} LUFS", a.normalize_target),
             |c, d| {
-                let (lo, hi) = crate::loudness::TARGET_RANGE;
+                let (lo, hi) = crate::audio::loudness::TARGET_RANGE;
                 let t = &mut c.config.audio.normalize_target;
                 *t = (t.round() + d as f32).clamp(lo, hi);
-                let norm = crate::loudness::system_target(&c.config.audio);
+                let norm = crate::audio::loudness::system_target(&c.config.audio);
                 c.audio.sounds.renormalize(&c.audio.mixer, norm);
             },
         )
@@ -187,7 +187,7 @@ pub(super) fn rows(b: &mut Rows) {
             onoff(a.normalize_system),
             |c, _| {
                 c.config.audio.normalize_system ^= true;
-                let norm = crate::loudness::system_target(&c.config.audio);
+                let norm = crate::audio::loudness::system_target(&c.config.audio);
                 c.audio.sounds.renormalize(&c.audio.mixer, norm);
             },
         )
@@ -199,7 +199,7 @@ pub(super) fn rows(b: &mut Rows) {
             skinned::choice_name(ctx, SkinType::SoundSet, sound_set).0,
             |c, d| {
                 skins::cycle_skin(c, SkinType::SoundSet, d);
-                c.play_sound(crate::sysound::Sound::OptionChange);
+                c.play_sound(crate::audio::sysound::Sound::OptionChange);
             },
         )
         .desc(tr!("The menu and system sounds. Enter: its options."))

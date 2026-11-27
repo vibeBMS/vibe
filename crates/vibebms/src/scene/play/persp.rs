@@ -315,7 +315,7 @@ pub(super) fn draw(st: &PlayState, d: &mut Draw) {
                     &text,
                     x,
                     y - size * 1.4,
-                    TextStyle::new(size, crate::theme::TEXT, Align::Center),
+                    TextStyle::new(size, crate::gfx::theme::TEXT, Align::Center),
                 );
             }
         }

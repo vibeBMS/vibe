@@ -341,14 +341,14 @@ struct OfflineVideos;
 
 impl OfflineVideos {
     fn on() -> OfflineVideos {
-        crate::video::set_offline(true);
+        crate::gfx::video::set_offline(true);
         OfflineVideos
     }
 }
 
 impl Drop for OfflineVideos {
     fn drop(&mut self) {
-        crate::video::set_offline(false);
+        crate::gfx::video::set_offline(false);
     }
 }
 
@@ -367,7 +367,7 @@ pub fn export_video(
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(u64, Option<u64>, u32),
 ) -> Result<Exported, String> {
-    let ffmpeg = crate::video::ffmpeg()
+    let ffmpeg = crate::gfx::video::ffmpeg()
         .ok_or("ffmpeg was not found: install it, or set VIBEBMS_FFMPEG to its path")?;
     let (w, h) = opts.size;
     let fps = opts.fps.max(1);
@@ -420,9 +420,15 @@ pub fn export_video(
             let ln = song.score_ln(p.ln_pref()) as i32;
             let fixed = song.fixed_ln() && !p.ln_force;
             let player = &ctx.paths.player;
-            let r =
-                crate::replay::load_filed(player, &song.sha256, ln, p.judge_preset, fixed, slot)
-                    .ok_or_else(|| format!("no {} replay of {}", slot.label(), song.title))?;
+            let r = crate::library::replay::load_filed(
+                player,
+                &song.sha256,
+                ln,
+                p.judge_preset,
+                fixed,
+                slot,
+            )
+            .ok_or_else(|| format!("no {} replay of {}", slot.label(), song.title))?;
             Some(std::sync::Arc::new(r))
         }
         None => None,
@@ -447,7 +453,7 @@ pub fn export_video(
             return Err("while loading".into());
         }
         now = now.max(Instant::now());
-        let norm = crate::loudness::system_target(&ctx.config.audio);
+        let norm = crate::audio::loudness::system_target(&ctx.config.audio);
         ctx.audio.sounds.poll(&ctx.audio.mixer, norm);
         ctx.audio.loudness.poll();
         if !matches!(scene.update(&mut ctx, &mut off.gfx, now), Next::Stay) {
@@ -517,7 +523,7 @@ pub fn export_video(
             pointer: None,
         };
         scene.draw(&mut ctx, &mut d, t);
-        let px = off.frame(&batch, crate::theme::BACKGROUND)?;
+        let px = off.frame(&batch, crate::gfx::theme::BACKGROUND)?;
         if let Err(e) = pipe.write_all(&px) {
             if cancel.load(Ordering::Relaxed) {
                 return Err(format!("at frame {frames}"));
@@ -707,7 +713,7 @@ mod tests {
     /// Skipped without ffmpeg or a GPU (or software one) to draw with.
     #[test]
     fn exports_an_autoplay_and_a_replay() {
-        let Some(ffmpeg) = crate::video::ffmpeg() else {
+        let Some(ffmpeg) = crate::gfx::video::ffmpeg() else {
             eprintln!("ffmpeg not installed: skipped");
             return;
         };
@@ -762,8 +768,8 @@ mod tests {
         eng.record();
         let inputs = vibebms_core::bot::inputs(&built.chart, None, 3);
         vibebms_core::bot::drive(&mut eng, &inputs, built.chart.length() + 2_000_000);
-        let r = crate::replay::Replay {
-            version: crate::replay::VERSION,
+        let r = crate::library::replay::Replay {
+            version: crate::library::replay::VERSION,
             sha256: song.sha256.clone(),
             md5: song.md5.clone(),
             title: song.title.clone(),
@@ -777,7 +783,7 @@ mod tests {
             ops: eng.recorded().to_vec(),
             course: None,
         };
-        crate::replay::save(&r, &root, Slot::Best).unwrap();
+        crate::library::replay::save(&r, &root, Slot::Best).unwrap();
         let out = root.join("replay.mkv");
         let opts = VideoExport {
             replay: Some(Slot::Best),

@@ -7,18 +7,21 @@ mod events;
 #[cfg(desktop)]
 pub mod export;
 mod pacing;
+pub mod screenshot;
 mod startup;
 mod viewer;
+#[cfg(target_arch = "wasm32")]
+pub mod web;
 
 use crate::config::Config;
 use crate::ctx::Ctx;
 use crate::gfx::text::{Align, Text, TextStyle};
+use crate::gfx::theme;
 use crate::gfx::{rgba, with_alpha, Batch, Draw, Gfx, Rect};
 use crate::input::{InputEv, Phase};
 use crate::paths::Paths;
 use crate::platform::{Duration, Instant, Job};
 use crate::scene::{Next, Scene};
-use crate::theme;
 use std::sync::Arc;
 use vibebms_audio::Mixer;
 use winit::application::ApplicationHandler;
@@ -161,13 +164,13 @@ pub fn run() {
     #[cfg(target_arch = "wasm32")]
     {
         use winit::platform::web::EventLoopExtWebSys;
-        crate::web::install_file_input(app.paths.root.clone());
-        crate::web::install_input_stamps();
-        crate::web::install_touch_watch();
-        crate::web::install_touch_input();
+        crate::app::web::install_file_input(app.paths.root.clone());
+        crate::app::web::install_input_stamps();
+        crate::app::web::install_touch_watch();
+        crate::app::web::install_touch_input();
         {
             let proxy = app.proxy.clone();
-            crate::web::install_page_focus(move |f| {
+            crate::app::web::install_page_focus(move |f| {
                 let _ = proxy.send_event(UserEvent::PageFocus(f));
             });
         }
@@ -176,7 +179,7 @@ pub fn run() {
         let replays = app.paths.replays();
         let skins = app.paths.skins.clone();
         let root = &app.paths.root;
-        let root_replays = crate::replay::dir(root);
+        let root_replays = crate::library::replay::dir(root);
         crate::platform::opfs::start(root, root_replays, crate::platform::vfs::mount, move |n| {
             if n > 0 {
                 log::info!("library: {n} files kept in the browser");
@@ -206,7 +209,11 @@ impl Running {
             let name = self.shot_name.take().unwrap_or_default();
             match r {
                 Ok(img) => {
-                    self.shot_job = Some(crate::screenshot::save(img, name, &self.ctx.paths.root))
+                    self.shot_job = Some(crate::app::screenshot::save(
+                        img,
+                        name,
+                        &self.ctx.paths.root,
+                    ))
                 }
                 Err(e) => self.ctx.toast(tr!("Screenshot: {e}", e = e)),
             }
@@ -413,11 +420,11 @@ impl Running {
         if let Some(m) = self.ctx.audio.mixer.keep_alive() {
             self.ctx.toast(m);
         }
-        let norm = crate::loudness::system_target(&self.ctx.config.audio);
+        let norm = crate::audio::loudness::system_target(&self.ctx.config.audio);
         self.ctx.audio.sounds.poll(&self.ctx.audio.mixer, norm);
         self.ctx.audio.loudness.poll();
         #[cfg(target_arch = "wasm32")]
-        crate::web::show_page_buttons(!self.scenes.last().is_some_and(|s| s.full_screen()));
+        crate::app::web::show_page_buttons(!self.scenes.last().is_some_and(|s| s.full_screen()));
         if let Some(fs) = self.ctx.view.want_fullscreen.take() {
             self.window
                 .set_fullscreen(fs.then_some(Fullscreen::Borderless(None)));
@@ -463,7 +470,7 @@ impl Running {
                 &self.ctx,
                 &mut d,
                 tr!("Third-party sources are on"),
-                crate::hosts::third_party_notice(),
+                crate::net::hosts::third_party_notice(),
                 tr!("Turn off"),
             );
         }
@@ -472,8 +479,8 @@ impl Running {
         if std::mem::take(&mut self.ctx.view.want_screenshot) && self.shot_name.is_none() {
             if self.gfx.request_capture() {
                 let label = self.scenes.last().map(|s| s.screenshot_label(&self.ctx));
-                let name = crate::screenshot::file_name(
-                    &crate::screenshot::stamp(),
+                let name = crate::app::screenshot::file_name(
+                    &crate::app::screenshot::stamp(),
                     &label.unwrap_or_default(),
                 );
                 self.shot_name = Some(name);
@@ -589,7 +596,7 @@ fn answer_third_party_notice(ctx: &mut Ctx, ok: bool) {
         ctx.config.third_party_acknowledged = true;
     } else {
         ctx.config.third_party_mirrors = false;
-        ctx.net.hosts = crate::hosts::context(&ctx.config);
+        ctx.net.hosts = crate::net::hosts::context(&ctx.config);
     }
     ctx.save_config();
 }

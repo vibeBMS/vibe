@@ -2,8 +2,8 @@
 //! each side's judge, what the skin shows of them, the BGA layers.
 
 use crate::input::LaneEv;
+use crate::library::replay::Replay;
 use crate::platform::{Duration, Instant};
-use crate::replay::Replay;
 use std::sync::Arc;
 use vibebms_core::chart::{BgaLayer, Chart, SoundId};
 use vibebms_core::engine::{Engine, EngineEvent, InputEvent, Op, PlayNote};
@@ -749,7 +749,7 @@ mod tests {
             let played = judged(&e);
             assert!(played.0.iter().any(|j| *j != Judge::PGreat), "{ln:?}");
             let r = Arc::new(Replay {
-                version: crate::replay::VERSION,
+                version: crate::library::replay::VERSION,
                 sha256: String::new(),
                 md5: String::new(),
                 title: String::new(),

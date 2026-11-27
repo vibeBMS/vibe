@@ -34,9 +34,9 @@ use crate::config::PlayConfig;
 use crate::ctx::Ctx;
 use crate::gfx::{Draw, Gfx};
 use crate::input::{InputEv, LaneEv};
+use crate::library::replay::Replay;
 use crate::library::Song;
 use crate::platform::{Duration, Instant};
-use crate::replay::Replay;
 use crate::scene::{Next, Scene};
 use session::{Out, Show};
 use std::borrow::Cow;
@@ -219,7 +219,7 @@ impl PlayRequest {
 /// one.
 pub fn ghost_for(ctx: &Ctx, song: &Song, slot: Slot) -> Result<Arc<Replay>, String> {
     let ln = ctx.config.play.ln_pref();
-    let r = crate::replay::load_filed(
+    let r = crate::library::replay::load_filed(
         &ctx.paths.player,
         &song.sha256,
         song.score_ln(ln) as i32,
@@ -237,7 +237,7 @@ pub fn ghost_for(ctx: &Ctx, song: &Song, slot: Slot) -> Result<Arc<Replay>, Stri
             )
         )
     })?;
-    match crate::replay::ghost_refusal(&r, song, ln) {
+    match crate::library::replay::ghost_refusal(&r, song, ln) {
         Some(why) => Err(format!("G-BATTLE: {why}")),
         None => Ok(Arc::new(r)),
     }
@@ -250,7 +250,7 @@ pub fn course_replay(ctx: &Ctx, run: &CourseRun, index: usize, slot: Slot) -> Op
     let ln = ctx.config.play.ln_pref().ty as i32;
     let rule = ctx.config.play.judge_preset;
     let key = run.replay_key(index);
-    crate::replay::load_filed(&ctx.paths.player, &key, ln, rule, true, slot)
+    crate::library::replay::load_filed(&ctx.paths.player, &key, ln, rule, true, slot)
         .filter(|r| r.course.as_ref().is_some_and(|c| c.stage as usize == index))
 }
 
@@ -678,7 +678,10 @@ impl Scene for PlayScene {
     }
     fn screenshot_label(&self, _ctx: &Ctx) -> Vec<String> {
         let s = &self.req.song;
-        vec![s.title.clone(), crate::screenshot::difficulty(s.difficulty)]
+        vec![
+            s.title.clone(),
+            crate::app::screenshot::difficulty(s.difficulty),
+        ]
     }
     fn full_screen(&self) -> bool {
         true
@@ -745,7 +748,7 @@ impl Scene for PlayScene {
         }
         ctx.audio.mixer.stop_bus(Bus::Bgm);
         ctx.audio.mixer.stop_bus(Bus::Key);
-        crate::loudness::end_play(&ctx.audio.mixer);
+        crate::audio::loudness::end_play(&ctx.audio.mixer);
         self.bga.free(gfx);
         ctx.save_config();
     }

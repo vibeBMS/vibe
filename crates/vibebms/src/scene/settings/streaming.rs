@@ -75,7 +75,7 @@ pub(super) fn rows(b: &mut Rows) {
             shown(&o.host),
             Act::Text(TextField::ObsHost),
         )
-        .desc(if creds::loopback(&o.host) {
+        .desc(if crate::platform::http::loopback(&o.host) {
             tr!("The computer OBS runs on (127.0.0.1: this one).")
         } else {
             tr!(

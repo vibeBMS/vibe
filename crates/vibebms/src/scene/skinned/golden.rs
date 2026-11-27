@@ -366,11 +366,13 @@ fn select_values_stay_the_same() {
     };
     let key = |id: &str| crate::library::RecordKey::new(id, 0, rule);
     (ctx.lib.scores).insert(key(&dan.id()), record(ClearType::Normal, 3000, 60));
-    let mine = crate::courses::Course {
+    let mine = crate::library::courses::Course {
         id: 7,
         title: "MY COURSE".into(),
         kind: CourseKind::Expert,
-        stages: [&normal, &gold].map(crate::courses::Stage::of).into(),
+        stages: [&normal, &gold]
+            .map(crate::library::courses::Stage::of)
+            .into(),
         ..Default::default()
     };
     (ctx.lib.scores).insert(key(&mine.def().id()), record(ClearType::Hard, 2000, 10));

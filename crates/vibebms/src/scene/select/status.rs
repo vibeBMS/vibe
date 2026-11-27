@@ -5,10 +5,10 @@
 
 use super::tree::{Bar, Distribution};
 use super::SelectScene;
+use crate::audio::sysound::Sound;
 use crate::config::{HiSpeedMode, KeyFilter, PlayConfig, Versus};
 use crate::ctx::Ctx;
 use crate::library::Song;
-use crate::sysound::Sound;
 use std::cell::Ref;
 use std::path::PathBuf;
 use vibebms_core::convert::KeyConvert;
@@ -302,7 +302,7 @@ impl SelectScene {
         };
         if !self.files.borrow().key.as_ref().is_some_and(of) {
             let ln = song.score_ln(p.ln_pref()) as i32;
-            let replay = crate::replay::exists(
+            let replay = crate::library::replay::exists(
                 &ctx.paths.player,
                 &song.sha256,
                 ln,

@@ -89,7 +89,7 @@ fn download_name(url: &str, suggested: &Path) -> String {
                 .map(String::from)
         })
         .unwrap_or_default();
-    let name = crate::archive::safe_name(&name);
+    let name = crate::net::events::safe_name(&name);
     if name.len() <= NAME_MAX {
         return name;
     }

@@ -15,7 +15,7 @@ pub type Outcome = Result<(Imported, Vec<PathBuf>), String>;
 /// hashes, whatever its folder is called).
 pub fn import(file: &Path, root: &Path, songs: &[crate::library::Song]) -> Outcome {
     let req = bmseeker::install::Request::default();
-    let lib = &mut crate::placement::library(root, songs);
+    let lib = &mut crate::net::placement::library(root, songs);
     bmseeker::import::import(&Vfs, file, lib, &req)
 }
 

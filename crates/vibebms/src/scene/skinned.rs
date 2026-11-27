@@ -186,10 +186,10 @@ pub fn skin_choices(ctx: &Ctx, kind: SkinType) -> Vec<String> {
     };
     let mut out = vec![String::new()];
     if kind == SkinType::SoundSet {
-        let sets = crate::sysound::find_sets(&ctx.paths.root);
+        let sets = crate::audio::sysound::find_sets(&ctx.paths.root);
         // (one of them drawn each time the song select comes)
         if sets.len() > 1 {
-            out.push(crate::sysound::RANDOM_SET.into());
+            out.push(crate::audio::sysound::RANDOM_SET.into());
         }
         out.extend(sets.into_iter().map(|s| rel(s.path)));
         return out;
@@ -236,7 +236,7 @@ pub fn choice_name(ctx: &Ctx, kind: SkinType, value: &str) -> (String, String) {
         return ("DEFAULT".into(), "vibeBMS".into());
     };
     if kind == SkinType::SoundSet {
-        if let Some(s) = crate::sysound::set_info(&p) {
+        if let Some(s) = crate::audio::sysound::set_info(&p) {
             return (s.name, s.author);
         }
     }

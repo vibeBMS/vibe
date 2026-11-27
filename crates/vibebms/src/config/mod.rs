@@ -216,7 +216,7 @@ impl Default for TableConfig {
     }
 }
 
-/// The event mirror's list of events (`archive`).
+/// The event mirror's list of events (`net::events`).
 pub const CATALOG: &str = "https://raw.githubusercontent.com/vibeBMS/BMS/main/events.json";
 
 /// Mirrors read unless the configuration names others: a list of events
@@ -256,7 +256,7 @@ pub struct Config {
     pub display: DisplayConfig,
     pub audio: AudioSettings,
     pub tables: Vec<TableConfig>,
-    /// Indexes of mirrored event entries (shown as folders; see `archive`).
+    /// Indexes of mirrored event entries (shown as folders; see `net::events`).
     pub archives: Vec<String>,
     /// Downloads may use third parties' copies: other people's mirrors of
     /// dead sites and uploaders, the community archive (bmseeker's
@@ -288,8 +288,8 @@ pub struct Config {
     #[serde(skip_serializing_if = "PracticeConfig::is_default")]
     pub practice: PracticeConfig,
     /// RANDOM MIX's settings (written once changed).
-    #[serde(skip_serializing_if = "crate::courses::RandomMix::is_default")]
-    pub random_mix: crate::courses::RandomMix,
+    #[serde(skip_serializing_if = "crate::library::courses::RandomMix::is_default")]
+    pub random_mix: crate::library::courses::RandomMix,
     /// Discord Rich Presence (desktop; written once changed).
     #[serde(skip_serializing_if = "DiscordConfig::is_default")]
     pub discord: DiscordConfig,
@@ -797,8 +797,8 @@ mod tests {
         assert!(d.as_object().unwrap().keys().all(|k| set.get(k).is_some()));
         let back: Config = toml::from_str(&c.to_toml().unwrap()).unwrap();
         assert_eq!(back, c);
-        let r = crate::replay::Replay {
-            version: crate::replay::VERSION,
+        let r = crate::library::replay::Replay {
+            version: crate::library::replay::VERSION,
             sha256: String::new(),
             md5: String::new(),
             title: String::new(),
@@ -812,7 +812,7 @@ mod tests {
             ops: Vec::new(),
             course: None,
         };
-        let back = crate::replay::Replay::decode(&r.encode().unwrap()).unwrap();
+        let back = crate::library::replay::Replay::decode(&r.encode().unwrap()).unwrap();
         assert_eq!(back.play, c.play);
     }
 

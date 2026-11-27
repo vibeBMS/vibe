@@ -11,6 +11,19 @@ use std::sync::Arc;
 
 pub use bmseeker::install::{Done, Failure};
 
+/// A chart a table lists, as its entry has it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Wanted {
+    pub title: String,
+    pub artist: String,
+    pub md5: String,
+    pub org_md5: Vec<String>,
+    /// The table's level label ("★12").
+    pub level: String,
+    pub url: String,
+    pub url_diff: String,
+}
+
 /// A song as a table names it: its title and artist (two songs of one
 /// title are two downloads).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -109,8 +122,8 @@ impl Outcome {
 /// What to download for a table's chart `w`: its links, then the others
 /// known for the chart (`known`), then `more`.
 pub fn entry(
-    known: &crate::links::LinkLists,
-    w: &crate::bulk::Wanted,
+    known: &crate::net::links::LinkLists,
+    w: &Wanted,
     more: Vec<String>,
 ) -> bmseeker::install::Entry {
     let e = bmseeker::table::TableEntry {
@@ -174,7 +187,7 @@ fn take(
     check: bool,
     file: Option<String>,
 ) -> Vec<Done> {
-    let lib = &mut crate::placement::library(root, songs);
+    let lib = &mut crate::net::placement::library(root, songs);
     take_in(root, lib, bytes, q, check, file)
 }
 
@@ -233,7 +246,7 @@ impl SongFetch {
         &mut self,
         root: &Path,
         songs: &Arc<Vec<Song>>,
-        cx: &crate::hosts::Context,
+        cx: &crate::net::hosts::Context,
         mut e: bmseeker::install::Entry,
         addons: Vec<String>,
         quiet: bool,
@@ -284,7 +297,7 @@ impl SongFetch {
         match &self.lib {
             Some((s, r, lib)) if s.ptr_eq(&built) && r == root => lib.clone(),
             _ => {
-                let lib = crate::placement::library(root, songs);
+                let lib = crate::net::placement::library(root, songs);
                 self.lib = Some((built, root.to_path_buf(), lib.clone()));
                 lib
             }
@@ -621,7 +634,7 @@ mod tests {
                 })
                 .collect(),
         );
-        let cx = crate::hosts::context(&Default::default());
+        let cx = crate::net::hosts::context(&Default::default());
         let mut f = SongFetch::default();
         let started = std::time::Instant::now();
         for i in 0..50 {

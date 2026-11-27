@@ -75,7 +75,7 @@ pub struct SelectScene {
     /// Up / down held: the cursor moves on.
     held_nav: Option<Repeat<Nav>>,
     /// The library's charts by hash, copies of one chart as one.
-    charts: crate::charts::Charts,
+    charts: crate::library::charts::Charts,
     /// The library's charts by the folder of their file (a song's charts).
     song_dirs: HashMap<String, Vec<usize>>,
     /// The selected chart's replay and text files.
@@ -194,7 +194,7 @@ impl SelectScene {
     /// The library's charts by hash and folder, and the course bars'
     /// facts, again.
     fn index(&mut self, ctx: &Ctx) {
-        self.charts = crate::charts::Charts::new(&ctx.lib.songs);
+        self.charts = crate::library::charts::Charts::new(&ctx.lib.songs);
         self.song_dirs.clear();
         self.courses.get_mut().clear();
         for (i, s) in ctx.lib.songs.iter().enumerate() {
@@ -213,7 +213,7 @@ impl SelectScene {
         }
         self.stack
             .push((std::mem::replace(&mut self.node, node), self.cursor));
-        ctx.play_sound(crate::sysound::Sound::FolderOpen);
+        ctx.play_sound(crate::audio::sysound::Sound::FolderOpen);
         self.bars = bars;
         // the folder's own bar (LR2: deciding on it closes the folder)
         self.cursor = 0;
@@ -225,7 +225,7 @@ impl SelectScene {
         let Some((n, c)) = self.stack.pop() else {
             return false;
         };
-        ctx.play_sound(crate::sysound::Sound::FolderClose);
+        ctx.play_sound(crate::audio::sysound::Sound::FolderClose);
         self.node = n;
         self.bars = self.listing(ctx, &self.node);
         self.cursor = c.min(self.bars.len().saturating_sub(1));
@@ -259,7 +259,7 @@ impl SelectScene {
         let n = self.bars.len() as i32;
         self.cursor = (self.cursor as i32 + d).rem_euclid(n) as usize;
         if d != 0 {
-            ctx.play_sound(crate::sysound::Sound::Scratch);
+            ctx.play_sound(crate::audio::sysound::Sound::Scratch);
         }
         self.moved(ctx);
     }
@@ -386,7 +386,10 @@ impl Scene for SelectScene {
         let Some((_, s)) = self.selected_song(ctx) else {
             return Vec::new();
         };
-        let mut v = vec![s.title.clone(), crate::screenshot::difficulty(s.difficulty)];
+        let mut v = vec![
+            s.title.clone(),
+            crate::app::screenshot::difficulty(s.difficulty),
+        ];
         if let Some(b) = ctx.best(s, ctx.config.play.ln_pref()) {
             v.extend([b.clear.label().to_string(), b.ex_score.to_string()]);
         }

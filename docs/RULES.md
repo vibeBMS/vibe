@@ -228,8 +228,8 @@ vibe-LR2 profile does not take them (gap A10). LR2's course gauges are below ("L
 LR2's three course kinds [S-OLR2b; S-OLR2 3.6]. vibeBMS's difficulty-table courses are class courses; the player's own
 are made in the settings' COURSES page (a chart added with C in the song select), drawn by RANDOM MIX (expert and
 NONSTOP, LR2's settings) or imported from an LR2 `song.db` (its `expert`, `nonstop` and `grade` tables, read by
-`lr2db`, a small SQLite reader of vibeBMS's own that builds for the web too; LR2's `.lr2folder` course folders only
-name those tables, and carry no course). At most 5 stages.
+`library::lr2db` with `library::sqlite`, a small SQLite reader of vibeBMS's own that builds for the web too; LR2's
+`.lr2folder` course folders only name those tables, and carry no course). At most 5 stages.
 
 Identity [S-OLR2b 2.3]: LR2's packed course string, a 32-character header (a join digit per join, the kind digit at
 11, zeros) and the stages' MD5s. Its characters 29 to 32 are in LR2 the start of the MD5 of the player's password;
@@ -526,7 +526,7 @@ BATTLE, so RANDOM shuffles the target's lanes.
 * Courses play their charts as written (`RuleOptions::for_course`).
 
 ## Replay formats
-A replay keeps its format (`replay::VERSION`), bumped whenever the judge changes so that a replay of the format before
+A replay keeps its format (`library::replay::VERSION`), bumped whenever the judge changes so that a replay of the format before
 may judge otherwise. An older replay still paces a play with its ghost; watched or played again (G-BATTLE) it runs on
 the judge of now.
 

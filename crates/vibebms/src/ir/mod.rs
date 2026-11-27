@@ -130,10 +130,10 @@ fn kept(s: &str, max: usize) -> String {
 }
 
 /// The adapter of an account, where this build has one and the account's
-/// address is one requests go to (`creds::origin`: `https`, or `http` on
+/// address is one requests go to (`platform::http::origin`: `https`, or `http` on
 /// this computer).
 fn provider(a: &IrAccount) -> Option<Box<dyn Provider>> {
-    let addressed = || creds::origin(&a.url).is_some();
+    let addressed = || crate::platform::http::origin(&a.url).is_some();
     match a.provider {
         ProviderId::VibeJson(n) if addressed() => Some(Box::new(
             VibeJson::new(n, &a.url)?.with_chart_page(&a.chart_page),
@@ -151,7 +151,7 @@ fn provider(a: &IrAccount) -> Option<Box<dyn Provider>> {
 fn key_origin(a: &IrAccount) -> Option<String> {
     let probe = Creds::token(Secret::new(""));
     let req = provider(a)?.request(&Op::Verify, Some(&probe)).ok()?;
-    creds::origin(&req.url)
+    crate::platform::http::origin(&req.url)
 }
 
 /// The lamp sets the enabled accounts follow, each with its view: the

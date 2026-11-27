@@ -422,7 +422,7 @@ impl Ask {
 
     fn text(self) -> &'static str {
         match self {
-            Ask::ThirdParty => crate::hosts::third_party_notice(),
+            Ask::ThirdParty => crate::net::hosts::third_party_notice(),
         }
     }
 
@@ -432,7 +432,7 @@ impl Ask {
             Ask::ThirdParty => {
                 ctx.config.third_party_acknowledged = true;
                 ctx.config.third_party_mirrors = true;
-                ctx.net.hosts = crate::hosts::context(&ctx.config);
+                ctx.net.hosts = crate::net::hosts::context(&ctx.config);
             }
         }
     }

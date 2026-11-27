@@ -4,8 +4,8 @@
 //! a missed note; any audio format); a judgement the set has none for (an
 //! LR2 sound set, the built-in set) gets a built-in tone.
 
+use crate::audio::sysound::tone;
 use crate::platform::{vfs, Job};
-use crate::sysound::tone;
 use std::path::PathBuf;
 use std::sync::Arc;
 use vibebms_audio::{Bus, Mixer, PlayOptions, Sample};

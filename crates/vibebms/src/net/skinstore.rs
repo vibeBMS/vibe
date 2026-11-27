@@ -18,7 +18,7 @@
 //! archive of a whole `LR2files` keeps its themes' names). A beatoraja
 //! skin's paths are its own: it goes to `skins/<folder>/` too.
 
-use crate::archive::{safe_name, Fail};
+use crate::net::events::{safe_name, Fail};
 use crate::platform::Job;
 use bmseeker::progress::Progress;
 use serde::{Deserialize, Serialize};
@@ -31,7 +31,7 @@ pub const CATALOG_URL: &str =
     "https://raw.githubusercontent.com/vibeBMS/vibe/main/skins/catalog.json";
 
 /// The catalog this build came with.
-const BUILTIN: &str = include_str!("../../../skins/catalog.json");
+const BUILTIN: &str = include_str!("../../../../skins/catalog.json");
 
 /// Read the catalog again after this long (s).
 const REFRESH_S: u64 = 86_400;
@@ -367,7 +367,7 @@ impl SkinStore {
     pub fn install(
         &mut self,
         paths: &crate::paths::Paths,
-        cx: &crate::hosts::Context,
+        cx: &crate::net::hosts::Context,
         idx: usize,
     ) -> Result<String, String> {
         let e = (self.catalog.skins.get(idx).cloned()).ok_or(tr!("no such skin"))?;
@@ -770,8 +770,8 @@ fn sources(e: &SkinEntry) -> Vec<bmseeker::install::job::FileLink> {
 /// What an archive that did not come is.
 fn missed(m: bmseeker::install::job::Missed) -> Fail {
     match m.fetch {
-        crate::hosts::Fetch::Page => Fail::Page(m.url),
-        crate::hosts::Fetch::Failed(e) => e.into(),
+        crate::net::hosts::Fetch::Page => Fail::Page(m.url),
+        crate::net::hosts::Fetch::Failed(e) => e.into(),
     }
 }
 
@@ -783,7 +783,7 @@ fn missed(m: bmseeker::install::job::Missed) -> Fail {
 fn fetch_and_install(
     root: &Path,
     skins: PathBuf,
-    cx: &crate::hosts::Context,
+    cx: &crate::net::hosts::Context,
     e: SkinEntry,
     old: Vec<String>,
     done: impl FnOnce(Result<Vec<String>, Fail>) + Send + 'static,
@@ -1256,7 +1256,7 @@ mod tests {
         let skins = root.join("skins");
         std::fs::create_dir_all(&skins).unwrap();
         let p = Progress::new();
-        let cx = crate::hosts::context(&Default::default());
+        let cx = crate::net::hosts::context(&Default::default());
         let (tx, rx) = std::sync::mpsc::channel();
         let old = vec![e.folder()];
         fetch_and_install(

@@ -5,6 +5,7 @@ use super::play::{PlayRequest, PlayScene};
 use super::skin_host::SkinHost;
 use super::skinned;
 use super::skinvals::*;
+use crate::audio::sysound::Sound;
 use crate::config::Bpms;
 use crate::ctx::Ctx;
 use crate::gfx::{Draw, Gfx, ImageTex, Rect, TexId};
@@ -14,7 +15,6 @@ use crate::platform::Instant;
 use crate::scene::{Next, Scene};
 use crate::skin::render::Hooks;
 use crate::skin::{SkinState, SkinType};
-use crate::sysound::Sound;
 use std::cell::OnceCell;
 
 /// How long the screen shows when the skin does not say (beatoraja's

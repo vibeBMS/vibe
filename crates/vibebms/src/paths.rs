@@ -152,7 +152,7 @@ impl Paths {
 
     /// The profile's replays (`replay`).
     pub fn replays(&self) -> PathBuf {
-        crate::replay::dir(&self.player)
+        crate::library::replay::dir(&self.player)
     }
 
     pub fn songs_cache(&self) -> PathBuf {

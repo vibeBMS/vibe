@@ -58,7 +58,7 @@ pub struct Ctx {
 pub struct Lib {
     pub db: Option<Library>,
     /// The player's courses.
-    pub courses: crate::courses::CourseStore,
+    pub courses: crate::library::courses::CourseStore,
     /// Sorted by title, then level.
     pub songs: Arc<Vec<Song>>,
     /// How many charts `songs` are, a chart in several folders once.
@@ -88,13 +88,13 @@ pub const IN_APP_BROWSER: bool = cfg!(in_app_browser);
 pub struct Net {
     /// How links resolve and songs install (bmseeker's settings with the
     /// player's), made again when those settings change.
-    pub hosts: crate::hosts::Context,
-    /// Mirrored event entries (`archive`).
-    pub archives: crate::archive::Archives,
+    pub hosts: crate::net::hosts::Context,
+    /// Mirrored event entries (`net::events`).
+    pub archives: crate::net::events::Archives,
     /// Difficulty-table songs downloading.
-    pub song_fetch: crate::songfetch::SongFetch,
+    pub song_fetch: crate::net::songfetch::SongFetch,
     /// A table's or a level's missing charts, downloaded in turn.
-    pub bulk: crate::bulk::Bulk,
+    pub bulk: crate::net::bulk::Bulk,
     /// The desktop executable's self-update.
     pub updater: crate::update::Updater,
     /// Download pages to show in the in-app browser (song, then chart).
@@ -124,11 +124,11 @@ impl Net {
 /// The mixer, and the sound set's sounds played on it.
 pub struct Audio {
     pub mixer: Mixer,
-    pub sounds: crate::sysound::SystemSounds,
+    pub sounds: crate::audio::sysound::SystemSounds,
     /// Silenced while the app is not the one in use (`app::activity`).
     pub mute: Mute,
     /// The charts' loudness measured so far.
-    pub loudness: crate::loudness::LoudnessCache,
+    pub loudness: crate::audio::loudness::LoudnessCache,
 }
 
 impl Audio {
@@ -214,7 +214,7 @@ pub struct Input {
 /// read from skin files (by path; read again once skins change).
 #[derive(Default)]
 pub struct Skins {
-    pub store: crate::skinstore::SkinStore,
+    pub store: crate::net::skinstore::SkinStore,
     /// A skin chosen and not loaded yet, and when (`skinned::choose`).
     pub(crate) trial: Option<(crate::skin::SkinType, String, crate::platform::Instant)>,
     options: RefCell<HashMap<PathBuf, Rc<[CustomOption]>>>,
@@ -287,7 +287,7 @@ impl Ctx {
         view: View,
     ) -> Ctx {
         let net = Net {
-            hosts: crate::hosts::context(&config),
+            hosts: crate::net::hosts::context(&config),
             archives: Default::default(),
             song_fetch: Default::default(),
             bulk: Default::default(),
@@ -295,7 +295,7 @@ impl Ctx {
             pages: None,
             ir: crate::ir::IrService::new(&paths, crate::platform::unix_ms()),
         };
-        let loudness = crate::loudness::LoudnessCache::new(&paths.cache);
+        let loudness = crate::audio::loudness::LoudnessCache::new(&paths.cache);
         let streaming = crate::integrations::Integrations::new(&paths);
         let mut ctx = Ctx {
             paths,
@@ -395,9 +395,9 @@ impl Ctx {
         self.lib.db = Some(Library::open(
             &self.paths.cache,
             &self.paths.scores,
-            |sha, ln| crate::replay::rule_of_old(&player, sha, ln, Slot::Best),
+            |sha, ln| crate::library::replay::rule_of_old(&player, sha, ln, Slot::Best),
         ));
-        self.lib.courses = crate::courses::CourseStore::open(&self.paths.scores);
+        self.lib.courses = crate::library::courses::CourseStore::open(&self.paths.scores);
     }
 
     /// `lib.scores` from the database, the charts as they are.
@@ -425,7 +425,7 @@ impl Ctx {
         self.overrides = Default::default();
         self.net.ir = crate::ir::IrService::new(&self.paths, crate::platform::unix_ms());
         self.take_old_tokens();
-        self.net.hosts = crate::hosts::context(&self.config);
+        self.net.hosts = crate::net::hosts::context(&self.config);
         self.open_records();
         self.reload_scores();
         let a = &self.config.audio;
@@ -630,7 +630,7 @@ impl Ctx {
             let mut songs = lib.songs();
             lib.merge_fixed_ln(&songs);
             songs.sort_by_cached_key(|s| (s.title.to_lowercase(), s.level_num()));
-            self.lib.charts = crate::charts::Charts::new(&songs).count();
+            self.lib.charts = crate::library::charts::Charts::new(&songs).count();
             self.lib.songs = Arc::new(songs);
             self.lib.scores = lib.scores();
         }
@@ -649,7 +649,7 @@ impl Ctx {
         let archives = self.net.archives.poll(&self.paths);
         let mut events: Vec<AppEvent> = archives.into_iter().map(AppEvent::from).collect();
         events.extend(self.net.song_fetch.poll().into_iter().map(AppEvent::from));
-        if crate::bulk::tick(
+        if crate::net::bulk::tick(
             &mut self.net.bulk,
             &mut self.net.song_fetch,
             &self.paths.root,
@@ -760,7 +760,7 @@ impl Ctx {
             crate::platform::opfs::hold_library(false);
             // charts picked without their song's folder go into it
             #[cfg(target_arch = "wasm32")]
-            for m in crate::web::place_picked_charts(&self.paths.root, &self.lib.songs) {
+            for m in crate::app::web::place_picked_charts(&self.paths.root, &self.lib.songs) {
                 self.toast(m);
             }
             self.start_scan();
@@ -770,13 +770,13 @@ impl Ctx {
 
     /// Play a system sound of the chosen sound set (loaded when the choice
     /// has changed: a string compare otherwise).
-    pub fn play_sound(&mut self, s: crate::sysound::Sound) {
+    pub fn play_sound(&mut self, s: crate::audio::sysound::Sound) {
         self.sync_sounds();
-        let norm = crate::loudness::system_target(&self.config.audio);
+        let norm = crate::audio::loudness::system_target(&self.config.audio);
         self.audio.sounds.play(&self.audio.mixer, s, norm);
     }
 
-    pub fn stop_sound(&mut self, s: crate::sysound::Sound) {
+    pub fn stop_sound(&mut self, s: crate::audio::sysound::Sound) {
         self.audio.sounds.stop(&self.audio.mixer, s);
     }
 
@@ -797,16 +797,16 @@ impl Ctx {
         self.sync_sounds();
         let rate = self.audio.mixer.sample_rate;
         self.audio.sounds.redraw(&self.paths.root, rate);
-        let norm = crate::loudness::system_target(&self.config.audio);
-        let s = crate::sysound::Sound::Select;
+        let norm = crate::audio::loudness::system_target(&self.config.audio);
+        let s = crate::audio::sysound::Sound::Select;
         self.audio.sounds.play_enter(&self.audio.mixer, s, norm);
     }
 
     /// A result comes: its music by outcome (`sounds`, in the order they
     /// are looked for).
-    pub fn play_result(&mut self, sounds: &[crate::sysound::Sound]) {
+    pub fn play_result(&mut self, sounds: &[crate::audio::sysound::Sound]) {
         self.sync_sounds();
-        let norm = crate::loudness::system_target(&self.config.audio);
+        let norm = crate::audio::loudness::system_target(&self.config.audio);
         self.audio
             .sounds
             .play_result(&self.audio.mixer, sounds, norm);
@@ -935,7 +935,7 @@ mod tests {
             md5: md5.clone(),
             ..Default::default()
         }]);
-        let held = crate::bulk::Wanted {
+        let held = crate::net::songfetch::Wanted {
             title: "held".into(),
             md5,
             ..Default::default()

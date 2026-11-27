@@ -5,10 +5,10 @@
 use super::SelectScene;
 use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
+use crate::gfx::theme;
 use crate::gfx::{Draw, Rect};
 use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
 use crate::platform::vfs::{self, Prefetch};
-use crate::theme;
 use crate::ui::{HitMap, DRAG_SLOP};
 use std::path::PathBuf;
 use winit::keyboard::KeyCode;

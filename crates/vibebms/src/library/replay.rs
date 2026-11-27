@@ -341,7 +341,7 @@ mod tests {
     /// them, and is written again with the same JSON.
     #[test]
     fn a_replay_of_before_reads_whole() {
-        let bytes = include_bytes!("../../vibebms-core/tests/data/replay/v2.json.gz");
+        let bytes = include_bytes!("../../../vibebms-core/tests/data/replay/v2.json.gz");
         let r = Replay::decode(bytes).unwrap();
         assert_eq!((r.play.hispeed, r.play.sudden), (3.25, 0.2));
         assert_eq!(r.clear, ClearType::Hard);

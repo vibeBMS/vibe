@@ -858,7 +858,7 @@ impl TouchInput {
     }
 
     pub fn draw(&self, batch: &mut Batch, zones: &[Zone], opacity: f32) {
-        use crate::theme::{NOTE_BLUE, NOTE_SCRATCH, NOTE_WHITE};
+        use crate::gfx::theme::{NOTE_BLUE, NOTE_SCRATCH, NOTE_WHITE};
         for z in zones {
             let pressed = self.is_pressed(z.lane);
             let base = if let Some(c) = z.color {

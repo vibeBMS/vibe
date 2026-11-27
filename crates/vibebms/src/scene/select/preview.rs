@@ -4,6 +4,7 @@
 
 use super::genpreview::Preview;
 use super::SelectScene;
+use crate::audio::sysound::Sound;
 use crate::ctx::Ctx;
 use crate::gfx::Gfx;
 use crate::gfx::ImageJobs;
@@ -11,7 +12,6 @@ use crate::ir::NotAsked;
 use crate::library::Song;
 use crate::platform::vfs::{self, Prefetch};
 use crate::platform::{unix_ms, Duration, Instant, Job};
-use crate::sysound::Sound;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use vibebms_audio::{Bus, PlayOptions};
@@ -124,8 +124,8 @@ impl SelectScene {
             Some(_) => None,
         };
         if let Some((s, l)) = s {
-            let gain = crate::loudness::chart_target(&ctx.config.audio)
-                .map_or(1.0, |t| crate::loudness::gain(&l, t));
+            let gain = crate::audio::loudness::chart_target(&ctx.config.audio)
+                .map_or(1.0, |t| crate::audio::loudness::gain(&l, t));
             let opts = PlayOptions {
                 key: PREVIEW_KEY,
                 bus: Bus::Bgm,
@@ -161,7 +161,7 @@ impl SelectScene {
                 let s = vfs::read(&p)
                     .ok()
                     .and_then(|bytes| vibebms_audio::decode_bytes(bytes, &ext, rate).ok())?;
-                let l = crate::loudness::measure_sound(&s, rate);
+                let l = crate::audio::loudness::measure_sound(&s, rate);
                 Some((Arc::new(s), l))
             }));
             return;

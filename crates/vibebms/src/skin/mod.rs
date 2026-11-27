@@ -208,12 +208,12 @@ fn within_limits(
 
 /// Pixel size of an image file (through the VFS).
 pub fn image_size(p: &std::path::Path) -> Option<(u32, u32)> {
-    let video = crate::video::is_video(p);
+    let video = crate::gfx::video::is_video(p);
     if !crate::platform::vfs::readable(p, if video { u64::MAX } else { MEDIA_MAX }) {
         return None;
     }
     if video {
-        return crate::video::size(p);
+        return crate::gfx::video::size(p);
     }
     // the start of the file says, but for the odd JPEG with a large
     // preview ahead of its frame header

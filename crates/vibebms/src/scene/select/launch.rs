@@ -5,7 +5,7 @@ use super::tree::{event, table, Bar, BulkBar, CourseBar, Missing, Node};
 use super::SelectScene;
 use crate::config::Versus;
 use crate::ctx::Ctx;
-use crate::replay;
+use crate::library::replay;
 use crate::scene::play::{self, CourseRun, PlayRequest, PlayScene};
 use crate::scene::practice::PracticeScene;
 use crate::scene::Next;
@@ -100,7 +100,7 @@ impl SelectScene {
                         }
                         ctx.toast(tr!(
                             "{name}: a new course",
-                            name = crate::courses::RANDOM_MIX
+                            name = crate::library::courses::RANDOM_MIX
                         ));
                     }
                     Err(e) => ctx.toast(e),
@@ -143,7 +143,7 @@ impl SelectScene {
         let Some((_, song)) = self.selected_song(ctx) else {
             return;
         };
-        let stage = crate::courses::Stage::of(song);
+        let stage = crate::library::courses::Stage::of(song);
         let st = &mut ctx.lib.courses;
         let Some(c) = st.editing.and_then(|id| st.get_mut(id)) else {
             ctx.toast(tr!("No course open in the editor (settings, COURSES)"));
@@ -298,7 +298,7 @@ impl SelectScene {
                 tr!(
                     "{n} charts queued: {at} at a time, in DOWNLOADS at the root",
                     n = n,
-                    at = crate::bulk::AT_ONCE
+                    at = crate::net::bulk::AT_ONCE
                 )
             }
             BulkBar::RetryFailed => {
@@ -318,7 +318,7 @@ impl SelectScene {
                 let Some(it) = net.bulk.items.get(k).cloned() else {
                     return;
                 };
-                if let crate::bulk::State::Page(_) = it.state {
+                if let crate::net::bulk::State::Page(_) = it.state {
                     let w = it.want;
                     self.fetch(
                         ctx,
@@ -339,7 +339,7 @@ impl SelectScene {
                     return;
                 }
                 match &net.bulk.items[k].state {
-                    crate::bulk::State::Queued => {
+                    crate::net::bulk::State::Queued => {
                         tr!("{title}: queued again", title = it.want.title)
                     }
                     _ => tr!("{title}: cancelled", title = it.want.title),
@@ -388,7 +388,7 @@ impl SelectScene {
         let root = ctx.paths.root.clone();
         // its own links, then the others known for the chart; its separate
         // chart's links; add-ons each after
-        let want = crate::bulk::Wanted {
+        let want = crate::net::songfetch::Wanted {
             title: title.clone(),
             artist: artist.clone(),
             md5: md5.clone(),
@@ -397,13 +397,13 @@ impl SelectScene {
             url_diff: url_diff.clone(),
             ..Default::default()
         };
-        let entry = crate::songfetch::entry(&ctx.tables.links, &want, more);
+        let entry = crate::net::songfetch::entry(&ctx.tables.links, &want, more);
         // the song is in the library (another of its charts): what to say
         // when nothing can be tried
         let have_song = !md5.is_empty()
             && ctx.lib.songs.iter().any(|s| {
-                crate::placement::same_name(&s.title, &title)
-                    && crate::placement::same_artist(&s.artist, &artist)
+                crate::net::placement::same_name(&s.title, &title)
+                    && crate::net::placement::same_artist(&s.artist, &artist)
             });
         if ctx
             .net
@@ -630,7 +630,7 @@ impl SelectScene {
                     tc.map(|c| c.name.clone()).unwrap_or_default(),
                 )
             }
-            CourseBar::RandomMix(kind) => (*kind, None, crate::courses::RANDOM_MIX.into()),
+            CourseBar::RandomMix(kind) => (*kind, None, crate::library::courses::RANDOM_MIX.into()),
         };
         let course = course_of(ctx, c).ok();
         let songs = (course.as_ref())

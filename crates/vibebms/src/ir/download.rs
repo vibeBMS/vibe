@@ -172,7 +172,7 @@ pub struct Filed {
 /// each under the LN mode the chart's plays of its LN mode are filed
 /// under; rows that fall on one record are taken together.
 pub fn records(rows: &[ScoreRow], songs: &[Song]) -> Filed {
-    let charts = crate::charts::Charts::new(songs);
+    let charts = crate::library::charts::Charts::new(songs);
     let mut f = Filed::default();
     let mut at: HashMap<RecordKey, usize> = HashMap::new();
     for r in rows {

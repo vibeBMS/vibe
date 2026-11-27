@@ -9,16 +9,17 @@
 "Screenshots: this GPU's screen cannot be read" = "Screenshots: this GPU's screen cannot be read"
 "Graphics: {wanted} could not start, {used} is used instead (SETTINGS › DISPLAY & AUDIO › ADVANCED)" = "Graphics: {wanted} could not start, {used} is used instead (SETTINGS › DISPLAY & AUDIO › ADVANCED)"
 
-# archive.rs
-"Added {name} ({n} files)" = "Added {name} ({n} files)"
-"No direct download: opening its page" = "No direct download: opening its page"
-"Download failed: {url}" = "Download failed: {url}"
+# app/web.rs
+"{name}: add its song first, then this chart again" = "{name}: add its song first, then this chart again"
+"Which song is this chart for?" = "Which song is this chart for?"
+"Keep it separate" = "Keep it separate"
 
 # browser/android.rs
 "Save this download?" = "Save this download?"
 "Don't save" = "Don't save"
 "Could not open a browser" = "Could not open a browser"
 "Downloading {name}…" = "Downloading {name}…"
+"Download failed: {url}" = "Download failed: {url}"
 "One download at a time: {name} was not started" = "One download at a time: {name} was not started"
 "{name} is larger than {gb} GB: not kept" = "{name} is larger than {gb} GB: not kept"
 "Now the chart: download it from this page" = "Now the chart: download it from this page"
@@ -46,22 +47,6 @@
 # ctx/tables.rs
 "Table {name}: {e}" = "Table {name}: {e}"
 "Table updated: {name} ({n} charts)" = "Table updated: {name} ({n} charts)"
-
-# hosts.rs
-"""
-These are other people's copies and mirrors of songs, not the links their authors give.
-Whether a site allows this, and whether it is up, differs from site to site.
-Using them is your own responsibility: follow each site's terms and respect the rights of the songs' copyright holders.""" = """
-These are other people's copies and mirrors of songs, not the links their authors give.
-Whether a site allows this, and whether it is up, differs from site to site.
-Using them is your own responsibility: follow each site's terms and respect the rights of the songs' copyright holders."""
-
-# import.rs
-"Could not unpack the download: {e}" = "Could not unpack the download: {e}"
-"{name}: already installed" = "{name}: already installed"
-"{name}: download its song too" = "{name}: download its song too"
-"{name} is not a song (kept in downloads)" = "{name} is not a song (kept in downloads)"
-"{name} → its song" = "{name} → its song"
 
 # input/gamepad.rs
 "Controller connected: {name} ({side})" = "Controller connected: {name} ({side})"
@@ -141,6 +126,47 @@ Using them is your own responsibility: follow each site's terms and respect the 
 "play time does not fit the chart" = "play time does not fit the chart"
 "no {gauge} gauge there" = "no {gauge} gauge there"
 
+# library/replay.rs
+"G-BATTLE needs a 5 or 7 key chart" = "G-BATTLE needs a 5 or 7 key chart"
+"the replay is a BATTLE play" = "the replay is a BATTLE play"
+"the replay has no inputs" = "the replay has no inputs"
+"the replay is a LEGACY NOTE play" = "the replay is a LEGACY NOTE play"
+"the replay was played in another LN mode" = "the replay was played in another LN mode"
+
+# net/events.rs
+"Added {name} ({n} files)" = "Added {name} ({n} files)"
+"No direct download: opening its page" = "No direct download: opening its page"
+
+# net/hosts.rs
+"""
+These are other people's copies and mirrors of songs, not the links their authors give.
+Whether a site allows this, and whether it is up, differs from site to site.
+Using them is your own responsibility: follow each site's terms and respect the rights of the songs' copyright holders.""" = """
+These are other people's copies and mirrors of songs, not the links their authors give.
+Whether a site allows this, and whether it is up, differs from site to site.
+Using them is your own responsibility: follow each site's terms and respect the rights of the songs' copyright holders."""
+
+# net/import.rs
+"Could not unpack the download: {e}" = "Could not unpack the download: {e}"
+"{name}: already installed" = "{name}: already installed"
+"{name}: download its song too" = "{name}: download its song too"
+"{name} is not a song (kept in downloads)" = "{name} is not a song (kept in downloads)"
+"{name} → its song" = "{name} → its song"
+
+# net/skinstore.rs
+"a third-party source: turn on third-party sources in SETTINGS › LIBRARY" = "a third-party source: turn on third-party sources in SETTINGS › LIBRARY"
+"too large for the browser: use the desktop or mobile app" = "too large for the browser: use the desktop or mobile app"
+"no such skin" = "no such skin"
+"{name} is downloading already" = "{name} is downloading already"
+"Installed {name} in skins/{folders}: choose it in SKINS" = "Installed {name} in skins/{folders}: choose it in SKINS"
+"{title}: no direct download, opening its page" = "{title}: no direct download, opening its page"
+"{title}: cancelled" = "{title}: cancelled"
+"{title}: download failed ({e})" = "{title}: download failed ({e})"
+
+# net/songfetch.rs
+"{title}: already installed ({folder})" = "{title}: already installed ({folder})"
+"{title}: the song is in the library, but none of this chart's links works" = "{title}: the song is in the library, but none of this chart's links works"
+
 # platform/opfs.rs
 "Songs saved in this browser" = "Songs saved in this browser"
 "No room to keep the song: free some in Settings › LIBRARY" = "No room to keep the song: free some in Settings › LIBRARY"
@@ -156,13 +182,6 @@ Using them is your own responsibility: follow each site's terms and respect the 
 "There is a profile named {name} already" = "There is a profile named {name} already"
 "The default profile is not deleted (its data is the root's)" = "The default profile is not deleted (its data is the root's)"
 "The profile in use is not deleted: switch to another first" = "The profile in use is not deleted: switch to another first"
-
-# replay.rs
-"G-BATTLE needs a 5 or 7 key chart" = "G-BATTLE needs a 5 or 7 key chart"
-"the replay is a BATTLE play" = "the replay is a BATTLE play"
-"the replay has no inputs" = "the replay has no inputs"
-"the replay is a LEGACY NOTE play" = "the replay is a LEGACY NOTE play"
-"the replay was played in another LN mode" = "the replay was played in another LN mode"
 
 # scene/keyconfig.rs
 "Keyboard" = "Keyboard"
@@ -270,7 +289,6 @@ Using them is your own responsibility: follow each site's terms and respect the 
 "{n} downloads cancelled" = "{n} downloads cancelled"
 "Finished downloads cleared" = "Finished downloads cleared"
 "{title}: queued again" = "{title}: queued again"
-"{title}: cancelled" = "{title}: cancelled"
 "no such event" = "no such event"
 "{title}: being added to the library" = "{title}: being added to the library"
 "Downloading {title}… (choose it again to cancel)" = "Downloading {title}… (choose it again to cancel)"
@@ -1036,19 +1054,6 @@ Using them is your own responsibility: follow each site's terms and respect the 
 "Drag a button to move it · drag its corners or pinch it to resize" = "Drag a button to move it · drag its corners or pinch it to resize"
 "Drag the line above the controls to change their height" = "Drag the line above the controls to change their height"
 
-# skinstore.rs
-"a third-party source: turn on third-party sources in SETTINGS › LIBRARY" = "a third-party source: turn on third-party sources in SETTINGS › LIBRARY"
-"too large for the browser: use the desktop or mobile app" = "too large for the browser: use the desktop or mobile app"
-"no such skin" = "no such skin"
-"{name} is downloading already" = "{name} is downloading already"
-"Installed {name} in skins/{folders}: choose it in SKINS" = "Installed {name} in skins/{folders}: choose it in SKINS"
-"{title}: no direct download, opening its page" = "{title}: no direct download, opening its page"
-"{title}: download failed ({e})" = "{title}: download failed ({e})"
-
-# songfetch.rs
-"{title}: already installed ({folder})" = "{title}: already installed ({folder})"
-"{title}: the song is in the library, but none of this chart's links works" = "{title}: the song is in the library, but none of this chart's links works"
-
 # ui/mod.rs
 "{hosts} refused, skipped" = "{hosts} refused, skipped"
 "Waiting…" = "Waiting…"
@@ -1064,8 +1069,3 @@ Using them is your own responsibility: follow each site's terms and respect the 
 "Update available: {version} (SETTINGS › SYSTEM)" = "Update available: {version} (SETTINGS › SYSTEM)"
 "Updated to {ver}: restart to use it" = "Updated to {ver}: restart to use it"
 "The update failed: the executable's location is not known" = "The update failed: the executable's location is not known"
-
-# web.rs
-"{name}: add its song first, then this chart again" = "{name}: add its song first, then this chart again"
-"Which song is this chart for?" = "Which song is this chart for?"
-"Keep it separate" = "Keep it separate"

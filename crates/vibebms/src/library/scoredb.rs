@@ -10,11 +10,11 @@
 //! A row is a best: its lamp, its best EX score's counts, its max combo and
 //! min BP (each from whichever play was best at it) and its play and clear
 //! counts. Rows of charts not in the library, and of courses, are counted,
-//! not kept. Read with `lr2db`'s SQLite reader; the tables' layout is
+//! not kept. Read with `sqlite`, the SQLite reader; the tables' layout is
 //! learnt from the files and public descriptions of them.
 
+use crate::library::sqlite::{get, Db, Row, Value};
 use crate::library::{BestScore, RecordKey, Song};
-use crate::lr2db::{get, Db, Row, Value};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use vibebms_core::judge::JudgePreset;
@@ -181,7 +181,7 @@ fn beatoraja_row(r: &Row) -> Option<ChartRow> {
 /// The rows of a score database: LR2's (its `score` table has `hash`) or
 /// beatoraja's (it has `sha256`), LR2oraja's when `lr2oraja`.
 pub fn read(bytes: &[u8], lr2oraja: bool) -> Result<Rows, String> {
-    crate::lr2db::no_panic(|| {
+    crate::library::sqlite::no_panic(|| {
         let db = Db::open(bytes)?;
         let mut rows = db
             .table_rows("score")
@@ -221,7 +221,7 @@ pub fn read(bytes: &[u8], lr2oraja: bool) -> Result<Rows, String> {
 /// one record are taken together. Also: how many rows were of charts not
 /// in the library.
 pub fn records(rows: &Rows, songs: &[Song]) -> (Vec<(RecordKey, BestScore)>, usize) {
-    let charts = crate::charts::Charts::new(songs);
+    let charts = crate::library::charts::Charts::new(songs);
     let rule = rows.source.rule();
     let mut out: Vec<(RecordKey, BestScore)> = Vec::new();
     let mut at: HashMap<RecordKey, usize> = HashMap::new();
@@ -341,7 +341,7 @@ pub fn is_lr2oraja(db: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lr2db::write::{db, V};
+    use crate::library::sqlite::write::{db, V};
 
     const LR2_SQL: &str = "CREATE TABLE score(hash TEXT primary key, clear INTEGER, \
         perfect INTEGER, great INTEGER, good INTEGER, bad INTEGER, poor INTEGER, \

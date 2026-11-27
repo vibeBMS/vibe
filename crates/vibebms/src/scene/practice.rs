@@ -3,9 +3,11 @@
 //! and LOOP; the play from there (`play::PracticeRun`), and when it comes
 //! back the last attempt's result. Nothing played from here is recorded.
 
+use crate::audio::sysound::Sound;
 use crate::config::{PlayConfig, PracticeConfig};
 use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
+use crate::gfx::theme;
 use crate::gfx::{with_alpha, Draw, Gfx, Rect};
 use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase, Repeat};
 use crate::library::Song;
@@ -15,8 +17,6 @@ use crate::scene::graphs::{self, Area};
 use crate::scene::play::{PlayRequest, PlayScene, PracticeResult, PracticeRun};
 use crate::scene::{cycle, Next, Scene};
 use crate::skin::TimingGraph;
-use crate::sysound::Sound;
-use crate::theme;
 use crate::ui::{self, HitMap};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
