@@ -60,6 +60,20 @@ impl SkinHost {
         }
     }
 
+    /// With a skin of nothing that takes input `ms` after the scene's
+    /// start (tests).
+    #[cfg(test)]
+    pub fn with_input_delay(ms: i64) -> SkinHost {
+        let mut skin =
+            crate::skin::Skin::new("t".as_ref(), crate::skin::SkinType::Select, 640.0, 480.0);
+        skin.input_ms = ms;
+        let skin = LoadedSkin::load(skin, &mut Gfx::without_gpu());
+        SkinHost {
+            skin: Some(skin),
+            ..SkinHost::new()
+        }
+    }
+
     /// True on the first call only: when the scene loads its skin.
     pub fn first_update(&mut self) -> bool {
         !std::mem::replace(&mut self.tried, true)

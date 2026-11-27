@@ -155,12 +155,10 @@ mod tests {
     fn boxed() -> TextInput {
         let mut t = TextInput::new("ab".into());
         t.area = Rect::new(0.0, 0.0, 200.0, 100.0);
-        t.buttons
-            .hits
-            .push(Rect::new(100.0, 60.0, 50.0, 30.0), true);
-        t.buttons
-            .hits
-            .push(Rect::new(40.0, 60.0, 50.0, 30.0), false);
+        t.buttons = OkCancel::placed(
+            Rect::new(100.0, 60.0, 50.0, 30.0),
+            Rect::new(40.0, 60.0, 50.0, 30.0),
+        );
         t
     }
 

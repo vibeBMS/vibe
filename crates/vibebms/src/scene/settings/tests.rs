@@ -520,6 +520,59 @@ fn keys_walk_cards_pages_groups_and_sub_pages() {
     std::fs::remove_dir_all(&root).ok();
 }
 
+/// A controller's button acts when pressed, not when let go; the
+/// turntable walks the rows only when any axis is taken for it; a held
+/// key's repeats act as its press.
+#[test]
+fn buttons_the_turntable_and_held_keys() {
+    let (root, mut ctx) = setup("buttons");
+    ctx.config.keys.p1.keys[0].pad = vec![7];
+    ctx.config.keys.any_axis_is_scratch = false;
+    let mut s = SettingsScene::new(&mut ctx);
+    let pad = |pressed| InputEv::Pad {
+        id: 7,
+        pressed,
+        time: Instant::now(),
+    };
+    let axis = |value| InputEv::Axis {
+        id: 9,
+        value,
+        time: Instant::now(),
+    };
+    assert!(matches!(s.input(&mut ctx, &pad(false)), Next::Stay));
+    assert_eq!((&s.view, s.list.sel), (&View::Top, 0));
+    for v in [0.0, 0.1, 0.2] {
+        assert!(matches!(s.input(&mut ctx, &axis(v)), Next::Stay));
+    }
+    assert_eq!(s.list.sel, 0);
+    // taken for the turntable: a row a step, from where it is now
+    ctx.config.keys.any_axis_is_scratch = true;
+    s.input(&mut ctx, &axis(0.3));
+    assert_eq!(s.list.sel, 0);
+    s.input(&mut ctx, &axis(0.4));
+    assert_eq!(s.list.sel, 1);
+    s.input(&mut ctx, &axis(0.3));
+    assert_eq!(s.list.sel, 0);
+    // held: → and the turntable's key (a lane key) walk on
+    let held = |code| InputEv::Key {
+        code,
+        pressed: true,
+        repeat: true,
+        time: Instant::now(),
+        text: None,
+    };
+    s.input(&mut ctx, &held(KeyCode::ArrowRight));
+    assert_eq!(s.list.sel, 1);
+    s.input(&mut ctx, &held(KeyCode::ControlLeft));
+    assert_eq!(s.list.sel, 2);
+    s.input(&mut ctx, &held(KeyCode::ShiftLeft));
+    assert_eq!(s.list.sel, 1);
+    // the button pressed opens the card
+    s.input(&mut ctx, &pad(true));
+    assert_eq!(s.view, View::Page(Page::Controls));
+    std::fs::remove_dir_all(&root).ok();
+}
+
 #[test]
 fn the_bms_ir_tables_are_a_grid() {
     let (root, mut ctx) = setup("grid");

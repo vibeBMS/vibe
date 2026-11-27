@@ -18,7 +18,7 @@ pub struct Bpms {
 impl Bpms {
     /// The BPMs hi-speeds are shown and set for without a chart
     /// (beatoraja's 150).
-    pub const REFERENCE: Bpms = Bpms {
+    pub(crate) const REFERENCE: Bpms = Bpms {
         start: 150.0,
         min: 150.0,
         max: 150.0,

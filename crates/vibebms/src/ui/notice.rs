@@ -142,14 +142,13 @@ mod tests {
     }
 
     fn drawn() -> Notice {
-        let mut n = Notice::default();
-        n.buttons
-            .hits
-            .push(Rect::new(100.0, 60.0, 50.0, 30.0), true);
-        n.buttons
-            .hits
-            .push(Rect::new(40.0, 60.0, 50.0, 30.0), false);
-        n
+        Notice {
+            buttons: OkCancel::placed(
+                Rect::new(100.0, 60.0, 50.0, 30.0),
+                Rect::new(40.0, 60.0, 50.0, 30.0),
+            ),
+            ..Notice::default()
+        }
     }
 
     #[test]

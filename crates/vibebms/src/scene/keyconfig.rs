@@ -715,6 +715,57 @@ mod tests {
         }
     }
 
+    /// Until the skin takes input the keys bound to the lanes do nothing
+    /// but leave; the turntable moves the cursor at once; held keys move
+    /// it on.
+    #[test]
+    fn keys_wait_for_the_skin_but_to_leave() {
+        let root = std::env::temp_dir().join(format!("vibebms-kcw-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        let mut s = KeyConfigScene::new();
+        s.host = SkinHost::with_input_delay(60_000);
+        // a white key (bind) and the turntable's key: not yet
+        s.input(&mut ctx, &key(KeyCode::KeyZ));
+        s.input(&mut ctx, &key(KeyCode::ControlLeft));
+        assert_eq!((s.learn.on(), s.list.sel), (false, 0));
+        let axis = |value| InputEv::Axis {
+            id: 9,
+            value,
+            time: Instant::now(),
+        };
+        s.input(&mut ctx, &axis(0.0));
+        s.input(&mut ctx, &axis(0.1));
+        assert_eq!(s.list.sel, 1);
+        // the skin takes input: the turntable's key, held, moves on
+        s.host.created = Instant::now() - crate::platform::Duration::from_secs(61);
+        let held = InputEv::Key {
+            code: KeyCode::ControlLeft,
+            pressed: true,
+            repeat: true,
+            time: Instant::now(),
+            text: None,
+        };
+        s.input(&mut ctx, &held);
+        assert_eq!(s.list.sel, 2);
+        // a button let go does nothing, pressed it waits for a key
+        ctx.config.keys.p1.keys[0].pad = vec![7];
+        let pad = |pressed| InputEv::Pad {
+            id: 7,
+            pressed,
+            time: Instant::now(),
+        };
+        s.input(&mut ctx, &pad(false));
+        assert!(!s.learn.on());
+        s.input(&mut ctx, &pad(true));
+        assert!(s.learn.on());
+        // Esc leaves before the skin takes input
+        let mut s = KeyConfigScene::new();
+        s.host = SkinHost::with_input_delay(60_000);
+        s.input(&mut ctx, &key(KeyCode::Escape));
+        assert!(s.host.leaving.is_some());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
     #[test]
     fn assign_through_the_screen() {
         let root = std::env::temp_dir().join(format!("vibebms-kcs-{}", std::process::id()));

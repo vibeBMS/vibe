@@ -2,7 +2,7 @@
 
 /// A pointer pressed on something that scrolls: past a slop from where it
 /// went down it drags (the scroll follows it), else its lift is a tap.
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct DragScroll {
     id: u64,
     /// Where it went down.
