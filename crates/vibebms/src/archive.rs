@@ -7,10 +7,10 @@
 //! author's download page.
 
 use crate::platform::Job;
+use bmseeker::install::job::{Effect, Fed, Files, Got, Missed, Step};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-#[cfg(not(target_arch = "wasm32"))]
 use std::sync::mpsc::Sender;
 
 /// Re-read an index after this long (s).
@@ -153,8 +153,6 @@ impl From<&str> for Fail {
     }
 }
 
-// the web build tells no progress (Status)
-#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 enum Msg {
     Catalog(String, Result<Vec<CatalogEntry>, String>),
     Index(String, Result<Vec<Work>, String>),
@@ -342,9 +340,8 @@ impl Archives {
         })
     }
 
-    /// Download work `num` of event `ev` and unpack it into the library:
-    /// the app on a thread, to disk; the web build through the vibeBMS
-    /// proxy, in memory.
+    /// Download work `num` of event `ev` and unpack it into the library
+    /// ([`fetch_work`]).
     pub fn download(
         &mut self,
         root: &Path,
@@ -368,25 +365,12 @@ impl Archives {
         self.busy.push(k);
         let (name, title) = (event.name.clone(), work.title.clone());
         let size: u64 = files.iter().map(|f| f.size).sum();
-        let (root, cx) = (root.to_path_buf(), cx.clone());
+        let event = name.clone();
         self.jobs.push(Job::start(|tx, _| {
-            #[cfg(not(target_arch = "wasm32"))]
-            crate::platform::spawn("archive", move || {
-                let r = fetch_work(&root, &cx, &name, &files, &tx);
-                let _ = tx.send(Msg::Done(name, num, r));
-            });
-            #[cfg(target_arch = "wasm32")]
-            {
-                let stem = work_stem(&files);
-                let Some(rel) = work_dir(&name, &stem) else {
-                    let _ = tx.send(Msg::Done(name, num, Err(NO_FOLDER.into())));
-                    return;
-                };
-                let dir = root.join("bms").join(&name);
-                web_fetch_files(files, dir, stem, &cx, move |r| {
-                    let _ = tx.send(Msg::Done(name, num, r.map(|n| (rel, n))));
-                });
-            }
+            let done = tx.clone();
+            fetch_work(root, cx, files, &event, tx, move |r| {
+                let _ = done.send(Msg::Done(name, num, r));
+            })
         }));
         Ok(if size > 0 {
             format!("Downloading {title} ({} MB)…", (size + (1 << 19)) >> 20)
@@ -527,134 +511,103 @@ fn missed(files: &[File], m: bmseeker::install::job::Missed) -> Fail {
     }
 }
 
-/// Download a work's files one after another (bmseeker's `Files` in the
-/// page) and unpack them into `<dir>/<stem>/` (add-ons too); `done` gets
-/// the number of files.
-#[cfg(target_arch = "wasm32")]
-fn web_fetch_files(
-    files: Vec<File>,
-    dir: PathBuf,
-    stem: String,
-    cx: &crate::hosts::Context,
-    done: impl FnOnce(Result<usize, Fail>) + Send + 'static,
-) {
-    use bmseeker::install::job::Files;
-    let job = Files::new(sources(&files), PathBuf::new(), cx);
-    crate::platform::run_job(job, cx, move |r| {
-        let got = match r {
-            Ok(got) => got,
-            Err(m) => return done(Err(missed(&files, m))),
-        };
-        let mut n = 0;
-        for (f, g) in files.iter().zip(got) {
-            let bmseeker::unpack::Blob::Bytes(bytes) = g.blob else {
-                continue;
-            };
-            n += match bmseeker::unpack::sniff(&bytes) {
-                // into the main archive's folder
-                Some(format) => {
-                    let name = format!("{stem}.{}", format.ext());
-                    crate::platform::vfs::add_archive_at(&dir, &name, bytes)
-                }
-                // a file on its own (a BGA movie)
-                None => {
-                    let name = if f.original.is_empty() {
-                        &f.name
-                    } else {
-                        &f.original
-                    };
-                    crate::platform::vfs::put_bytes(&dir.join(&stem).join(safe_name(name)), bytes);
-                    1
-                }
-            };
+/// The file name a work's file is unpacked as: the one its author
+/// published (a mirror's file), else the mirror's.
+fn file_name(f: &File) -> String {
+    safe_name(if f.original.is_empty() {
+        &f.name
+    } else {
+        &f.original
+    })
+}
+
+/// A work's files, telling which comes after the first (`Msg::Status`).
+struct Telling {
+    files: Files,
+    tx: Sender<Msg>,
+    /// Each file's slot, and its name.
+    slots: Vec<(PathBuf, String)>,
+}
+
+impl Telling {
+    fn tell(&self, step: &Step<Result<Vec<Got>, Missed>>) {
+        if let Step::Do(Effect::Download { slot, .. }) = step {
+            if let Some((_, n)) = self.slots.iter().skip(1).find(|(s, _)| s == slot) {
+                let _ = self.tx.send(Msg::Status(format!("Downloading {n}…")));
+            }
         }
-        done(if n > 0 {
-            Ok(n)
-        } else {
-            Err(Fail::Msg("the archives hold nothing".into()))
-        })
-    });
+    }
+}
+
+impl bmseeker::install::job::Job for Telling {
+    type Output = Result<Vec<Got>, Missed>;
+    fn start(&mut self) -> Step<Self::Output> {
+        let step = self.files.start();
+        self.tell(&step);
+        step
+    }
+    fn feed(&mut self, fed: Fed) -> Step<Self::Output> {
+        let step = self.files.feed(fed);
+        self.tell(&step);
+        step
+    }
 }
 
 /// Download a work's files (bmseeker's `Files`, a status for each after
-/// the first) and unpack them into `bms/<event>/<archive>` (add-ons into
-/// the same folder). Returns that folder (relative to the data root) and
-/// the number of files written.
-#[cfg(not(target_arch = "wasm32"))]
+/// the first: `tx`) and unpack them into `bms/<event>/<archive>` (add-ons
+/// into the same folder); then `done` with that folder (relative to the
+/// data root) and the number of files written. The files come into their
+/// slots below `downloads/` natively, into memory on the web
+/// ([`crate::platform::run_job`]); either is unpacked into the player's
+/// files ([`crate::platform::Vfs`]).
 fn fetch_work(
     root: &Path,
     cx: &crate::hosts::Context,
+    files: Vec<File>,
     event: &str,
-    files: &[File],
-    tx: &Sender<Msg>,
-) -> Result<(PathBuf, usize), Fail> {
-    use bmseeker::install::job::{run_job, Driver, Effect, Fed, Files};
-    if files.is_empty() {
-        return Err("no files".into());
-    }
-    let stem = work_stem(files);
-    let rel = work_dir(event, &stem).ok_or(NO_FOLDER)?;
+    tx: Sender<Msg>,
+    done: impl FnOnce(Result<(PathBuf, usize), Fail>) + Send + 'static,
+) {
+    let stem = work_stem(&files);
+    let Some(rel) = work_dir(event, &stem) else {
+        return done(Err(NO_FOLDER.into()));
+    };
     let dest = root.join(&rel);
     let downloads = root.join("downloads");
-    std::fs::create_dir_all(&downloads).map_err(|e| e.to_string())?;
-    let name = |f: &File| {
-        safe_name(if f.original.is_empty() {
-            &f.name
-        } else {
-            &f.original
-        })
-    };
+    if let Err(e) = crate::platform::vfs::create_dir_all(&downloads) {
+        return done(Err(e.to_string().into()));
+    }
     let slots = downloads.join(format!(".{event}-{}", safe_name(&stem)));
-    // the native transport, telling which file comes
-    struct Telling<'a> {
-        native: crate::hosts::Native,
-        tx: &'a Sender<Msg>,
-        slots: Vec<(PathBuf, String)>,
-    }
-    impl Driver for Telling<'_> {
-        fn perform(&self, e: Effect) -> Fed {
-            if let Effect::Download { slot, .. } = &e {
-                if let Some((_, n)) = self.slots.iter().skip(1).find(|(s, _)| s == slot) {
-                    let _ = self.tx.send(Msg::Status(format!("Downloading {n}…")));
-                }
-            }
-            self.native.perform(e)
-        }
-    }
-    let driver = Telling {
-        native: crate::hosts::Native::new(cx),
+    let job = Telling {
+        files: Files::new(sources(&files), slots.clone(), cx),
         tx,
-        slots: (0..files.len())
-            .map(|i| (Files::slot(&slots, i), name(&files[i])))
+        slots: (files.iter().enumerate())
+            .map(|(i, f)| (Files::slot(&slots, i), file_name(f)))
             .collect(),
     };
-    let tmps: Vec<PathBuf> = driver.slots.iter().map(|(s, _)| s.clone()).collect();
-    let net = bmseeker::refusal::Guarded::new(&driver, cx);
-    let got = run_job(&mut Files::new(sources(files), slots, cx), &net);
-    let r = (|| {
-        got.map_err(|m| missed(files, m))?;
-        let mut n = 0;
-        for (f, tmp) in files.iter().zip(&tmps) {
-            let name = if f.original.is_empty() {
-                // an author's link: an archive (its own bytes tell which), named
-                // as one so that a file that is none is refused
-                format!("{}.zip", name(f))
-            } else {
-                name(f)
-            };
-            n += crate::import::unpack_into(
-                &bmseeker::fs::Disk,
-                bmseeker::unpack::Blob::File(tmp.clone()),
-                &name,
-                &dest,
-            )?;
+    let tmps: Vec<PathBuf> = job.slots.iter().map(|(s, _)| s.clone()).collect();
+    crate::platform::run_job(job, cx, move |got| {
+        let r = (|| {
+            let got = got.map_err(|m| missed(&files, m))?;
+            let mut n = 0;
+            for (f, g) in files.iter().zip(got) {
+                let name = if f.original.is_empty() {
+                    // an author's link: an archive (its own bytes tell
+                    // which), named as one so that a file that is none is
+                    // refused
+                    format!("{}.zip", file_name(f))
+                } else {
+                    file_name(f)
+                };
+                n += bmseeker::import::unpack_into(&crate::platform::Vfs, g.blob, &name, &dest)?;
+            }
+            Ok((rel, n))
+        })();
+        for t in &tmps {
+            let _ = crate::platform::vfs::remove_file(t);
         }
-        Ok((rel, n))
-    })();
-    for t in &tmps {
-        let _ = std::fs::remove_file(t);
-    }
-    r
+        done(r)
+    });
 }
 
 #[cfg(test)]
@@ -828,20 +781,88 @@ mod tests {
 
     /// The download itself refuses such a name, before anything is fetched
     /// or made on disk.
-    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn a_work_is_not_fetched_outside_bms() {
         let root = std::env::temp_dir().join(format!("vibebms-archive-out-{}", std::process::id()));
         let cx = crate::hosts::context(&crate::config::Config::default());
         let (tx, _rx) = std::sync::mpsc::channel();
-        let files = [File {
+        let files = vec![File {
             name: "001.zip".into(),
             original: "Song.zip".into(),
             ..Default::default()
         }];
-        let r = fetch_work(&root.join("data"), &cx, "../..", &files, &tx);
+        let (done, r) = std::sync::mpsc::channel();
+        fetch_work(&root.join("data"), &cx, files, "../..", tx, move |r| {
+            let _ = done.send(r);
+        });
+        let r = r.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
         assert!(matches!(r, Err(Fail::Msg(e)) if e == NO_FOLDER));
         assert!(!root.exists());
+    }
+
+    /// A work's mirrored files come one after another, each after the
+    /// first told, and are unpacked into its folder (an archive's files,
+    /// an add-on as it is); nothing stays in the downloads.
+    #[test]
+    fn a_work_is_fetched_and_unpacked() {
+        let root = std::env::temp_dir().join(format!("vibebms-archive-got-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let tar = bmseeker::testkit::tar(&[("a.bms", "#TITLE A"), ("01.ogg", "o")]);
+        let answer = |body: &[u8]| -> &'static str {
+            let body = std::str::from_utf8(body).unwrap();
+            let head = "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length";
+            Box::leak(format!("{head}: {}\r\n\r\n{body}", body.len()).into_boxed_str())
+        };
+        let serve = |body: &[u8]| {
+            let (url, _) = crate::platform::http::tests::serve(vec![answer(body)]);
+            format!("{url}/f")
+        };
+        let files = vec![
+            File {
+                name: "001.tar".into(),
+                url: serve(&tar),
+                original: "Song.tar".into(),
+                ..Default::default()
+            },
+            File {
+                name: "002.txt".into(),
+                url: serve(b"read me"),
+                original: "readme.txt".into(),
+                ..Default::default()
+            },
+        ];
+        // (the test's server is on this machine)
+        let cx = crate::hosts::Context::new(bmseeker::config::Config {
+            local_hosts: true,
+            ..Default::default()
+        });
+        let (tx, told) = std::sync::mpsc::channel();
+        let (done, r) = std::sync::mpsc::channel();
+        fetch_work(&root, &cx, files, "EV", tx, move |r| {
+            let _ = done.send(r);
+        });
+        let r = r.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
+        let dir = root.join("bms/EV/Song");
+        let (rel, n) = match r {
+            Ok(got) => got,
+            Err(Fail::Msg(e) | Fail::Page(e)) => panic!("{e}"),
+        };
+        assert_eq!((root.join(rel), n), (dir.clone(), 3));
+        assert_eq!(std::fs::read(dir.join("a.bms")).unwrap(), b"#TITLE A");
+        assert_eq!(std::fs::read(dir.join("readme.txt")).unwrap(), b"read me");
+        let told: Vec<String> = told
+            .try_iter()
+            .filter_map(|m| match m {
+                Msg::Status(s) => Some(s),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(told, ["Downloading readme.txt…"]);
+        assert_eq!(
+            std::fs::read_dir(root.join("downloads")).unwrap().count(),
+            0
+        );
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]

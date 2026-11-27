@@ -1,7 +1,8 @@
-//! The driver of bmseeker jobs here: their effects done asynchronously, one
-//! after another. (Native downloads run on bmseeker's own transport,
-//! `native::Native`, on a thread of their own: to disk.) A job asks again
-//! after a server's passing failure itself.
+//! The drivers of bmseeker jobs here: natively bmseeker's own transport
+//! (`native::Native`) on a thread of the job's own, its files to disk; in a
+//! web page (and for a table's load everywhere) the page's driver, its
+//! effects done asynchronously, one after another. A job asks again after
+//! a server's passing failure itself.
 
 use super::http::{call, request};
 use super::IS_WEB;
@@ -24,14 +25,37 @@ struct Net {
 }
 
 /// Run a bmseeker job kept to `cx`'s refusals (a service that refused is
-/// not asked again): on the web its requests and files through the vibeBMS
+/// not asked again), its files reporting to `cx`'s progress and ended by
+/// its cancel; then `on_done` with its result. Natively on a thread of its
+/// own, on `native::Native` (files to their slots on disk; `on_done` on
+/// that thread); on the web in the page ([`in_page`]).
+pub fn run_job<J>(job: J, cx: &Context, on_done: impl FnOnce(J::Output) + Send + 'static)
+where
+    J: Job + 'static,
+    J::Output: Send + 'static,
+{
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let cx = cx.clone();
+        super::spawn("download", move || {
+            let mut job = job;
+            let native = bmseeker::native::Native::new(&cx);
+            let net = bmseeker::refusal::Guarded::new(&native, &cx);
+            on_done(bmseeker::install::job::run_job(&mut job, &net))
+        });
+    }
+    #[cfg(target_arch = "wasm32")]
+    in_page(job, cx, on_done)
+}
+
+/// [`run_job`] in a web page: its requests and files through the vibeBMS
 /// proxy (but to hosts that send CORS headers; where the redirects ended
 /// from the proxy's `X-Final-Url`); each answer read to its request's
 /// limit (a file to `bmseeker::web::DOWNLOAD_MAX`: it comes into memory);
-/// its files reporting to `cx`'s progress, ended by its cancel or a stall,
-/// a MEGA file decrypted and checked here; its waits on a timer. Then
-/// `on_done` with its result.
-pub fn run_job<J>(job: J, cx: &Context, on_done: impl FnOnce(J::Output) + Send + 'static)
+/// a file ended by a stall too, a MEGA file decrypted and checked here;
+/// its waits on a timer.
+#[cfg(any(target_arch = "wasm32", test))]
+fn in_page<J>(job: J, cx: &Context, on_done: impl FnOnce(J::Output) + Send + 'static)
 where
     J: Job + 'static,
     J::Output: Send + 'static,
@@ -231,7 +255,7 @@ mod tests {
             got: Vec::new(),
         };
         let cx = Context::default().with_progress(progress.clone());
-        run_job(job, &cx, move |got| {
+        in_page(job, &cx, move |got| {
             let _ = tx.send(got);
         });
         let got = rx.recv_timeout(Duration::from_secs(10)).unwrap();
@@ -262,10 +286,25 @@ mod tests {
 
     fn one(effect: Effect) -> Fed {
         let (tx, rx) = std::sync::mpsc::channel();
-        run_job(One(Some(effect)), &Context::default(), move |fed| {
+        in_page(One(Some(effect)), &Context::default(), move |fed| {
             let _ = tx.send(fed);
         });
         rx.recv_timeout(Duration::from_secs(10)).unwrap()
+    }
+
+    /// Natively a job runs on a thread of its own, on bmseeker's
+    /// transport.
+    #[test]
+    fn runs_a_job_on_a_thread_of_its_own() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let here = std::thread::current().id();
+        let job = One(Some(Effect::Sleep(Duration::from_millis(1))));
+        run_job(job, &Context::default(), move |fed| {
+            let _ = tx.send((fed, std::thread::current().id()));
+        });
+        let (fed, on) = rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert!(matches!(fed, Fed::Woke), "{fed:?}");
+        assert_ne!(on, here);
     }
 
     /// An answer is read no further than its request's kind allows: a
@@ -316,7 +355,7 @@ mod tests {
             got: Vec::new(),
         };
         let cx = Context::default();
-        run_job(job, &cx, move |got| {
+        in_page(job, &cx, move |got| {
             let _ = tx.send(got);
         });
         let got = rx.recv_timeout(Duration::from_secs(10)).unwrap();

@@ -1,5 +1,6 @@
 //! Small files that must outlast the program: the IR history (lines added
-//! one at a time) and the IR outbox (rewritten whole).
+//! one at a time) and the IR outbox (rewritten whole); and the document of
+//! the accounts' keys ([`secret`]), kept apart.
 //!
 //! Natively they are files under the data root. On the web they are kept
 //! in OPFS by its worker ([`super::opfs`]), as `store/<path>`; a browser
@@ -79,6 +80,172 @@ pub fn remove_below(dir: &Path) {
 
 /// How often a tab without the outbox lock asks for it again.
 pub const LOCK_RETRY_MS: f64 = 10_000.0;
+
+/// One small document of the app's that is to stay private (the keys of
+/// IR accounts and OBS's password: `ir::creds`), kept where the platform
+/// keeps such things:
+/// - desktop: `config/credentials.json`, readable by the user alone on
+///   Unix (the install is portable, and a keychain may be missing or ask
+///   again after every unsigned update);
+/// - Android: the app's private storage (the data folder is the shared
+///   external one);
+/// - iOS: the Keychain, this device only (the data folder is `Documents`,
+///   seen in Files and in backups);
+/// - web: the page's `localStorage`, which any script of the site can read.
+pub mod secret {
+    use std::io;
+
+    pub use imp::{kept, place, read, write, Place};
+
+    /// Where the document is kept ([`kept`]).
+    #[derive(Clone, Copy, Debug)]
+    pub enum Kept {
+        /// `config/credentials.json`, apart from `config.toml`.
+        Config,
+        /// The app's private storage.
+        Private,
+        /// The iOS Keychain, this device only.
+        Keychain,
+        /// The browser's storage for the site.
+        Browser,
+    }
+
+    #[cfg(not(any(target_os = "ios", target_arch = "wasm32")))]
+    mod imp {
+        use super::*;
+        use std::path::PathBuf;
+
+        pub fn kept() -> Kept {
+            if cfg!(target_os = "android") {
+                Kept::Private
+            } else {
+                Kept::Config
+            }
+        }
+
+        pub type Place = PathBuf;
+
+        pub fn place(private: &std::path::Path) -> PathBuf {
+            private.join("credentials.json")
+        }
+
+        pub fn read(p: &PathBuf) -> io::Result<Option<String>> {
+            match std::fs::read_to_string(p) {
+                Ok(t) => Ok(Some(t)),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+                Err(e) => Err(e),
+            }
+        }
+
+        /// Written whole beside it, then moved over it; on Unix the file is the
+        /// user's alone from the start.
+        pub fn write(p: &PathBuf, text: &str) -> io::Result<()> {
+            use std::io::Write;
+            if let Some(d) = p.parent() {
+                std::fs::create_dir_all(d)?;
+            }
+            let tmp = p.with_extension("json.tmp~");
+            let mut o = std::fs::OpenOptions::new();
+            o.write(true).create(true).truncate(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+                o.mode(0o600);
+                // made earlier with other permissions
+                if tmp.exists() {
+                    std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
+                }
+            }
+            let mut f = o.open(&tmp)?;
+            f.write_all(text.as_bytes())?;
+            f.sync_all()?;
+            std::fs::rename(&tmp, p)
+        }
+    }
+
+    #[cfg(target_os = "ios")]
+    mod imp {
+        use super::*;
+        use security_framework::access_control::{ProtectionMode, SecAccessControl};
+        use security_framework::passwords::{
+            delete_generic_password, generic_password, set_generic_password_options,
+            PasswordOptions,
+        };
+
+        pub fn kept() -> Kept {
+            Kept::Keychain
+        }
+
+        const SERVICE: &str = "vibeBMS";
+        const ACCOUNT: &str = "IR credentials";
+        /// `errSecItemNotFound`
+        const NOT_FOUND: i32 = -25300;
+
+        /// One for the whole app.
+        pub struct Place;
+
+        pub fn place(_: &std::path::Path) -> Place {
+            Place
+        }
+
+        pub fn read(_: &Place) -> io::Result<Option<String>> {
+            match generic_password(PasswordOptions::new_generic_password(SERVICE, ACCOUNT)) {
+                Ok(b) => String::from_utf8(b).map(Some).map_err(io::Error::other),
+                Err(e) if e.code() == NOT_FOUND => Ok(None),
+                Err(e) => Err(io::Error::other(e)),
+            }
+        }
+
+        pub fn write(_: &Place, text: &str) -> io::Result<()> {
+            // an item's protection is set as it is added
+            match delete_generic_password(SERVICE, ACCOUNT) {
+                Err(e) if e.code() != NOT_FOUND => return Err(io::Error::other(e)),
+                _ => {}
+            }
+            let mut o = PasswordOptions::new_generic_password(SERVICE, ACCOUNT);
+            let mode = ProtectionMode::AccessibleAfterFirstUnlockThisDeviceOnly;
+            o.set_access_control(
+                SecAccessControl::create_with_protection(Some(mode), 0)
+                    .map_err(io::Error::other)?,
+            );
+            set_generic_password_options(text.as_bytes(), o).map_err(io::Error::other)
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    mod imp {
+        use super::*;
+
+        pub fn kept() -> Kept {
+            Kept::Browser
+        }
+
+        const KEY: &str = "vibebms-credentials";
+
+        /// One for the whole app.
+        pub struct Place;
+
+        pub fn place(_: &std::path::Path) -> Place {
+            Place
+        }
+
+        fn storage() -> io::Result<web_sys::Storage> {
+            web_sys::window()
+                .and_then(|w| w.local_storage().ok().flatten())
+                .ok_or_else(|| io::Error::new(io::ErrorKind::Unsupported, "no storage"))
+        }
+
+        pub fn read(_: &Place) -> io::Result<Option<String>> {
+            Ok(storage()?.get_item(KEY).ok().flatten())
+        }
+
+        pub fn write(_: &Place, text: &str) -> io::Result<()> {
+            storage()?
+                .set_item(KEY, text)
+                .map_err(|_| io::Error::other("the browser's storage is full"))
+        }
+    }
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 mod imp {

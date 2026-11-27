@@ -24,6 +24,12 @@ module (not of a trait) fails. A `#[path]` attribute, a path a macro makes
 from its argument after `crate::` (`crate::$m::…`), `use crate as x;` and
 `extern crate self as x;` fail: what they reach cannot be read from the
 text.
+
+It also counts, per top-level module but platform, app and browser, the
+lines of code (not tests) with a platform condition: a `cfg` that names a
+target (`target_os`, `target_arch`, `windows`, ...) or a group build.rs
+names (`desktop`, ...). A count above CONDITIONS fails, and so does one
+below it, so the number is lowered when a condition goes.
 """
 import os
 import re
@@ -70,6 +76,24 @@ CYCLES = [
      "songfetch fetches a bulk::Wanted, the song a table asks for, and bulk downloads through songfetch; Wanted "
      "is to move to songfetch when the top-level files are regrouped"),
 ]
+
+
+# The top-level modules where platform conditions belong: the platform
+# layer, the window and its loop, the in-app browser.
+CONDITIONS_AT_HOME = ["platform", "app", "browser"]
+
+# Lines of the other top-level modules ("lib": lib.rs, main.rs) with a
+# platform condition (conditions()), outside test code: a count may only go
+# down.
+CONDITIONS = {
+    "config": 1, "ctx": 11, "gfx": 12, "i18n": 3, "input": 13, "integrations": 28, "ir": 5, "lib": 3,
+    "library": 12, "links": 5, "loudness": 1, "paths": 2, "replay": 2, "scene": 40, "screenshot": 2, "skin": 2,
+    "update": 12, "video": 5,
+}
+
+# What names a platform in a cfg: the target's predicates, and the groups
+# build.rs names (read from it).
+TARGET_CFGS = ["target_os", "target_arch", "target_family", "target_env", "target_vendor", "windows", "unix"]
 
 
 def blank(text):
@@ -217,17 +241,26 @@ def under(module, prefix):
     return module == prefix or module.startswith(prefix + "::")
 
 
-def uses(src):
-    """(from module, to module, item) -> ["file:line", ...]"""
+def read(src):
+    """The files under `src`, each as its text with comments and strings
+    blanked ({file: text}), and the modules declared under #[cfg(test)]."""
     files = sorted(os.path.join(r, n) for r, _, ns in os.walk(src) for n in ns if n.endswith(".rs"))
     texts = {f: blank(open(f, encoding="utf-8").read()) for f in files}
-    modules = {module_of(src, f) for f in files}
-    tests = set()  # files declared under #[cfg(test)]
-    macros = {}
+    tests = set()
     for f, text in texts.items():
         mod = module_of(src, f)
         for m in re.finditer(r"#\[cfg\(test\)\]\s*(pub(\([\w:]+\))?\s+)?mod\s+(\w+)\s*;", text):
             tests.add("::".join(filter(None, [mod, m.group(3)])))
+    return texts, tests
+
+
+def uses(src):
+    """(from module, to module, item) -> ["file:line", ...]"""
+    texts, tests = read(src)
+    modules = {module_of(src, f) for f in texts}
+    macros = {}
+    for f, text in texts.items():
+        mod = module_of(src, f)
         for m in re.finditer(r"macro_rules!\s*(\w+)", text):
             macros[m.group(1)] = mod
 
@@ -319,6 +352,67 @@ def uses(src):
                 to = macros[m.group(1)]
                 found[(mod, to, m.group(1) + "!")].append(at % (text.count("\n", 0, m.start()) + 1))
     return modules - {t for t in modules if any(under(t, x) for x in tests)}, found, odd
+
+
+def groups(build_rs):
+    """The platform groups `build_rs` names (`("desktop", desktop)`, ...)."""
+    with open(build_rs, encoding="utf-8") as f:
+        text = re.sub(r"//[^\n]*", "", f.read())
+    m = re.search(r"let\s+groups\s*=\s*\[(.*?)\];", text, re.S)
+    return re.findall(r'\(\s*"(\w+)"\s*,', m.group(1)) if m else []
+
+
+def conditions(src, names):
+    """The lines with a platform condition (a `cfg(…)`, `cfg_attr(…, …)` or
+    `cfg!(…)` whose condition names one of `names`) outside test code, by
+    top-level module: {module: ["file:line", ...]} (an attribute or a
+    `cfg!` over several lines is the line it starts on)."""
+    texts, tests = read(src)
+    named = re.compile(r"(?<![\w:])(%s)(?!\w)" % "|".join(map(re.escape, names)))
+    out = defaultdict(list)
+    for f, text in texts.items():
+        mod = module_of(src, f)
+        if any(under(mod, t) for t in tests):
+            continue
+        text = cut_tests(text)
+        lines = set()
+        for m in re.finditer(r"(?<![\w:])cfg(_attr)?\s*(!\s*)?\(", text):
+            # (a plain `cfg(…)`: an attribute's, or in another's condition)
+            before = text[max(m.start() - 64, 0) : m.start()]
+            if not m.group(1) and not m.group(2) and not re.search(r"#!?\s*\[\s*$|[(,]\s*$", before):
+                continue
+            i, depth, parts, cur = m.end(), 1, [], m.end()
+            while i < len(text) and depth:
+                c = text[i]
+                depth += {"(": 1, ")": -1, "[": 1, "]": -1}.get(c, 0)
+                if c == "," and depth == 1:
+                    parts.append(text[cur:i])
+                    cur = i + 1
+                i += 1
+            parts.append(text[cur : i - 1])
+            # (cfg_attr: its condition, not the attributes it adds)
+            if named.search(parts[0] if m.group(1) else ",".join(parts)):
+                lines.add(text.count("\n", 0, m.start()) + 1)
+        top = mod.split("::")[0] or "lib"
+        if lines and top not in CONDITIONS_AT_HOME:
+            out[top] += ["%s:%d" % (os.path.relpath(f, src), n) for n in sorted(lines)]
+    return out
+
+
+def condition_problems(found, listed):
+    """What is wrong with the lines of `found` (conditions()) against
+    `listed` (CONDITIONS)."""
+    bad = []
+    for mod in sorted(set(found) | set(listed)):
+        n, most = len(found.get(mod, [])), listed.get(mod, 0)
+        if n > most:
+            bad.append("%s: %d lines with a platform condition, more than the %d CONDITIONS allows in "
+                       "tools/check_layers.py: put the difference behind platform/ (%s)"
+                       % (mod, n, most, " ".join(found[mod])))
+        elif n < most:
+            bad.append("%s: %d lines with a platform condition, fewer than the %d CONDITIONS allows: lower it "
+                       "in tools/check_layers.py" % (mod, n, most))
+    return bad
 
 
 def cycles(found):
@@ -415,12 +509,21 @@ def main():
                 bad.append("%s no longer uses %s::%s: take it out of UPWARD in tools/check_layers.py" % (a, b, i))
     cycle_bad, n_cycles = cycle_problems(found, CYCLES)
     bad += cycle_bad
+    build_rs = os.path.join(root, "crates", "vibebms", "build.rs")
+    named = groups(build_rs)
+    if not named:
+        bad.append("%s: its platform groups (`let groups = [...]`) not found: change groups() in "
+                   "tools/check_layers.py" % build_rs)
+    conds = conditions(src, TARGET_CFGS + named)
+    bad += condition_problems(conds, CONDITIONS)
     for line in bad:
         print(line)
     if bad:
         return 1
-    print("layers: %d modules, %d upward uses (at %d places), %d cycles between top-level modules, each listed"
-          % (len(modules), len(upward), sum(len(at) for at in upward.values()), n_cycles))
+    print("layers: %d modules, %d upward uses (at %d places), %d cycles between top-level modules, each listed; "
+          "%d lines with a platform condition outside %s"
+          % (len(modules), len(upward), sum(len(at) for at in upward.values()), n_cycles,
+             sum(len(at) for at in conds.values()), ", ".join(CONDITIONS_AT_HOME)))
     return 0
 
 

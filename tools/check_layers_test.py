@@ -175,6 +175,55 @@ class CheckLayers(unittest.TestCase):
         self.assertEqual((bad[0], n), ("a, b, c no longer use each other in a cycle: take it out of CYCLES in "
                                        "tools/check_layers.py", 0))
 
+    def test_a_platform_condition_more_fails(self):
+        for text in ['#[cfg(target_os = "linux")]\npub fn f() {}\n',
+                     '#[cfg(not(any(windows, target_arch = "wasm32")))]\npub fn f() {}\n',
+                     "#[cfg_attr(\n    desktop,\n    allow(dead_code)\n)]\npub fn f() {}\n",
+                     "pub fn f() -> bool {\n    cfg!(unix)\n}\n",
+                     "pub fn f() -> bool {\n    cfg!(all(test, small_device))\n}\n"]:
+            code, out = self.run_on({"formats/mod.rs": text})
+            self.assertEqual(code, 1, text + out)
+            self.assertIn("formats: 1 lines with a platform condition, more than the 0 CONDITIONS allows", out)
+            self.assertIn("(formats/mod.rs:", out)
+
+    def test_a_condition_over_lines_is_one_line(self):
+        code, out = self.run_on({"formats/mod.rs": "#[cfg(any(\n    windows,\n    unix,\n))]\npub fn f() {}\n"
+                                                   "pub fn g() -> bool {\n    cfg!(windows) || cfg!(unix)\n}\n"})
+        self.assertEqual(code, 1, out)
+        self.assertIn("formats: 2 lines with a platform condition", out)
+
+    def test_what_is_no_platform_condition(self):
+        for rel, text in [
+            ("formats/mod.rs", "#[cfg(test)]\nmod more_tests {\n    #[cfg(unix)]\n    fn f() {}\n}\n"),
+            ("formats/mod.rs", '// #[cfg(windows)]\n/// cfg!(unix)\npub const S: &str = "#[cfg(unix)]";\n'),
+            ("formats/mod.rs", '#[cfg(feature = "x")]\npub fn f() {}\n#[cfg_attr(test, doc = "windows")]\npub fn g() {}\n'),
+            ("formats/mod.rs", "pub fn f(windows: u8) -> u8 {\n    config(windows)\n}\n"),
+            ("platform/mod.rs", "#[cfg(windows)]\npub fn f() {}\n"),
+            ("app/mod.rs", "#[cfg(desktop)]\npub fn f() {}\n"),
+            ("browser/mod.rs", '#[cfg(target_os = "ios")]\npub fn f() {}\n'),
+        ]:
+            self.assertEqual(self.run_on({rel: text})[0], 0, rel + ": " + text)
+
+    def test_a_count_gone_down_is_to_be_lowered(self):
+        found = {"a": ["a.rs:1"], "b": ["b/c.rs:2", "b/c.rs:3"]}
+        self.assertEqual(check_layers.condition_problems(found, {"a": 1, "b": 2}), [])
+        self.assertEqual(check_layers.condition_problems(found, {"a": 1, "b": 3, "c": 1}), [
+            "b: 2 lines with a platform condition, fewer than the 3 CONDITIONS allows: lower it in "
+            "tools/check_layers.py",
+            "c: 0 lines with a platform condition, fewer than the 1 CONDITIONS allows: lower it in "
+            "tools/check_layers.py"])
+        self.assertEqual(check_layers.condition_problems(found, {"b": 2}), [
+            "a: 1 lines with a platform condition, more than the 0 CONDITIONS allows in tools/check_layers.py: "
+            "put the difference behind platform/ (a.rs:1)"])
+
+    def test_the_groups_are_read_from_build_rs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = pathlib.Path(tmp) / "build.rs"
+            p.write_text('fn main() {\n    let groups = [\n        // ("old", false),\n'
+                         '        ("desktop", desktop),\n        (\n            "in_app_browser",\n'
+                         '            os == "android",\n        ),\n    ];\n    let other = [("x", 1)];\n}\n')
+            self.assertEqual(check_layers.groups(str(p)), ["desktop", "in_app_browser"])
+
 
 if __name__ == "__main__":
     unittest.main()

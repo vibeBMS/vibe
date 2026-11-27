@@ -155,8 +155,8 @@ pub struct AudioSettings {
     /// The sound set's music (select, decide, `.loop` files) too.
     #[serde(skip_serializing_if = "is_true")]
     pub normalize_system: bool,
-    /// Windows: the device in WASAPI exclusive mode (else shared).
-    #[cfg(windows)]
+    /// The device in WASAPI exclusive mode (else shared): Windows'; kept
+    /// on every target (one settings file for all), no effect elsewhere.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub exclusive: bool,
 }
@@ -193,7 +193,6 @@ impl Default for AudioSettings {
             normalize: true,
             normalize_target: NORMALIZE_TARGET,
             normalize_system: true,
-            #[cfg(windows)]
             exclusive: false,
         }
     }
@@ -675,7 +674,6 @@ mod tests {
                 normalize: true,
                 normalize_target: NORMALIZE_TARGET,
                 normalize_system: true,
-                #[cfg(windows)]
                 exclusive: false,
             },
             tables: vec![

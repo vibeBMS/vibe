@@ -56,7 +56,7 @@ pub struct Registry {
 macro_rules! app_wide {
     (
         $($top:ident),* ;
-        audio: $($(#[$m:meta])* $audio:ident),* ;
+        audio: $($audio:ident),* ;
         keys: $($keys:ident),* $(;)?
     ) => {
         const APP_KEYS: &[&str] = &[$(stringify!($top)),*];
@@ -67,7 +67,7 @@ macro_rules! app_wide {
         /// profile's).
         pub fn take_app_wide(into: &mut Config, from: &Config) {
             $(into.$top.clone_from(&from.$top);)*
-            $($(#[$m])* into.audio.$audio.clone_from(&from.audio.$audio);)*
+            $(into.audio.$audio.clone_from(&from.audio.$audio);)*
             $(into.keys.$keys.clone_from(&from.keys.$keys);)*
         }
     };
@@ -81,7 +81,7 @@ app_wide! {
     display, bms_dirs, scan_root, tables, archives, third_party_mirrors,
     third_party_acknowledged, name_song_folders, check_updates, language,
     discord, obs;
-    audio: buffer_frames, sample_rate, mute_inactive, #[cfg(windows)] exclusive;
+    audio: buffer_frames, sample_rate, mute_inactive, exclusive;
     keys: controllers;
 }
 
@@ -593,10 +593,7 @@ mod tests {
         c.audio.buffer_frames = 1024;
         c.audio.sample_rate = 48_000;
         c.audio.mute_inactive = false;
-        #[cfg(windows)]
-        {
-            c.audio.exclusive = true;
-        }
+        c.audio.exclusive = true;
         c.keys.controllers.p1 = Some(crate::config::PadId {
             name: "pad".into(),
             id: "1".into(),
@@ -613,9 +610,6 @@ mod tests {
             path.iter().try_fold(v.clone(), |v, k| v.get(k).cloned())
         };
         for path in keys {
-            if !cfg!(windows) && path == ["audio", "exclusive"] {
-                continue;
-            }
             assert_ne!(
                 at(&mine, &path),
                 at(&def, &path),

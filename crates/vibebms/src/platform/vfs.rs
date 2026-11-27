@@ -191,6 +191,16 @@ mod imp {
     pub fn remove_dir(dir: &Path) {
         let _ = std::fs::remove_dir_all(dir);
     }
+    /// A skin's file that came as bytes: written, its folder made (on the
+    /// web its bytes stay in memory too).
+    pub fn store_resident(p: &Path, data: Vec<u8>) {
+        if let Some(d) = p.parent() {
+            let _ = std::fs::create_dir_all(d);
+        }
+        if let Err(e) = write(p, &data) {
+            log::warn!("{}: {e}", p.display());
+        }
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
