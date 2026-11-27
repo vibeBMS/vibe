@@ -854,7 +854,7 @@ pub fn read_to_string(p: &Path) -> io::Result<String> {
 /// `p` can be read whole: it has at most `max` bytes and is no device or
 /// pipe (which have no end, whatever size they state). For the files a
 /// skin names.
-pub fn readable(p: &Path, max: u64) -> bool {
+pub(crate) fn readable(p: &Path, max: u64) -> bool {
     // (a file inside an archive or compiled in has no entry on the disk)
     #[cfg(not(target_arch = "wasm32"))]
     if std::fs::metadata(p).is_ok_and(|m| !m.is_file()) {
@@ -864,7 +864,7 @@ pub fn readable(p: &Path, max: u64) -> bool {
 }
 
 /// `p`'s bytes, if it is [`readable`] with `max`.
-pub fn read_capped(p: &Path, max: u64) -> io::Result<Vec<u8>> {
+pub(crate) fn read_capped(p: &Path, max: u64) -> io::Result<Vec<u8>> {
     if !readable(p, max) {
         let why = format!("{}: too large, or no file", p.display());
         return Err(io::Error::new(io::ErrorKind::InvalidData, why));

@@ -17,5 +17,8 @@ log.workspace = true
 [build-dependencies]
 cc = "1"
 # not called: its Lua 5.4 sources are compiled (build.rs), the version mlua
-# compiles on the other targets
+# compiles on the other targets; when it is updated, so is LUA_SHA256 in
+# build.rs (the web build stops until then)
 lua-src = "551.1.1"
+# (the hash of those sources)
+sha2.workspace = true

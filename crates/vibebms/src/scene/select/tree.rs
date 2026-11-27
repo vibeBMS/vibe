@@ -311,18 +311,20 @@ impl SelectScene {
     fn build(&self, ctx: &Ctx, node: &Node, sort: bool) -> Vec<Bar> {
         let songs = &ctx.lib.songs;
         let shown = |s: &Song| shown(ctx, s);
-        let sorted = |v: Vec<usize>| -> Vec<Bar> {
+        // with `once` (a list not of one folder), a chart in several
+        // folders once: of its copies the filters keep (as `count`)
+        let rows = |v: Vec<usize>, once: bool| -> Vec<Bar> {
             let mut v: Vec<usize> = v.into_iter().filter(|i| shown(&songs[*i])).collect();
+            if once {
+                self.charts.one_each(&mut v);
+            }
             if sort {
                 sort_songs(ctx, &mut v);
             }
             v.into_iter().map(Bar::Song).collect()
         };
-        // a list not of one folder: a chart in several folders once
-        let once = |mut v: Vec<usize>| -> Vec<Bar> {
-            self.charts.one_each(&mut v);
-            sorted(v)
-        };
+        let sorted = |v| rows(v, false);
+        let once = |v| rows(v, true);
         match node {
             Node::Close(_) => Vec::new(),
             Node::Root => {
@@ -542,26 +544,20 @@ impl SelectScene {
                 for w in &ev.works {
                     // the folder it was downloaded to, else the charts with its
                     // title and artist (a chart in several folders once)
-                    let mine: Vec<usize> = match ctx.net.archives.installed_dir(&ev.name, w.num) {
+                    let dir = ctx.net.archives.installed_dir(&ev.name, w.num);
+                    let mine: Vec<usize> = match &dir {
                         Some(dir) => {
                             let dir = root.join(dir);
                             (0..songs.len())
                                 .filter(|i| Path::new(&songs[*i].path).starts_with(&dir))
                                 .collect()
                         }
-                        None => {
-                            let mut v = (0..songs.len())
-                                .filter(|i| {
-                                    crate::placement::same_title(&songs[*i].title, &w.title)
-                                        && crate::placement::same_artist(
-                                            &songs[*i].artist,
-                                            &w.artist,
-                                        )
-                                })
-                                .collect();
-                            self.charts.one_each(&mut v);
-                            v
-                        }
+                        None => (0..songs.len())
+                            .filter(|i| {
+                                crate::placement::same_title(&songs[*i].title, &w.title)
+                                    && crate::placement::same_artist(&songs[*i].artist, &w.artist)
+                            })
+                            .collect(),
                     };
                     if mine.is_empty() {
                         bars.push(Bar::Missing(Missing {
@@ -578,7 +574,7 @@ impl SelectScene {
                             ..Missing::default()
                         }));
                     } else {
-                        bars.extend(sorted(mine));
+                        bars.extend(rows(mine, dir.is_none()));
                     }
                 }
                 bars
@@ -1215,6 +1211,64 @@ mod tests {
         // RANDOM SELECT draws from the rows
         let bars = s.listing(&ctx, &Node::All);
         assert_eq!(random_candidates(&ctx, &bars).len(), 2);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// One file held as a BMS and a PMS (the extension sets the mode):
+    /// under a key filter each list shows the copy it keeps, and every
+    /// folder's count is its rows.
+    #[test]
+    fn count_and_rows_agree_under_a_filter() {
+        let root = std::env::temp_dir().join(format!("vibebms-filtered-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut ctx = Ctx::for_test(root.clone());
+        let pms = Song {
+            path: "/bms/b/x.pms".into(),
+            mode: PlayMode::Popn9K,
+            ..copy("x", "b", "sx")
+        };
+        ctx.lib.songs = Arc::new(vec![copy("x", "a", "sx"), pms, copy("y", "c", "sy")]);
+        let mut lib = crate::library::Library::open(&root, &root, |_, _| None);
+        lib.toggle_favorite(&ctx.lib.songs[0], false);
+        ctx.lib.db = Some(lib);
+        let s = SelectScene::new(&mut ctx);
+        // the rows of `node`, or of the folders it holds, against `count`
+        fn agree(s: &SelectScene, ctx: &Ctx, node: &Node, count: usize) {
+            let bars = s.build(ctx, node, true);
+            let rows = bars.iter().filter(|b| matches!(b, Bar::Song(_))).count();
+            let mut folders = 0;
+            for b in &bars {
+                if let Bar::Folder { node: n, count, .. } = b {
+                    folders += count;
+                    agree(s, ctx, n, *count);
+                }
+            }
+            assert_eq!(rows + folders, count, "{node:?}");
+        }
+        for (filter, all) in [(KeyFilter::All, 2), (KeyFilter::K9, 1), (KeyFilter::K7, 2)] {
+            ctx.config.select.key_filter = filter;
+            let mut lists = 0;
+            for b in s.build(&ctx, &Node::Root, true) {
+                let Bar::Folder { node, count, .. } = b else {
+                    continue;
+                };
+                if matches!(
+                    node,
+                    Node::All | Node::Favorites | Node::Smart(_) | Node::Folder(_)
+                ) {
+                    agree(&s, &ctx, &node, count);
+                    lists += 1;
+                }
+                if node == Node::All {
+                    assert_eq!(count, all, "{filter:?}");
+                }
+            }
+            assert!(lists >= 8, "{filter:?}");
+            let found = paths(&s, &ctx, &Node::Search("x".into()));
+            assert_eq!(found.len(), 1, "{filter:?}");
+        }
+        ctx.config.select.key_filter = KeyFilter::K9;
+        assert_eq!(paths(&s, &ctx, &Node::All), ["/bms/b/x.pms"]);
         std::fs::remove_dir_all(&root).ok();
     }
 

@@ -10,20 +10,27 @@
 
 use std::path::{Path, PathBuf};
 
-/// Lua 5.4's sources in lua-src as cargo unpacked it: the version
-/// Cargo.lock names, in the registry's sources (CARGO_HOME). lua-src does
-/// not tell where its files are, and a build dependency is always fetched
-/// and unpacked there.
-fn lua_sources(here: &Path) -> PathBuf {
+/// SHA-256 of the Lua 5.4 sources compiled ([`hash`]): those of lua-src
+/// 551.1.1. Cargo checks the crate it fetches against Cargo.lock, but the
+/// sources here are found by name among those unpacked (CARGO_HOME), so
+/// they are checked here. When lua-src is updated (Cargo.toml and
+/// Cargo.lock; Dependabot does it on its own) the web build stops until
+/// this is set again: see what changed in Lua's sources, then set it to
+/// the hash the build names.
+const LUA_SHA256: &str = "60f5cf723a4418912c16fb560597fd541bfd68513964774704b666cf667ce976";
+
+/// The version of lua-src Cargo.lock names (one: the web's Lua is the
+/// other targets').
+fn locked_version(here: &Path) -> String {
     let lock = here
         .ancestors()
         .map(|d| d.join("Cargo.lock"))
         .find(|p| p.is_file())
         .expect("no Cargo.lock above the crate");
     let text = std::fs::read_to_string(&lock).unwrap();
-    let version = text
+    let mut versions: Vec<String> = text
         .split("[[package]]")
-        .find_map(|p| {
+        .filter_map(|p| {
             let field = |k: &str| {
                 p.lines()
                     .find_map(|l| l.strip_prefix(k))
@@ -33,40 +40,95 @@ fn lua_sources(here: &Path) -> PathBuf {
                 .then(|| field("version = "))
                 .flatten()
         })
-        .expect("Cargo.lock has no lua-src");
+        .collect();
+    match versions.len() {
+        0 => panic!("Cargo.lock has no lua-src"),
+        1 => versions.remove(0),
+        _ => panic!(
+            "Cargo.lock has lua-src {}: the web build compiles one Lua, the one the other \
+             targets compile; make every crate take one version",
+            versions.join(" and ")
+        ),
+    }
+}
+
+/// The files of Lua's sources in `dir` that are compiled or included
+/// (`.c`, `.h`), in name order.
+fn sources(dir: &Path) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_file() && p.extension().is_some_and(|e| e == "c" || e == "h"))
+        .collect();
+    files.sort();
+    files
+}
+
+/// SHA-256 of `files` in their order: of each, its name, a zero byte, its
+/// length (8 bytes, little-endian) and its bytes.
+fn hash(files: &[PathBuf]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    for f in files {
+        let bytes = std::fs::read(f).unwrap();
+        h.update(f.file_name().unwrap().as_encoded_bytes());
+        h.update([0]);
+        h.update((bytes.len() as u64).to_le_bytes());
+        h.update(&bytes);
+    }
+    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Lua 5.4's sources in lua-src as cargo unpacked it (the version
+/// Cargo.lock names, in the registry's sources: CARGO_HOME) and its files
+/// compiled or included: those whose hash is [`LUA_SHA256`]. lua-src does
+/// not tell where its files are, and a build dependency is always fetched
+/// and unpacked there.
+fn lua_sources(here: &Path) -> (PathBuf, Vec<PathBuf>) {
+    let version = locked_version(here);
     let home = std::env::var_os("CARGO_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| Path::new(&h).join(".cargo")))
         .expect("neither CARGO_HOME nor HOME is set");
-    let mut registries: Vec<_> = std::fs::read_dir(home.join("registry/src"))
+    let mut found: Vec<PathBuf> = std::fs::read_dir(home.join("registry/src"))
         .into_iter()
         .flatten()
         .flatten()
         .map(|e| e.path().join(format!("lua-src-{version}")))
-        .filter(|d| d.is_dir())
+        .flat_map(|d| std::fs::read_dir(d).into_iter().flatten().flatten())
+        .map(|e| e.path())
+        .filter(|d| {
+            d.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("lua-5.4."))
+                && d.join("lua.h").is_file()
+        })
         .collect();
-    registries.sort();
-    for crate_dir in registries {
-        let mut lua: Vec<_> = std::fs::read_dir(&crate_dir)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .map(|e| e.path())
-            .filter(|d| {
-                d.file_name()
-                    .and_then(|n| n.to_str())
-                    .is_some_and(|n| n.starts_with("lua-5.4."))
-                    && d.join("lua.h").is_file()
-            })
-            .collect();
-        if lua.len() == 1 {
-            return lua.remove(0);
+    found.sort();
+    let mut seen = Vec::new();
+    for dir in found {
+        let files = sources(&dir);
+        let got = hash(&files);
+        if got == LUA_SHA256 {
+            return (dir, files);
         }
+        seen.push(format!("{} has {got}", dir.display()));
+    }
+    if seen.is_empty() {
+        panic!(
+            "lua-src {version}'s Lua 5.4 sources are not in {}/registry/src \
+             (lua-src is a build dependency: cargo unpacks it there)",
+            home.display()
+        );
     }
     panic!(
-        "lua-src {version}'s Lua 5.4 sources are not in {}/registry/src \
-         (lua-src is a build dependency: cargo unpacks it there)",
-        home.display()
+        "lua-src {version}'s Lua 5.4 sources are not the ones LUA_SHA256 in \
+         crates/vibebms-lua-web/build.rs names ({LUA_SHA256}): {}. If lua-src was \
+         updated, see what changed in its Lua sources and set LUA_SHA256 to the hash \
+         of the ones to compile",
+        seen.join("; ")
     );
 }
 
@@ -113,18 +175,14 @@ fn main() {
     // as lua-src builds Lua 5.4 for the other targets (its sources, not
     // its build: that one is for WASI)
     let _ = lua_src::Lua54;
-    let lua = lua_sources(here);
+    let (lua, files) = lua_sources(here);
     println!("cargo:rerun-if-changed={}", lua.display());
     b.define("LUA_COMPAT_5_3", None);
     b.include(&lua);
-    let mut files: Vec<_> = std::fs::read_dir(&lua)
-        .unwrap()
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|e| e == "c"))
-        .collect();
-    files.sort();
-    b.files(files).file(here.join("shim/libc.c"));
+    let compiled = files
+        .into_iter()
+        .filter(|p| p.extension().is_some_and(|e| e == "c"));
+    b.files(compiled).file(here.join("shim/libc.c"));
     if let Err(e) = b.try_compile("vibebms_lua") {
         panic!(
             "compiling Lua for the web needs clang with the WebAssembly target \

@@ -59,6 +59,10 @@ pub struct Song {
     /// The long notes by type (`LnProfile::bits`); `None` in libraries
     /// scanned before it was stored.
     pub ln_profile: Option<u8>,
+    /// No sound file is in its folder (a chart alone, as in a downloads or
+    /// backup folder), as the last scan found it: of a chart's copies, one
+    /// with sounds is taken first (`charts`). Never for one in an archive.
+    pub bare: bool,
     /// When its file was last changed (s; the scan's stamp): when it came,
     /// for the NEW sort.
     #[serde(skip)]
@@ -785,6 +789,34 @@ struct Slot {
 }
 
 impl Slot {
+    /// The note of `m` in work at `at`.
+    fn line(m: &Mark, at: At) -> Vec<u8> {
+        let mut line = serde_json::to_vec(&(m, at)).unwrap_or_default();
+        line.push(b'\n');
+        line
+    }
+
+    /// `m`'s note in the slot at `path`, noted at `from`, noted again as it
+    /// is read on (at most once a second): how long it was in work counts
+    /// from when it last moved.
+    fn moving(path: &Path, m: &Mark, from: At) -> arcfs::Moved {
+        let slot = Slot {
+            path: path.to_path_buf(),
+            #[cfg(not(target_arch = "wasm32"))]
+            file: None,
+        };
+        let m = m.clone();
+        let last = Mutex::new((slot, from.ms));
+        Arc::new(move || {
+            let now = At::now();
+            let mut last = last.lock().unwrap_or_else(|e| e.into_inner());
+            if now.ms >= last.1 + 1000 {
+                last.1 = now.ms;
+                last.0.put(&Slot::line(&m, now));
+            }
+        })
+    }
+
     /// `line` (ending in a line break) in place of what it holds: the
     /// rest of a longer line before it stays behind, and is not read.
     #[cfg(not(target_arch = "wasm32"))]
@@ -822,8 +854,8 @@ impl Slot {
         let _ = vfs::remove_file(&self.path);
     }
 
-    /// The file it noted, if it was reading one, and when it was begun
-    /// (not known in a note of an older version).
+    /// The file it noted, if it was reading one, and when it was begun or
+    /// last read on (not known in a note of an older version).
     fn left(path: &Path) -> Option<(Mark, Option<At>)> {
         let b = vfs::read(path).ok()?;
         let line = b.split(|c| *c == b'\n').next()?;
@@ -875,10 +907,13 @@ fn stop_file(songs_file: &Path) -> PathBuf {
 /// The game stops in order (it is closed, or put away where the system may
 /// end it unasked: a phone app sent to the background, a page left): until
 /// it goes on ([`going_on`]) or starts again, what a scan reads is no
-/// suspect if the game ends, unless it was begun before this and in work for
+/// suspect if the game ends, unless it had not moved since before this for
 /// longer than a file of its size takes ([`Marks::open`]). A scan goes on in
 /// the background, and the system may end the game there at any time.
 pub fn stopping(songs_file: &Path) {
+    if vfs::is_file(&died_file(songs_file)) {
+        return;
+    }
     let f = stop_file(songs_file);
     let now = At::now();
     // (a stop of this run not gone on from stands: what was begun after it
@@ -893,6 +928,38 @@ pub fn stopping(songs_file: &Path) {
     let _ = vfs::write(&f, &serde_json::to_vec(&now).unwrap_or_default());
 }
 
+/// Beside the song cache: the scan's task died while the game went on (on
+/// the web a panic ends the task, not the page): what it was reading counts
+/// as at a crash at the next start, however the game stops meanwhile.
+fn died_file(songs_file: &Path) -> PathBuf {
+    songs_file.with_file_name("scan-died")
+}
+
+/// The scan of `songs_file` in work dies ([`died_file`]).
+#[cfg(any(target_arch = "wasm32", test))]
+fn died(songs_file: &Path) {
+    let _ = vfs::remove_file(&stop_file(songs_file));
+    let _ = vfs::write(&died_file(songs_file), b"");
+}
+
+/// The scan of `songs_file` is in work (`None`: none is): on the web, a
+/// panic meanwhile is the scan's, and it [`died`].
+#[cfg(target_arch = "wasm32")]
+fn scanning(songs_file: Option<&Path>) {
+    static IN_WORK: Mutex<Option<PathBuf>> = Mutex::new(None);
+    static HOOK: std::sync::Once = std::sync::Once::new();
+    HOOK.call_once(|| {
+        let before = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            if let Some(f) = IN_WORK.try_lock().ok().and_then(|f| f.clone()) {
+                died(&f);
+            }
+            before(info);
+        }));
+    });
+    *IN_WORK.lock().unwrap_or_else(|e| e.into_inner()) = songs_file.map(Path::to_path_buf);
+}
+
 /// The game goes on after [`stopping`] (back in the foreground).
 pub fn going_on(songs_file: &Path) {
     let f = stop_file(songs_file);
@@ -901,10 +968,11 @@ pub fn going_on(songs_file: &Path) {
     }
 }
 
-/// How long a file of `size` bytes may be in work when the game is stopped
-/// in order, and not be a suspect for it (seconds): a minute, and the file
-/// read at 2 MiB a second (a multi-GB solid 7z or RAR takes minutes on a
-/// phone). Longer, it is taken to hang.
+/// How long a file of `size` bytes may be in work without moving (an
+/// archive is noted again as it is read on) when the game is stopped in
+/// order, and not be a suspect for it (seconds): a minute, and the file
+/// read at 2 MiB a second (a chart is parsed without a move). Longer, it is
+/// taken to hang.
 fn read_time(size: i64) -> u64 {
     60 + size.max(0) as u64 / (2 << 20)
 }
@@ -937,9 +1005,15 @@ impl Marks {
                 .and_then(|b| serde_json::from_slice(&b).ok())
                 .unwrap_or_default(),
         };
-        // (when, if it was this version that stopped)
-        let stopped: Option<Option<At>> =
-            (vfs::read(&stop_file(songs_file)).ok()).map(|b| serde_json::from_slice(&b).ok());
+        // (when, if it was this version that stopped; none after the scan
+        // died: the stop came after)
+        let died = vfs::is_file(&died_file(songs_file));
+        let stopped: Option<Option<At>> = (vfs::read(&stop_file(songs_file)).ok())
+            .filter(|_| !died)
+            .map(|b| serde_json::from_slice(&b).ok());
+        if died {
+            let _ = vfs::remove_file(&died_file(songs_file));
+        }
         // a stop of an earlier run: this one has not stopped since it began
         // (a stop of this one stays until it goes on: this scan may be in the
         // background)
@@ -950,7 +1024,7 @@ impl Marks {
             .map(|k| songs_file.with_file_name(format!("scan-reading-{k}")))
             .collect();
         // stopped in order, the game could not tell being ended from a crash:
-        // only a file it was reading too long as it stopped counts
+        // only a file it had not read on for too long as it stopped counts
         let crashed = |(Mark(_, stamp), begun): &(Mark, Option<At>)| match stopped {
             None => true,
             Some(stop) => stop.zip(*begun).is_some_and(|(t, b)| {
@@ -1008,9 +1082,7 @@ impl Marks {
         // (more threads than slots: the first one's turn is waited for)
         let mut slot =
             free.unwrap_or_else(|| self.slots[0].lock().unwrap_or_else(|e| e.into_inner()));
-        let mut line = serde_json::to_vec(&(m, At::now())).unwrap_or_default();
-        line.push(b'\n');
-        slot.put(&line);
+        slot.put(&Slot::line(m, At::now()));
         slot
     }
 
@@ -1026,15 +1098,16 @@ impl Marks {
     fn each(&self, n: usize, mark: impl Fn(usize) -> Mark + Sync, work: impl Fn(usize) + Sync) {
         let alone = |i: &usize| self.suspect(&mark(*i)).is_some_and(|s| !s.skip);
         let (first, rest): (Vec<usize>, Vec<usize>) = (0..n).partition(alone);
+        let noted = |i: usize| {
+            let m = mark(i);
+            let slot = self.note(&m);
+            arcfs::watched(Slot::moving(&slot.path, &m, At::now()), || work(i));
+        };
         for i in first {
-            let _noted = self.note(&mark(i));
-            work(i);
+            noted(i);
         }
         self.clear();
-        crate::platform::parallel_for(rest.len(), |k| {
-            let _noted = self.note(&mark(rest[k]));
-            work(rest[k]);
-        });
+        crate::platform::parallel_for(rest.len(), |k| noted(rest[k]));
         self.clear();
     }
 
@@ -1061,6 +1134,8 @@ impl Marks {
 #[derive(Default)]
 struct Found {
     charts: Vec<PathBuf>,
+    /// Folders that hold a sound file.
+    voiced: HashSet<PathBuf>,
     /// Archives (read as folders: `platform::arcfs`).
     archives: Vec<PathBuf>,
     /// Folders that cannot be read (a drive not mounted, no permission).
@@ -1093,6 +1168,10 @@ fn walk(dir: &Path, depth: usize, skip: &HashSet<PathBuf>, out: &mut Found) {
             out.charts.push(e.path);
         } else if arcfs::is_archive(&e.path) {
             out.archives.push(e.path);
+        } else if (e.path.extension().and_then(|x| x.to_str()))
+            .is_some_and(|x| vfs::AUDIO_EXTS.iter().any(|a| x.eq_ignore_ascii_case(a)))
+        {
+            out.voiced.insert(dir.to_path_buf());
         }
     }
 }
@@ -1345,6 +1424,7 @@ pub fn song_from_chart(path: &Path, folder: String, c: &vibebms_core::Chart) -> 
         stagefile: m.stagefile.clone(),
         banner: m.banner.clone(),
         preview: m.preview.clone(),
+        bare: false,
         added: 0,
     }
 }
@@ -1362,7 +1442,9 @@ pub fn scan(
     skip: HashSet<PathBuf>,
     progress: Arc<ScanProgress>,
 ) {
-    let known_records = load_songs(&songs_file);
+    #[cfg(target_arch = "wasm32")]
+    scanning(Some(&songs_file));
+    let mut known_records = load_songs(&songs_file);
     // charts read before the library kept their judge rank and note
     // kinds, or the types of their long notes, are read again (once)
     let known: HashMap<String, (i64, i64)> = known_records
@@ -1380,6 +1462,7 @@ pub fn scan(
     // (each with the root it is below)
     let mut archives: Vec<(PathBuf, &Path)> = Vec::new();
     let mut unreadable: Vec<PathBuf> = Vec::new();
+    let mut voiced: HashSet<PathBuf> = HashSet::new();
     for root in &roots {
         *progress.current.lock().unwrap() = root.display().to_string();
         let mut found = Found::default();
@@ -1390,6 +1473,7 @@ pub fn scan(
         }
         archives.extend(found.archives.into_iter().map(|a| (a, root.as_path())));
         unreadable.extend(found.unreadable);
+        voiced.extend(found.voiced);
         progress.found.store(files.len(), Ordering::Relaxed);
     }
     // archives: those that changed read (their charts in `pre`), every
@@ -1554,7 +1638,23 @@ pub fn scan(
         progress.parsed.fetch_add(1, Ordering::Relaxed);
     };
     marks.each(todo.len(), mark, parse_one);
-    let new = results.into_inner().unwrap();
+    let mut new = results.into_inner().unwrap();
+    // whether each chart has a sound beside it, as its folder is now (of
+    // a folder that cannot be read now, as it was)
+    let bare =
+        |p: &Path| arcfs::split(p).is_none() && p.parent().is_some_and(|d| !voiced.contains(d));
+    for r in &mut new {
+        r.song.bare = bare(Path::new(&r.song.path));
+    }
+    let mut moved = 0;
+    for r in &mut known_records {
+        let p = Path::new(&r.song.path);
+        if !unreadable.iter().any(|d| p.starts_with(d)) {
+            let b = bare(p);
+            moved += usize::from(r.song.bare != b);
+            r.song.bare = b;
+        }
+    }
     // the archives' indexes: those found (and those in folders that cannot
     // be read now, or not below these roots) kept
     let found_archives: HashSet<&Path> = archives.iter().map(|(a, _)| a.as_path()).collect();
@@ -1574,7 +1674,7 @@ pub fn scan(
         .iter()
         .filter(|r| !seen.contains(&r.song.path))
         .count();
-    let changed = !new.is_empty() || removed > 0;
+    let changed = !new.is_empty() || removed > 0 || moved > 0;
     if changed {
         let updated: HashSet<String> = new.iter().map(|r| r.song.path.clone()).collect();
         let mut all: Vec<SongRecord> = known_records
@@ -1600,6 +1700,8 @@ pub fn scan(
         log::info!("scan finished: {} charts, no changes", seen.len());
     }
     marks.finish();
+    #[cfg(target_arch = "wasm32")]
+    scanning(None);
     progress.changed.store(changed, Ordering::Release);
     progress.done.store(true, Ordering::Release);
 }
@@ -2427,6 +2529,91 @@ mod tests {
         ended_reading_b();
         ended_reading_b();
         assert_eq!(run(), ["A"]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The scan's task died (a panic, on the web): leaving the game after
+    /// it, in order, does not excuse what it was reading.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_scan_that_died_is_a_strike_however_the_game_stops() {
+        let dir = std::env::temp_dir().join(format!("vibebms-lib-died-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let songs = dir.join("pack");
+        std::fs::create_dir_all(&songs).unwrap();
+        let cache = dir.join("cache");
+        let file = cache.join("songs.json");
+        std::fs::write(songs.join("a.bme"), "#TITLE A\n#00111:01\n").unwrap();
+        let b = songs.join("b.bme");
+        std::fs::write(&b, "#TITLE B\n#00111:01\n").unwrap();
+        let run = || {
+            let p = Arc::new(ScanProgress::default());
+            scan(file.clone(), vec![songs.clone()], [cache.clone()].into(), p);
+            let mut t: Vec<String> = cached_songs(&file).into_iter().map(|s| s.title).collect();
+            t.sort();
+            t
+        };
+        assert_eq!(run(), ["A", "B"]);
+        std::fs::write(&b, "#TITLE B2\n#00111:01\n").unwrap();
+        // the task dies reading b, and the page is left in order (before
+        // it died too)
+        let died_reading_b = || {
+            stopping(&file);
+            let marks = Marks::open(&file, false);
+            drop(marks.note(&Mark::of(&b, vfs::stamp(&b))));
+            died(&file);
+            stopping(&file);
+            assert!(!vfs::is_file(&stop_file(&file)));
+        };
+        died_reading_b();
+        died_reading_b();
+        assert_eq!(run(), ["A"]);
+        // the next stop counts again
+        stopping(&file);
+        assert!(vfs::is_file(&stop_file(&file)));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// An archive read on is noted again as it moves, at most once a
+    /// second: a stop in order soon after its last move is no strike, however
+    /// long ago it was begun; one long after it is.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_slow_read_that_moves_is_no_strike() {
+        let dir = std::env::temp_dir().join(format!("vibebms-lib-moves-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cache = dir.join("cache");
+        std::fs::create_dir_all(&cache).unwrap();
+        let file = cache.join("songs.json");
+        let slot = cache.join("scan-reading-0");
+        let m = Mark("pack.7z".into(), (1, 1));
+        let run = At::now().run;
+        let begun = At { run, ms: 0 };
+        while At::now().ms < 1000 {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        // stopped in order `after` ms after it last moved
+        let stopped = |after: u64| -> bool {
+            std::fs::write(&slot, Slot::line(&m, begun)).unwrap();
+            let moved = Slot::moving(&slot, &m, begun);
+            moved();
+            let (_, at) = Slot::left(&slot).unwrap();
+            let at = at.unwrap();
+            assert!(at.ms >= 1000);
+            // (at most once a second)
+            std::fs::write(&slot, Slot::line(&m, at)).unwrap();
+            moved();
+            assert_eq!(Slot::left(&slot).unwrap().1.unwrap().ms, at.ms);
+            let stop = At {
+                run,
+                ms: at.ms + after,
+            };
+            std::fs::write(stop_file(&file), serde_json::to_vec(&stop).unwrap()).unwrap();
+            let marks = Marks::open(&file, false);
+            marks.suspect(&m).is_some()
+        };
+        assert!(!stopped(5_000));
+        assert!(stopped(3_600_000));
         std::fs::remove_dir_all(&dir).ok();
     }
 

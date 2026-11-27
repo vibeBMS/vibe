@@ -1,7 +1,9 @@
 //! One chart held in several folders. Records of one SHA-256 are one
 //! chart: the lists that are not a view of one folder show it once, and
-//! wherever a chart is found by its hash the same copy of it is taken, the
-//! first in library order, a loose file before one inside an archive. An
+//! wherever a chart is found by its hash the same copy of it is taken: a
+//! loose file with a sound beside it, else another loose one (a chart
+//! alone, as in a downloads folder, likely plays silent), else one inside
+//! an archive; the first in library order of those alike. An
 //! MD5 can be shared by different charts (a collision, or a file made to
 //! match one): then the title and artist the finder was given choose.
 
@@ -18,12 +20,17 @@ pub struct Charts {
     chart: Vec<u32>,
     /// Each chart's copy taken (a record).
     taken: Vec<usize>,
-    /// The records inside an archive.
-    packed: Vec<bool>,
+    /// Each record's class: (inside an archive, no sound beside it).
+    class: Vec<(bool, bool)>,
     by_sha: HashMap<String, u32>,
     /// The charts of each MD5, in the order of their copies taken.
     by_md5: HashMap<String, Vec<u32>>,
 }
+
+/// Of the charts of one MD5, how many a lookup compares names with: a pack
+/// can hold thousands of one MD5 (collisions are cheap to chain), and a
+/// table thousands of rows of it.
+const NAMED_OF: usize = 16;
 
 /// A hash as it is looked up: trimmed, lower case.
 fn key(h: &str) -> Cow<'_, str> {
@@ -39,7 +46,7 @@ impl Charts {
     pub fn new(songs: &[Song]) -> Charts {
         let mut c = Charts {
             chart: Vec::with_capacity(songs.len()),
-            packed: songs.iter().map(Song::in_archive).collect(),
+            class: songs.iter().map(|s| (s.in_archive(), s.bare)).collect(),
             ..Default::default()
         };
         for (i, s) in songs.iter().enumerate() {
@@ -47,7 +54,7 @@ impl Charts {
             let n = match c.by_sha.get(sha.as_ref()) {
                 Some(&n) => {
                     let t = &mut c.taken[n as usize];
-                    if c.packed[*t] && !c.packed[i] {
+                    if c.class[i] < c.class[*t] {
                         *t = i;
                     }
                     n
@@ -75,20 +82,15 @@ impl Charts {
         c
     }
 
-    /// The order copies are taken in: loose files first, then by library
-    /// order.
-    fn rank(&self, i: usize) -> (bool, usize) {
-        (self.packed[i], i)
+    /// The order copies are taken in: by class (loose files with a sound
+    /// beside them first), then by library order.
+    fn rank(&self, i: usize) -> ((bool, bool), usize) {
+        (self.class[i], i)
     }
 
     /// How many charts there are (copies counted once).
     pub fn count(&self) -> usize {
         self.taken.len()
-    }
-
-    /// Whether record `i` is the copy of its chart that is taken.
-    pub fn is_taken(&self, i: usize) -> bool {
-        self.taken[self.chart[i] as usize] == i
     }
 
     /// The chart of this SHA-256 (its copy taken).
@@ -97,9 +99,9 @@ impl Charts {
         Some(self.taken[n as usize])
     }
 
-    /// The chart of this MD5: of several charts with it, the first whose
-    /// title (and artist, when one is given) are `title`'s and `artist`'s,
-    /// else the first.
+    /// The chart of this MD5: of several charts with it, the first (of the
+    /// first [`NAMED_OF`]) whose title (and artist, when one is given) are
+    /// `title`'s and `artist`'s, else the first.
     pub fn by_md5(&self, songs: &[Song], md5: &str, title: &str, artist: &str) -> Option<usize> {
         let found = self.by_md5.get(key(md5).as_ref())?;
         let copies = || found.iter().map(|&n| self.taken[n as usize]);
@@ -109,7 +111,7 @@ impl Charts {
                 && (artist.is_empty() || same_artist(&s.artist, artist))
         };
         (found.len() > 1 && !title.is_empty())
-            .then(|| copies().find(named))
+            .then(|| copies().take(NAMED_OF).find(named))
             .flatten()
             .or_else(|| copies().next())
     }
@@ -180,7 +182,8 @@ mod tests {
         assert_eq!(c.by_sha("s3"), Some(5));
         assert_eq!(c.by_sha(""), None);
         assert_eq!(c.by_md5(&songs, "", "", ""), None);
-        let taken: Vec<usize> = (0..songs.len()).filter(|&i| c.is_taken(i)).collect();
+        let mut taken: Vec<usize> = (0..songs.len()).collect();
+        c.one_each(&mut taken);
         assert_eq!(taken, [1, 3, 4, 5]);
         let mut v = vec![6, 4, 2, 0, 3, 5];
         c.one_each(&mut v);
@@ -210,5 +213,64 @@ mod tests {
         // the SHA-256 needs no hint
         assert_eq!(c.find(&songs, "m", "s1", "Real Song", ""), Some(0));
         assert_eq!(c.find(&songs, "m", "s9", "Real Song", ""), Some(1));
+    }
+
+    /// Thousands of charts of one MD5 and a table of thousands of rows of
+    /// it: each row looks at a few of them, not at all.
+    #[test]
+    fn many_charts_of_one_md5_are_looked_up_quickly() {
+        // (titles as long as many are)
+        let title = |k: usize| format!("T{k} - a song with a long title [ANOTHER] -remix-");
+        let songs: Vec<Song> = (0..5000)
+            .map(|k| song(&format!("/bms/{k}/x.bms"), &format!("s{k}"), "m", &title(k)))
+            .collect();
+        let c = Charts::new(&songs);
+        let begun = std::time::Instant::now();
+        for _ in 0..5000 {
+            assert_eq!(c.by_md5(&songs, "m", &title(99_999), ""), Some(0));
+        }
+        // (all of them, one by one: minutes)
+        assert!(begun.elapsed().as_secs() < 10, "{:?}", begun.elapsed());
+        assert_eq!(c.by_md5(&songs, "m", &title(15), ""), Some(15));
+        assert_eq!(c.by_md5(&songs, "m", &title(16), ""), Some(0));
+    }
+
+    /// Of a chart's loose copies, one with a sound beside it is taken (a
+    /// chart alone, as in a downloads folder, is likely to play silent);
+    /// among those alike, the first in library order.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_copy_with_its_sounds_is_taken() {
+        use crate::library::{cached_songs, scan, ScanProgress};
+        use std::sync::Arc;
+        let dir = std::env::temp_dir().join(format!("vibebms-charts-bare-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let chart = b"#TITLE X\n#WAV01 01.wav\n#00111:01\n";
+        for d in ["a", "b", "c"] {
+            std::fs::create_dir_all(dir.join(d)).unwrap();
+            std::fs::write(dir.join(d).join("x.bms"), chart).unwrap();
+        }
+        std::fs::write(dir.join("b/01.WAV"), b"RIFF").unwrap();
+        std::fs::write(dir.join("c/01.ogg"), b"OggS").unwrap();
+        let cache = dir.join("cache");
+        let file = cache.join("songs.json");
+        let taken = || {
+            let p = Arc::new(ScanProgress::default());
+            scan(file.clone(), vec![dir.clone()], [cache.clone()].into(), p);
+            let songs = cached_songs(&file);
+            let c = Charts::new(&songs);
+            let i = c.by_sha(&songs[0].sha256).unwrap();
+            let mut v: Vec<usize> = (0..songs.len()).collect();
+            c.one_each(&mut v);
+            assert_eq!(v, [i]);
+            songs[i].path.clone()
+        };
+        assert_eq!(taken(), dir.join("b/x.bms").to_string_lossy());
+        // its sound gone, at the next scan
+        std::fs::remove_file(dir.join("b/01.WAV")).unwrap();
+        assert_eq!(taken(), dir.join("c/x.bms").to_string_lossy());
+        std::fs::remove_file(dir.join("c/01.ogg")).unwrap();
+        assert_eq!(taken(), dir.join("a/x.bms").to_string_lossy());
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

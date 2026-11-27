@@ -571,8 +571,9 @@ pub fn parallel_for<F: Fn(usize) + Sync>(n: usize, max_threads: usize, f: F) {
 /// their order: the same at every load. Each fits whole up to the first
 /// that does not, which is cut where the budget ends, and the ones after it
 /// are left out. One that came out shorter is decoded `again` with what is
-/// left, and goes on the walk if it is whole then. That one cut and the ones
-/// left out (that were decoded), if any.
+/// left, and goes on the walk if it is whole then; one that does not decode
+/// then is left out. That one cut and the ones left out (that were
+/// decoded), if any.
 fn fit_in_order(
     decoded: &mut [Option<Decoded>],
     most: usize,
@@ -590,10 +591,44 @@ fn fit_in_order(
             None if !let_go[m] => continue,
             short => {
                 drop(short);
+                // Decoded again beside the whole ones after it: what is held
+                // stays within the budget (those taken, those after it and
+                // its room are `most`). The shorter ones after it go, being
+                // decoded again in their turn anyway; while it comes out
+                // short, whole ones from the last, until its room is twice
+                // what it was and a sixteenth of what is left at least: it is
+                // decoded at most six times.
+                let mut held = 0;
                 for k in m + 1..decoded.len() {
-                    let_go[k] |= decoded[k].take().is_some();
+                    if matches!(decoded[k], Some((_, true))) {
+                        decoded[k] = None;
+                        let_go[k] = true;
+                    } else if let Some((s, _)) = &decoded[k] {
+                        held += s.bytes();
+                    }
                 }
-                again(m, &Budget::new(left, u64::MAX)).unwrap_or_else(|| (Sample::default(), true))
+                let d = loop {
+                    let room = left.saturating_sub(held);
+                    let d = again(m, &Budget::new(room, u64::MAX));
+                    if held == 0 || !matches!(d, Some((_, true))) {
+                        break d;
+                    }
+                    let want = (2 * room).max(left / 16).max(room + 1).min(left);
+                    for k in (m + 1..decoded.len()).rev() {
+                        if left.saturating_sub(held) >= want {
+                            break;
+                        }
+                        if let Some((s, _)) = decoded[k].take() {
+                            held -= s.bytes();
+                            let_go[k] = true;
+                        }
+                    }
+                };
+                match d {
+                    Some(d) => d,
+                    // (it does not decode now: as one that never did)
+                    None => continue,
+                }
             }
         };
         if !starved && s.bytes() <= left {
@@ -1018,6 +1053,52 @@ mod tests {
         let mut d = vec![Some((sample(50), false)), None, Some((sample(30), false))];
         assert_eq!(fit_in_order(&mut d, 160, again), None);
         assert_eq!(lens(&d), [Some(50), None, Some(30)]);
+    }
+
+    /// One that had less than its turn is decoded again beside the whole
+    /// ones after it while they all fit: those are kept, not decoded again.
+    /// One that does not decode the second time is left out alone.
+    #[test]
+    fn a_sound_decoded_again_keeps_the_ones_after_it() {
+        let lens = [50, 10, 20, 30];
+        let decode = |frames: usize, b: &Budget| {
+            let got = b.take(frames * 2) / 2;
+            let s = Sample {
+                channels: 1,
+                frames: got,
+                data: vec![1; got],
+            };
+            (s, got < frames)
+        };
+        let short = |k: usize| Some(decode(lens[k], &Budget::new(2, u64::MAX)));
+        let asked = std::cell::RefCell::new(Vec::new());
+        let again = |k: usize, b: &Budget| {
+            asked.borrow_mut().push(k);
+            Some(decode(lens[k], b))
+        };
+        let frames = |d: &[Option<Decoded>]| -> Vec<usize> {
+            d.iter()
+                .map(|d| d.as_ref().map_or(0, |d| d.0.frames))
+                .collect()
+        };
+        let whole = |k: usize| Some(decode(lens[k], &Budget::new(usize::MAX, u64::MAX)));
+        let mut d = vec![whole(0), short(1), whole(2), whole(3)];
+        assert_eq!(fit_in_order(&mut d, 220, again), None);
+        assert_eq!(frames(&d), lens);
+        assert_eq!(*asked.borrow(), [1]);
+        // all of it the budget, the second needing what the last has: the
+        // last is let go, then cut in its turn
+        asked.borrow_mut().clear();
+        let mut d = vec![whole(0), short(1), whole(2), whole(3)];
+        assert_eq!(fit_in_order(&mut d, 200, again), Some((3, vec![])));
+        assert_eq!(frames(&d), [50, 10, 20, 20]);
+        assert_eq!(*asked.borrow(), [1, 1, 3]);
+        // not decoded again: left out, and the others go on
+        let failed = |k: usize, b: &Budget| (k != 1).then(|| decode(lens[k], b));
+        let mut d = vec![whole(0), short(1), whole(2), whole(3)];
+        assert_eq!(fit_in_order(&mut d, 220, failed), None);
+        assert_eq!(frames(&d), [50, 0, 20, 30]);
+        assert!(d[1].is_none());
     }
 
     /// Which of the sounds had less than their turn depends on the order
