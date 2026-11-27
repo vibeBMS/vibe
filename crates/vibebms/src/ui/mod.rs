@@ -5,6 +5,7 @@ mod drag;
 mod hit;
 mod list;
 mod notice;
+mod ok_cancel;
 mod text_input;
 
 pub use confirm::Armed;
@@ -12,6 +13,7 @@ pub use drag::DragScroll;
 pub use hit::HitMap;
 pub use list::ListView;
 pub use notice::Notice;
+pub use ok_cancel::OkCancel;
 pub use text_input::{TextEvent, TextInput};
 
 use crate::gfx::text::{Align, TextStyle};

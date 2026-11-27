@@ -1,4 +1,4 @@
-use super::HitMap;
+use super::OkCancel;
 use crate::config::KeyConfig;
 use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
@@ -15,8 +15,7 @@ use winit::keyboard::KeyCode;
 pub struct Notice {
     /// OK is chosen (else Cancel).
     ok: bool,
-    /// Where each button was drawn last: true OK, false Cancel.
-    buttons: HitMap<bool>,
+    buttons: OkCancel,
     /// The button a pointer went down on.
     pressed: Option<(u64, bool)>,
 }
@@ -48,7 +47,7 @@ impl Notice {
                 y,
                 ..
             } => {
-                self.pressed = self.buttons.at(*x, *y).map(|b| (*id, *b));
+                self.pressed = self.buttons.at(*x, *y).map(|b| (*id, b));
                 None
             }
             InputEv::Pointer {
@@ -59,7 +58,7 @@ impl Notice {
                 ..
             } => {
                 let down = self.pressed.take();
-                let up = self.buttons.at(*x, *y).copied();
+                let up = self.buttons.at(*x, *y);
                 return down.filter(|d| d.0 == *id && Some(d.1) == up).map(|d| d.1);
             }
             _ => ev.nav_rows(keys, None),
@@ -112,12 +111,7 @@ impl Notice {
         }
         let by = r.bottom() - bh - u(18.0);
         let okr = Rect::new(r.right() - u(18.0) - bw, by, bw, bh);
-        let cr = Rect::new(okr.x - u(10.0) - bw, by, bw, bh);
-        self.buttons.clear();
-        self.buttons
-            .push(super::button(d, okr, "OK", ui, self.ok), true);
-        self.buttons
-            .push(super::button(d, cr, cancel, ui, !self.ok), false);
+        self.buttons.draw(d, okr, cancel, ui, self.ok);
     }
 }
 
@@ -149,8 +143,12 @@ mod tests {
 
     fn drawn() -> Notice {
         let mut n = Notice::default();
-        n.buttons.push(Rect::new(100.0, 60.0, 50.0, 30.0), true);
-        n.buttons.push(Rect::new(40.0, 60.0, 50.0, 30.0), false);
+        n.buttons
+            .hits
+            .push(Rect::new(100.0, 60.0, 50.0, 30.0), true);
+        n.buttons
+            .hits
+            .push(Rect::new(40.0, 60.0, 50.0, 30.0), false);
         n
     }
 
