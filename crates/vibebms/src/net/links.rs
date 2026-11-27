@@ -6,7 +6,7 @@
 
 use crate::platform::Job;
 use bmseeker::links::Links;
-use bmseeker::table::{DifficultyTable, TableEntry};
+use bmseeker::table::DifficultyTable;
 use std::path::{Path, PathBuf};
 
 /// How long the cached list is used before it is fetched again.
@@ -69,43 +69,10 @@ impl LinkLists {
         }
     }
 
-    /// Every link known for `e`'s song, its own first.
-    pub fn song_links(&self, e: &TableEntry) -> Vec<String> {
-        self.of_chart(&e.md5).song_links(e)
-    }
-
-    /// Every link known for `e`'s separate chart, its own first.
-    pub fn chart_links(&self, e: &TableEntry) -> Vec<String> {
-        self.of_chart(&e.md5).chart_links(e)
-    }
-
-    /// The links both know for the chart `md5`, as one [`Links`] (the
-    /// tables' first, as [`Links::and`] keeps them).
-    fn of_chart(&self, md5: &str) -> Links {
-        let bare = TableEntry {
-            md5: md5.to_string(),
-            ..Default::default()
-        };
-        let rows = |l: &Links| {
-            let row = |url, url_diff| TableEntry {
-                url,
-                url_diff,
-                ..bare.clone()
-            };
-            let songs = l
-                .song_links(&bare)
-                .into_iter()
-                .map(|u| row(u, String::new()));
-            let charts = l
-                .chart_links(&bare)
-                .into_iter()
-                .map(|u| row(String::new(), u));
-            DifficultyTable {
-                entries: songs.chain(charts).collect(),
-                ..Default::default()
-            }
-        };
-        Links::from_tables([&rows(&self.tables), &rows(&self.stella)])
+    /// The tables' links, then the list's: what a lookup goes through, in
+    /// that order (`Links::song_links_in`).
+    pub fn lists(&self) -> [&Links; 2] {
+        [&self.tables, &self.stella]
     }
 }
 
@@ -149,6 +116,7 @@ fn load(file: PathBuf, deliver: impl FnOnce(Links) + Send + 'static) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bmseeker::table::TableEntry;
 
     /// Looked up in the two lists, the links are those of one list made
     /// of both ([`Links::and`]), the tables' first.
@@ -192,8 +160,13 @@ mod tests {
             }
         }
         for x in &entries {
-            assert_eq!(two.song_links(x), one.song_links(x), "{x:?}");
-            assert_eq!(two.chart_links(x), one.chart_links(x), "{x:?}");
+            let lists = two.lists();
+            assert_eq!(Links::song_links_in(&lists, x), one.song_links(x), "{x:?}");
+            assert_eq!(
+                Links::chart_links_in(&lists, x),
+                one.chart_links(x),
+                "{x:?}"
+            );
         }
         // filled from the tables' links, then the list's
         let mut filled = entries.clone();
@@ -205,5 +178,40 @@ mod tests {
         }];
         two.set_tables(two.tables.clone(), &mut tables);
         assert_eq!(tables[0].entries, filled);
+    }
+
+    /// A chart's links in the two lists are not capped together: each
+    /// list keeps its own (at most 64 pairs a chart), and a lookup gives
+    /// all of both.
+    #[test]
+    fn no_cap_over_both_lists() {
+        let a = "a".repeat(32);
+        let row = |k: usize| TableEntry {
+            md5: a.clone(),
+            url: format!("https://t/{k}.zip"),
+            ..Default::default()
+        };
+        let table = DifficultyTable {
+            entries: (0..50).map(row).collect(),
+            ..Default::default()
+        };
+        let stella: Vec<String> = (0..50)
+            .map(|k| format!(r#"{{"md5":"{a}","url":"https://s/{k}.zip","url_diff":""}}"#))
+            .collect();
+        let mut two = LinkLists {
+            stella: Links::from_stella(format!("[{}]", stella.join(",")).as_bytes()),
+            ..Default::default()
+        };
+        two.set_tables(Links::from_tables([&table]), &mut []);
+        let e = TableEntry {
+            md5: a.clone(),
+            ..Default::default()
+        };
+        let got = Links::song_links_in(&two.lists(), &e);
+        assert_eq!(got.len(), 100);
+        assert_eq!(
+            (got[0].as_str(), got[99].as_str()),
+            ("https://t/0.zip", "https://s/49.zip")
+        );
     }
 }
