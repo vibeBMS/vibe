@@ -647,7 +647,17 @@ impl Ctx {
     pub fn poll_jobs(&mut self) {
         let mut events = self.net.archives.poll(&self.paths);
         events.extend(self.net.song_fetch.poll());
-        crate::bulk::tick(self, Instant::now());
+        if crate::bulk::tick(
+            &mut self.net.bulk,
+            &mut self.net.song_fetch,
+            &self.paths.root,
+            &self.lib.songs,
+            &self.net.hosts,
+            &self.tables.links,
+            Instant::now(),
+        ) {
+            self.lib.version += 1;
+        }
         events.extend(self.net.updater.poll().into_iter().map(AppEvent::Toast));
         events.extend(self.skins.store.poll(&self.paths));
         let now = crate::platform::unix_ms();

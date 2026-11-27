@@ -32,7 +32,13 @@ impl PlayScene {
             nonstop,
             section,
         } = *l;
-        crate::loudness::start_play(ctx, &self.req.song.sha256, loudness);
+        crate::loudness::start_play(
+            &mut ctx.audio.loudness,
+            &ctx.audio.mixer,
+            &ctx.config.audio,
+            &self.req.song.sha256,
+            loudness,
+        );
         let mode = chart.mode();
         let vs = self.req.is_vs();
         let ghost = match &self.req.vs {

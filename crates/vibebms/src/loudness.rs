@@ -52,19 +52,26 @@ pub fn gain(l: &Loudness, target: f32) -> f32 {
     normal_gain(l, target, MAX_BOOST_DB, CEILING)
 }
 
-/// A play starts: the chart's sounds (keysounds and BGM) at its gain; a
-/// loudness just measured is kept.
-pub fn start_play(ctx: &mut crate::ctx::Ctx, sha256: &str, l: Option<(Loudness, bool)>) {
+/// A play starts: the chart's sounds (keysounds and BGM) on `mixer` at its
+/// gain under the settings `a`; a loudness just measured is kept in
+/// `cache`.
+pub fn start_play(
+    cache: &mut LoudnessCache,
+    mixer: &Mixer,
+    a: &AudioSettings,
+    sha256: &str,
+    l: Option<(Loudness, bool)>,
+) {
     if let Some((l, true)) = l {
-        ctx.audio.loudness.put(sha256, l);
+        cache.put(sha256, l);
     }
-    let g = match (chart_target(&ctx.config.audio), l) {
+    let g = match (chart_target(a), l) {
         (Some(t), Some((l, _))) => gain(&l, t),
         _ => 1.0,
     };
     log::debug!("loudness: {l:?}, gain {g:.3}");
     for bus in [Bus::Key, Bus::Bgm] {
-        ctx.audio.mixer.set_bus_gain(bus, g);
+        mixer.set_bus_gain(bus, g);
     }
 }
 

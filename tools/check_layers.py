@@ -48,12 +48,8 @@ LAYERS = [
 ]
 
 # (from module or the modules under it, to module, items, why it stays)
-PARTS = "it takes the whole Ctx to pass parts of it on"
 EVENT = "what a service has done reaches the shared state as an AppEvent"
 UPWARD = [
-    ("loudness", "ctx", ["Ctx"], PARTS),
-    ("bulk", "ctx", ["Ctx"], PARTS),
-    ("import", "ctx", ["Ctx"], PARTS),
     ("archive", "ctx", ["AppEvent"], EVENT),
     ("ir", "ctx", ["AppEvent"], EVENT),
     ("skinstore", "ctx", ["AppEvent"], EVENT),

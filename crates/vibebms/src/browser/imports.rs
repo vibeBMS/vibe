@@ -38,7 +38,10 @@ impl Imports {
     /// separate chart's page).
     pub fn poll(&self, ctx: &mut Ctx, mut song_arrived: impl FnMut(&mut Ctx)) {
         for r in self.rx.try_iter() {
-            let done = import::report(ctx, r);
+            let done = import::report(r);
+            for s in done.said {
+                ctx.toast(s);
+            }
             if done.song_arrived {
                 song_arrived(ctx);
             }
