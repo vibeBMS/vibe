@@ -11,7 +11,6 @@ mod skin;
 mod status;
 mod tree;
 
-pub use preview::{resolve_image, PREVIEW_KEY};
 pub(crate) use skin::SelectState;
 #[cfg(test)]
 pub(crate) use tree::Missing;
@@ -27,23 +26,13 @@ use crate::scene::skin_host::SkinHost;
 use crate::scene::{skinned, Next, Scene};
 use crate::skin::SkinType;
 use crate::ui::{HitMap, TextInput};
-use input::{Drag, PanelKey};
+use input::PanelKey;
 use preview::Rank;
 use skin::{SelectHooks, PANELS};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tree::Distribution;
-
-/// The BPMs hi-speeds are shown and set for without a chart (beatoraja's
-/// 150).
-pub(crate) const REFERENCE_BPMS: Bpms = Bpms {
-    start: 150.0,
-    min: 150.0,
-    max: 150.0,
-    main: 150.0,
-    now: None,
-};
 
 /// Time constant (s) of the list easing toward the cursor: 30 % of the
 /// way per 1/60 s.
@@ -70,7 +59,7 @@ pub struct SelectScene {
     bar_rects: HitMap<usize>,
     /// The skin's distance between bars on screen (`SelectHooks::pitch`).
     bar_pitch: Option<f32>,
-    drag: Option<Drag>,
+    drag: Option<crate::ui::DragScroll>,
     last_move: Instant,
     /// Up / down held: the cursor moves on.
     held_nav: Option<Repeat<Nav>>,
@@ -244,7 +233,7 @@ impl SelectScene {
             .map(|(_, s)| std::path::PathBuf::from(&s.path));
         crate::platform::vfs::keep_song(chosen.as_deref());
         if self.preview_for.take().is_some() {
-            ctx.audio.mixer.stop(preview::PREVIEW_KEY);
+            ctx.audio.mixer.stop(crate::audio::PREVIEW_KEY);
         }
         self.preview_until = None;
         self.preview_wait = false;
@@ -271,10 +260,10 @@ impl SelectScene {
         }
     }
 
-    /// The selected chart's BPMs, else [`REFERENCE_BPMS`].
+    /// The selected chart's BPMs, else [`Bpms::REFERENCE`].
     fn bpms(&self, ctx: &Ctx) -> Bpms {
         self.selected_song(ctx)
-            .map_or(REFERENCE_BPMS, |(_, s)| Bpms::of_song(s))
+            .map_or(Bpms::REFERENCE, |(_, s)| Bpms::of_song(s))
     }
 
     /// The list wraps around: scroll the short way to the cursor, the same
@@ -296,35 +285,6 @@ impl SelectScene {
             let k = 1.0 - (-dt / SCROLL_TAU).exp();
             self.scroll = (self.scroll + diff * k).rem_euclid(n);
         }
-    }
-
-    fn draw_skinned(&mut self, ctx: &Ctx, d: &mut Draw, now: Instant) {
-        let view = Rect::new(0.0, 0.0, ctx.view.width, ctx.view.height);
-        let (bars, pitch) = {
-            let st = SelectState::new(self, ctx);
-            let mut hooks = SelectHooks {
-                st: &st,
-                banner: self
-                    .banner
-                    .as_ref()
-                    .and_then(|b| b.1.as_ref())
-                    .map(|t| t.tex),
-                bars: HitMap::default(),
-                pitch: None,
-            };
-            self.host.draw(d, view, now, &st, &mut hooks);
-            (hooks.bars, hooks.pitch)
-        };
-        self.bar_rects = bars;
-        self.bar_pitch = pitch;
-        // search box (typing is not part of skins), in the upper half,
-        // above an on-screen keyboard
-        if let Some(t) = self.search_edit.as_mut() {
-            let (w, h, ui) = (ctx.view.width, ctx.view.height, ctx.ui());
-            let r = Rect::new(w * 0.25, h * 0.22, w * 0.5, 44.0 * ui);
-            t.draw_box(ctx, d, r, &format!("{}: ", tr!("SEARCH")));
-        }
-        self.draw_reader(ctx, d);
     }
 }
 
@@ -428,13 +388,38 @@ impl Scene for SelectScene {
     }
 
     fn exit(&mut self, ctx: &mut Ctx, gfx: &mut Gfx) {
-        ctx.audio.mixer.stop(preview::PREVIEW_KEY);
+        ctx.audio.mixer.stop(crate::audio::PREVIEW_KEY);
         self.stop_bgm(ctx);
         self.host.free(gfx);
         self.free_banner(gfx);
     }
 
     fn draw(&mut self, ctx: &Ctx, d: &mut Draw, now: Instant) {
-        self.draw_skinned(ctx, d, now);
+        let view = Rect::new(0.0, 0.0, ctx.view.width, ctx.view.height);
+        let (bars, pitch) = {
+            let st = SelectState::new(self, ctx);
+            let mut hooks = SelectHooks {
+                st: &st,
+                banner: self
+                    .banner
+                    .as_ref()
+                    .and_then(|b| b.1.as_ref())
+                    .map(|t| t.tex),
+                bars: HitMap::default(),
+                pitch: None,
+            };
+            self.host.draw(d, view, now, &st, &mut hooks);
+            (hooks.bars, hooks.pitch)
+        };
+        self.bar_rects = bars;
+        self.bar_pitch = pitch;
+        // search box (typing is not part of skins), in the upper half,
+        // above an on-screen keyboard
+        if let Some(t) = self.search_edit.as_mut() {
+            let (w, h, ui) = (ctx.view.width, ctx.view.height, ctx.ui());
+            let r = Rect::new(w * 0.25, h * 0.22, w * 0.5, 44.0 * ui);
+            t.draw_box(ctx, d, r, &format!("{}: ", tr!("SEARCH")));
+        }
+        self.draw_reader(ctx, d);
     }
 }

@@ -1,16 +1,16 @@
 //! The play skin: loading it for the chart, the values it shows in a
 //! frame, the parts the scene draws for it.
 
+use super::choice::{
+    battle_skin, battle_type, configured_path, default_skin, perspective_skin, skin_type,
+    PERSPECTIVE,
+};
 use super::PlayScene;
 use crate::config::{HiSpeedMode, PlayConfig};
 use crate::ctx::Ctx;
 use crate::gfx::{Draw, Gfx, Rect, TexId};
 use crate::platform::Instant;
 use crate::scene::graphs::{self, Column};
-use crate::scene::play_skin::{
-    battle_skin, battle_type, configured_path, default_skin, perspective_skin, skin_type,
-    PERSPECTIVE,
-};
 use crate::scene::skinvals::*;
 use crate::skin::render::{GaugeView, Hooks, LoadedSkin, Xf};
 use crate::skin::{SkinState, OFFSET_HIDDEN_COVER, OFFSET_LANECOVER, OFFSET_LIFT};

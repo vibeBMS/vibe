@@ -7,9 +7,9 @@ use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::theme;
 use crate::gfx::{Draw, Rect};
-use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
+use crate::input::{InputEv, Nav, Phase};
 use crate::platform::vfs::{self, Prefetch};
-use crate::ui::{HitMap, DRAG_SLOP};
+use crate::ui::{DragScroll, HitMap, DRAG_SLOP};
 use std::path::PathBuf;
 use winit::keyboard::KeyCode;
 
@@ -34,8 +34,7 @@ pub(super) struct Reader {
     scroll: f32,
     /// Lines that fit, as last drawn.
     rows: f32,
-    /// A press: its pointer, where it went down, the scroll then, moved.
-    drag: Option<(u64, f32, f32, bool)>,
+    drag: Option<DragScroll>,
     /// The box, its close button and OPEN (desktop), as last drawn.
     hits: HitMap<Hit>,
 }
@@ -249,32 +248,25 @@ impl Reader {
                 KeyCode::End => self.scroll_by(f32::MAX),
                 KeyCode::KeyT => return false,
                 KeyCode::KeyO => self.open_shown(),
-                c => return self.nav(nav_from_key(*c, &ctx.config.keys)),
+                _ => return self.nav(ev.nav(&ctx.config.keys, None)),
             },
-            InputEv::Pad {
-                id, pressed: true, ..
-            } => return self.nav(nav_from_pad(*id, &ctx.config.keys)),
             InputEv::Wheel { dy } => self.scroll_by(-dy * 3.0),
             InputEv::Pointer {
                 id, phase, x, y, ..
             } => {
                 let line = LINE * ctx.ui();
                 match phase {
-                    Phase::Down => self.drag = Some((*id, *y, self.scroll, false)),
+                    Phase::Down => self.drag = Some(DragScroll::new(*id, *x, *y, self.scroll)),
                     Phase::Move => {
-                        if let Some((i, y0, s0, moved)) = self.drag.as_mut() {
-                            if *i == *id {
-                                *moved |= (y - *y0).abs() > DRAG_SLOP * ctx.ui();
-                                if *moved {
-                                    let s = *s0 - (y - *y0) / line;
-                                    self.scroll = s;
-                                    self.scroll_by(0.0);
-                                }
-                            }
+                        let slop = DRAG_SLOP * ctx.ui();
+                        if let Some(s) = self.drag.as_mut().and_then(|d| d.to(*id, *y, slop, line))
+                        {
+                            self.scroll = s;
+                            self.scroll_by(0.0);
                         }
                     }
                     Phase::Up => {
-                        let tap = self.drag.take().is_some_and(|d| d.0 == *id && !d.3);
+                        let tap = self.drag.take().is_some_and(|d| d.tap(*id));
                         // a tap outside the box or on its close button
                         match self.hits.at(*x, *y).copied().filter(|_| tap) {
                             None if tap => return false,
@@ -285,7 +277,7 @@ impl Reader {
                     }
                 }
             }
-            _ => {}
+            _ => return self.nav(ev.nav(&ctx.config.keys, None)),
         }
         true
     }
@@ -332,6 +324,52 @@ impl SelectScene {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
+    use crate::platform::Instant;
+
+    fn ptr(id: u64, phase: Phase, y: f32) -> InputEv {
+        InputEv::Pointer {
+            id,
+            phase,
+            x: 50.0,
+            y,
+            time: Instant::now(),
+            touch: true,
+        }
+    }
+
+    /// A drag scrolls the text by lines (within it) once past the slop; a
+    /// tap outside the box closes it, a drag's lift does not; any lift
+    /// ends the press.
+    #[test]
+    fn a_drag_scrolls_the_text() {
+        let ctx = Ctx::for_test(std::env::temp_dir().join("vibebms-readdrag"));
+        let mut r = Reader::new("t".into(), Vec::new());
+        r.wrapped = vec![String::new(); 40];
+        r.rows = 10.0;
+        let line = LINE * ctx.ui();
+        let slop = DRAG_SLOP * ctx.ui();
+        assert!(r.input(&ctx, &ptr(1, Phase::Down, 300.0)));
+        assert!(r.input(&ctx, &ptr(1, Phase::Move, 300.0 - slop)));
+        assert_eq!(r.scroll, 0.0);
+        assert!(r.input(&ctx, &ptr(1, Phase::Move, 300.0 - 3.0 * line)));
+        assert_eq!(r.scroll, 3.0);
+        assert!(r.input(&ctx, &ptr(2, Phase::Move, 0.0)));
+        assert_eq!(r.scroll, 3.0);
+        // not past the end, nor above the start
+        assert!(r.input(&ctx, &ptr(1, Phase::Move, 300.0 - 100.0 * line)));
+        assert_eq!(r.scroll, 30.0);
+        assert!(r.input(&ctx, &ptr(1, Phase::Move, 300.0 + 10.0 * line)));
+        assert_eq!(r.scroll, 0.0);
+        // a drag's lift (outside the box) keeps it open
+        assert!(r.input(&ctx, &ptr(1, Phase::Up, 300.0)));
+        // a tap there closes it; another pointer's lift ends a press
+        assert!(r.input(&ctx, &ptr(1, Phase::Down, 300.0)));
+        assert!(r.input(&ctx, &ptr(2, Phase::Up, 300.0)));
+        assert!(r.input(&ctx, &ptr(1, Phase::Move, 0.0)));
+        assert_eq!(r.scroll, 0.0);
+        assert!(r.input(&ctx, &ptr(1, Phase::Down, 300.0)));
+        assert!(!r.input(&ctx, &ptr(1, Phase::Up, 300.0)));
+    }
 
     /// The chart's text files are read (Shift_JIS too), each after its
     /// name when there are several.

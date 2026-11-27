@@ -303,8 +303,7 @@ impl Loading {
 
 /// A chart's `#STAGEFILE`, `#BACKBMP` (`name`, in `dir`).
 fn chart_image(dir: &Path, name: &str) -> Option<Picture> {
-    crate::scene::select::resolve_image(dir, name)
-        .and_then(|p| crate::gfx::load_picture(&p, &|_| {}))
+    crate::library::chart_image(dir, name).and_then(|p| crate::gfx::load_picture(&p, &|_| {}))
 }
 
 /// The decoded pixels (bytes) the pictures of one play take together at

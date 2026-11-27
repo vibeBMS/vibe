@@ -15,7 +15,7 @@ use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::theme;
 use crate::gfx::{rgba, with_alpha, Draw, Gfx, Rect};
-use crate::input::{nav_from_pad, InputEv, Nav, Phase};
+use crate::input::{InputEv, Nav, Phase};
 use crate::platform::Instant;
 use crate::scene::{Next, Scene};
 use crate::touch::{self, TouchInput, Zone};
@@ -184,7 +184,7 @@ impl TouchLayoutScene {
         let aspect = *self
             .aspects
             .entry((self.mode, ctx.portrait()))
-            .or_insert_with(|| super::play_skin::aspect(ctx, mode));
+            .or_insert_with(|| super::play::choice::aspect(ctx, mode));
         let screen = Rect::new(0.0, 0.0, ctx.view.width, Self::area(ctx).y);
         let right = touch::system_right(&ctx.config.touch, mode, Self::side2(ctx), ctx.portrait());
         touch::system_buttons(screen, aspect, ctx.px_per_mm(), right)
@@ -545,9 +545,7 @@ impl Scene for TouchLayoutScene {
                 _ => {}
             },
             // a touch editor: a controller only leaves it
-            InputEv::Pad {
-                id, pressed: true, ..
-            } => match nav_from_pad(*id, &ctx.config.keys) {
+            InputEv::Pad { .. } => match ev.nav(&ctx.config.keys, None) {
                 Some(Nav::Option) => return self.save(ctx),
                 Some(Nav::Settings) => return self.cancel(ctx),
                 _ => {}

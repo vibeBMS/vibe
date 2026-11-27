@@ -32,7 +32,7 @@ mod web_storage;
 use super::keybind::{self, Learn, Learned};
 use crate::ctx::Ctx;
 use crate::gfx::{Draw, Gfx};
-use crate::input::{nav_from_key, nav_from_pad, AxisStepper, InputEv, Nav, Phase};
+use crate::input::{AxisStepper, InputEv, Nav, Phase};
 use crate::platform::{Duration, Instant};
 use crate::scene::{Next, Scene};
 use crate::skin::SkinType;
@@ -1112,24 +1112,16 @@ impl SettingsScene {
                     }
                 }
                 // keys bound to the lanes (a controller seen as a keyboard)
-                other => {
-                    if let Some(nav) = nav_from_key(*other, &ctx.config.keys) {
+                _ => {
+                    if let Some(nav) = ev.nav(&ctx.config.keys, None) {
                         return self.nav(ctx, nav);
                     }
                 }
             },
-            InputEv::Pad {
-                id, pressed: true, ..
-            } => {
-                if let Some(nav) = nav_from_pad(*id, &ctx.config.keys) {
+            InputEv::Pad { .. } | InputEv::Axis { .. } => {
+                let axis = (ctx.config.keys.any_axis_is_scratch).then_some(&mut self.axis);
+                if let Some(nav) = ev.nav(&ctx.config.keys, axis) {
                     return self.nav(ctx, nav);
-                }
-            }
-            InputEv::Axis { id, value, .. } if ctx.config.keys.any_axis_is_scratch => {
-                match self.axis.step(*id, *value) {
-                    0 => {}
-                    d if d > 0 => return self.nav(ctx, Nav::Down),
-                    _ => return self.nav(ctx, Nav::Up),
                 }
             }
             _ => return self.pointer(ctx, ev),

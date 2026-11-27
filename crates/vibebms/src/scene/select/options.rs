@@ -5,7 +5,7 @@
 use super::input::PanelKey;
 use super::skin::{panel_of_op, PANELS, PANEL_TILES};
 use super::status::SIBLINGS;
-use super::{SelectScene, REFERENCE_BPMS};
+use super::SelectScene;
 use crate::audio::sysound::Sound;
 use crate::config::{AudioSettings, PlayConfig};
 use crate::config::{
@@ -250,7 +250,7 @@ impl SelectOption {
     pub fn value(self, ctx: &Ctx, bpm: Option<Bpms>, song: Option<&Song>) -> String {
         let p = &ctx.config.play;
         if let Some(o) = self.play() {
-            return (o.label)(p, &bpm.unwrap_or(REFERENCE_BPMS)).into();
+            return (o.label)(p, &bpm.unwrap_or(Bpms::REFERENCE)).into();
         }
         let sel = &ctx.config.select;
         let pct = |v: f32| format!("{:.0}%", v * 100.0);
@@ -287,11 +287,11 @@ impl SelectOption {
             }
             SelectOption::HiSpeedDown => match p.hs_type {
                 HsType::Normal => format!("NHS {}", p.hs_level),
-                _ => format!("{:.2}", p.hispeed_shown(&bpm.unwrap_or(REFERENCE_BPMS))),
+                _ => format!("{:.2}", p.hispeed_shown(&bpm.unwrap_or(Bpms::REFERENCE))),
             },
             SelectOption::HiSpeedUp => match bpm {
                 _ if p.hs_fix != HsFix::Off || p.hs_type == HsType::Floating => {
-                    format!("GN {} FIX", p.green(&bpm.unwrap_or(REFERENCE_BPMS)))
+                    format!("GN {} FIX", p.green(&bpm.unwrap_or(Bpms::REFERENCE)))
                 }
                 Some(b) => format!("GN {}", p.green(&b)),
                 None => format!("{:.2}", p.hispeed),
@@ -441,7 +441,7 @@ impl SelectScene {
                 let a = &mut ctx.config.audio;
                 let i = (preview_index(a) + d).rem_euclid(3);
                 (a.preview, a.preview_once) = (i < 2, i == 0);
-                ctx.audio.mixer.stop(super::PREVIEW_KEY);
+                ctx.audio.mixer.stop(crate::audio::PREVIEW_KEY);
                 self.moved(ctx);
             }
             // (the play options: stepped above)
@@ -537,7 +537,7 @@ impl SelectScene {
                 true
             }
             43 => {
-                (po::RANDOM_2P.step)(p, d, &REFERENCE_BPMS);
+                (po::RANDOM_2P.step)(p, d, &Bpms::REFERENCE);
                 true
             }
             // beatoraja option buttons: as the panel keys that change them
@@ -550,7 +550,7 @@ impl SelectScene {
                     78 => (3, 1),
                     n => (2, (n - 301) as usize),
                 };
-                option_panel::key(p, panel, key, &REFERENCE_BPMS, d);
+                option_panel::key(p, panel, key, &Bpms::REFERENCE, d);
                 true
             }
             77 => {
@@ -558,7 +558,7 @@ impl SelectScene {
                 true
             }
             72 => {
-                (po::BGA.step)(p, d, &REFERENCE_BPMS);
+                (po::BGA.step)(p, d, &Bpms::REFERENCE);
                 true
             }
             _ => false,

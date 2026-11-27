@@ -8,7 +8,7 @@ use crate::ctx::Ctx;
 use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase, Repeat};
 use crate::platform::{Duration, Instant};
 use crate::scene::Next;
-use crate::ui::{TextEvent, TextInput, DRAG_SLOP};
+use crate::ui::{DragScroll, TextEvent, TextInput, DRAG_SLOP};
 use winit::keyboard::KeyCode;
 
 /// A held up / down moves on after 300 ms, every 70 ms, every 25 ms once
@@ -42,16 +42,6 @@ impl PanelKey {
         }
         has(&p.scratch_down).then_some(PanelKey::Down)
     }
-}
-
-/// A press on the list: the list follows it once it moves.
-#[derive(Debug)]
-pub(super) struct Drag {
-    id: u64,
-    y: f32,
-    /// The list's position when it went down.
-    scroll: f32,
-    moved: bool,
 }
 
 impl SelectScene {
@@ -277,23 +267,15 @@ impl SelectScene {
                 if let Some(next) = self.tap(ctx, x, y) {
                     return next;
                 }
-                self.drag = Some(Drag {
-                    id,
-                    y,
-                    scroll: self.scroll,
-                    moved: false,
-                });
+                self.drag = Some(DragScroll::new(id, x, y, self.scroll));
             }
             Phase::Move => {
                 let slop = DRAG_SLOP * ctx.ui();
                 let pitch = self.bar_pitch.unwrap_or(46.0 * ctx.ui());
-                let Some(d) = self.drag.as_mut().filter(|d| d.id == id) else {
-                    return Next::Stay;
-                };
-                d.moved |= (y - d.y).abs() > slop;
-                if d.moved && !self.bars.is_empty() {
+                let to = self.drag.as_mut().and_then(|d| d.to(id, y, slop, pitch));
+                if let Some(s) = to.filter(|_| !self.bars.is_empty()) {
                     let n = self.bars.len();
-                    self.scroll = (d.scroll - (y - d.y) / pitch).rem_euclid(n as f32);
+                    self.scroll = s.rem_euclid(n as f32);
                     let c = (self.scroll.round() as usize) % n;
                     if c != self.cursor {
                         self.cursor = c;
@@ -302,7 +284,7 @@ impl SelectScene {
                 }
             }
             Phase::Up => {
-                let tap = self.drag.take().is_some_and(|d| d.id == id && !d.moved);
+                let tap = self.drag.take().is_some_and(|d| d.tap(id));
                 if let Some(&i) = self.bar_rects.at(x, y).filter(|_| tap) {
                     if i == self.cursor {
                         return self.decide(ctx, false);
@@ -418,6 +400,52 @@ fn is_play_key(keys: &KeyConfig, code: KeyCode) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scene::select::Bar;
+
+    fn ptr(id: u64, phase: Phase, y: f32) -> InputEv {
+        InputEv::Pointer {
+            id,
+            phase,
+            x: 50.0,
+            y,
+            time: Instant::now(),
+            touch: true,
+        }
+    }
+
+    /// A drag on the list moves it by bars (the skin's pitch apart, around
+    /// its ends) once past the slop, and the cursor with it; another
+    /// pointer's lift ends the press.
+    #[test]
+    fn a_drag_scrolls_the_list_by_bars() {
+        let root = std::env::temp_dir().join(format!("vibebms-seldrag-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        let mut s = SelectScene::new(&mut ctx);
+        s.bars = (0..10).map(Bar::Song).collect();
+        s.bar_pitch = Some(40.0);
+        let slop = DRAG_SLOP * ctx.ui();
+        s.input_event(&mut ctx, &ptr(1, Phase::Down, 300.0));
+        // within the slop: nothing moves
+        s.input_event(&mut ctx, &ptr(1, Phase::Move, 300.0 - slop));
+        assert_eq!((s.scroll, s.cursor), (0.0, 0));
+        // 100 px up: 2.5 bars on, the cursor on the nearest
+        s.input_event(&mut ctx, &ptr(1, Phase::Move, 200.0));
+        assert_eq!((s.scroll, s.cursor), (2.5, 3));
+        // another pointer does not move it
+        s.input_event(&mut ctx, &ptr(2, Phase::Move, 100.0));
+        assert_eq!(s.scroll, 2.5);
+        // back past the top: around the end
+        s.input_event(&mut ctx, &ptr(1, Phase::Move, 380.0));
+        assert_eq!((s.scroll, s.cursor), (8.0, 8));
+        // the slop once passed, back near the start still drags
+        s.input_event(&mut ctx, &ptr(1, Phase::Move, 340.0));
+        assert_eq!((s.scroll, s.cursor), (9.0, 9));
+        // any lift ends the press
+        s.input_event(&mut ctx, &ptr(2, Phase::Up, 340.0));
+        s.input_event(&mut ctx, &ptr(1, Phase::Move, 200.0));
+        assert_eq!(s.scroll, 9.0);
+        std::fs::remove_dir_all(&root).ok();
+    }
 
     /// F12 scans for what changed; the files left out for stopping the game
     /// stay left out (a crash each, at every F12, otherwise).

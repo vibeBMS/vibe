@@ -1,3 +1,5 @@
+use super::DragScroll;
+
 /// A list's selected row and scroll position (in the list's own units:
 /// pixels or rows). After keys the scroll follows the selection; the wheel
 /// and drags move it freely.
@@ -8,18 +10,7 @@ pub struct ListView {
     /// Keep the selected row in view (set by keys, cleared by the wheel
     /// and drags).
     pub follow: bool,
-    drag: Option<Drag>,
-}
-
-/// A press on the list: where it went down, the scroll then, and whether
-/// it has moved far enough to scroll instead of tap.
-#[derive(Debug)]
-struct Drag {
-    id: u64,
-    x: f32,
-    y: f32,
-    scroll: f32,
-    moved: bool,
+    drag: Option<DragScroll>,
 }
 
 impl ListView {
@@ -49,37 +40,28 @@ impl ListView {
 
     /// Pointer `id` went down on the list at (`x`, `y`).
     pub fn press(&mut self, id: u64, x: f32, y: f32) {
-        self.drag = Some(Drag {
-            id,
-            x,
-            y,
-            scroll: self.scroll,
-            moved: false,
-        });
+        self.drag = Some(DragScroll::new(id, x, y, self.scroll));
     }
 
     /// Pointer `id` moved to `y`: once past `slop` from where it went down
     /// the list follows it. True while it drags the list.
     pub fn drag_to(&mut self, id: u64, y: f32, slop: f32) -> bool {
-        let Some(d) = self.drag.as_mut().filter(|d| d.id == id) else {
+        let Some(s) = self.drag.as_mut().and_then(|d| d.to(id, y, slop, 1.0)) else {
             return false;
         };
-        d.moved |= (y - d.y).abs() > slop;
-        if d.moved {
-            self.follow = false;
-            self.scroll = d.scroll - (y - d.y);
-        }
-        d.moved
+        self.follow = false;
+        self.scroll = s;
+        true
     }
 
     /// Pointer `id` lifted: where it went down when it did not drag (a
     /// tap there).
     pub fn release(&mut self, id: u64) -> Option<(f32, f32)> {
-        if self.drag.as_ref()?.id != id {
+        if !self.drag.as_ref()?.is(id) {
             return None;
         }
         let d = self.drag.take()?;
-        (!d.moved).then_some((d.x, d.y))
+        d.tap(id).then_some((d.x, d.y))
     }
 
     /// Keep the selected row (from `top` to `bottom`) in a `view` high when

@@ -14,7 +14,6 @@
 use crate::config::{BgaMode, Bpms, HiSpeedMode, HsFix, PlayConfig, Target};
 use crate::scene::index_of;
 use crate::scene::play_opts::*;
-use crate::scene::select::REFERENCE_BPMS;
 use crate::scene::target::{self, Rival};
 use vibebms_core::gauge::{GaugeAutoShift, GaugeType};
 use vibebms_core::judge::JudgePreset;
@@ -134,8 +133,8 @@ pub fn turn(p: &mut PlayConfig, panel: usize, dir: i32, rivals: &[Rival]) -> Opt
     Some(match panel {
         1 => format!("TARGET: {}", target::step(p, rivals, -dir)),
         2 => {
-            (FREQ.step)(p, dir, &REFERENCE_BPMS);
-            FREQ.said(p, &REFERENCE_BPMS)
+            (FREQ.step)(p, dir, &Bpms::REFERENCE);
+            FREQ.said(p, &Bpms::REFERENCE)
         }
         _ => return None,
     })

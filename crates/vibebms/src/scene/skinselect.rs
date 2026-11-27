@@ -22,7 +22,7 @@ use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::theme;
 use crate::gfx::{with_alpha, Draw, Gfx, Rect};
-use crate::input::{nav_from_key, nav_from_pad_rows, AxisStepper, InputEv, Nav, Phase};
+use crate::input::{AxisStepper, InputEv, Nav, Phase};
 use crate::platform::Instant;
 use crate::scene::{Next, Scene};
 use crate::skin::render::{Hooks, LoadedSkin};
@@ -77,7 +77,7 @@ pub fn items(ctx: &Ctx, kind: SkinType, value: &str) -> Vec<Item> {
     if kind == SkinType::SoundSet {
         return Vec::new();
     }
-    let Some(p) = super::play_skin::options_path(ctx, kind, value) else {
+    let Some(p) = super::play::choice::options_path(ctx, kind, value) else {
         return Vec::new();
     };
     let mut v: Vec<Item> = ctx
@@ -395,13 +395,13 @@ impl SkinState for PreviewState {
     }
 }
 
-struct SelectState<'a> {
+struct SkinSelectState<'a> {
     s: &'a SkinSelectScene,
     ctx: &'a Ctx,
     items: &'a [Item],
 }
 
-impl SkinState for SelectState<'_> {
+impl SkinState for SkinSelectState<'_> {
     fn timer(&self, id: i32) -> Option<i64> {
         self.s.host.timer(id)
     }
@@ -485,7 +485,7 @@ impl Scene for SkinSelectScene {
         if self.host.first_update() {
             let skin = {
                 let items = self.items(ctx);
-                let st = SelectState {
+                let st = SkinSelectState {
                     s: self,
                     ctx,
                     items: &items,
@@ -552,25 +552,19 @@ impl Scene for SkinSelectScene {
                 KeyCode::ArrowRight => self.change(ctx, 1),
                 KeyCode::PageUp | KeyCode::BracketLeft => self.step_kind(ctx, -1),
                 KeyCode::PageDown | KeyCode::BracketRight => self.step_kind(ctx, 1),
-                c => {
-                    if let Some(n) = nav_from_key(*c, &ctx.config.keys) {
-                        if ready || matches!(n, Nav::Back | Nav::Settings) {
-                            return self.nav(ctx, n);
-                        }
+                // keys wait for the screen, but for leaving it
+                _ => match ev.nav_rows(&ctx.config.keys, None) {
+                    Some(n) if ready || matches!(n, Nav::Back | Nav::Settings) => {
+                        return self.nav(ctx, n)
                     }
-                }
+                    _ => {}
+                },
             },
-            InputEv::Pad {
-                id, pressed: true, ..
-            } => {
-                if let Some(n) = nav_from_pad_rows(*id, &ctx.config.keys) {
+            InputEv::Pad { .. } | InputEv::Axis { .. } => {
+                if let Some(n) = ev.nav_rows(&ctx.config.keys, Some(&mut self.axis)) {
                     return self.nav(ctx, n);
                 }
             }
-            InputEv::Axis { id, value, .. } => match self.axis.step(*id, *value) {
-                0 => {}
-                d => self.step(ctx, d),
-            },
             InputEv::Wheel { dy } => {
                 let n = (-dy).round() as i32;
                 if n != 0 {
@@ -604,7 +598,7 @@ impl Scene for SkinSelectScene {
             preview_ms: ms_since(self.preview_at, now),
             screen: self.host.xf(view).rect(Rect::new(0.0, 0.0, sw, sh)),
         };
-        let st = SelectState {
+        let st = SkinSelectState {
             s: self,
             ctx,
             items: &items,
@@ -664,7 +658,7 @@ mod tests {
     fn the_perspective_skin_lists_its_touch_area_option() {
         let dir = std::env::temp_dir().join(format!("vibebms-ssp-{}", std::process::id()));
         let ctx = Ctx::for_test(dir.clone());
-        let persp = crate::scene::play_skin::PERSPECTIVE;
+        let persp = crate::scene::play::choice::PERSPECTIVE;
         for kind in [SkinType::Play7, SkinType::Play5, SkinType::Play14] {
             let rows = items(&ctx, kind, persp);
             let Some(Item::Option(o)) = rows.first() else {
@@ -758,7 +752,7 @@ mod tests {
         s.event(&mut ctx, 220, 1);
         s.event(&mut ctx, 222, 1);
         s.event(&mut ctx, 222, 1);
-        let st = SelectState {
+        let st = SkinSelectState {
             s: &s,
             ctx: &ctx,
             items: &items,

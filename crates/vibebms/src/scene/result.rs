@@ -7,7 +7,7 @@ use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::theme;
 use crate::gfx::{Draw, Gfx, Rect};
-use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
+use crate::input::{InputEv, Nav, Phase};
 use crate::library::{BestScore, RecordKey};
 use crate::platform::{Duration, Instant};
 use crate::scene::play::{CourseRun, PlayRequest, PlayScene};
@@ -413,7 +413,7 @@ impl Scene for ResultScene {
             let dir = std::path::Path::new(&self.d.request.song.path)
                 .parent()
                 .unwrap_or(std::path::Path::new(""));
-            self.stage_tex = crate::scene::select::resolve_image(dir, &self.d.meta.stagefile)
+            self.stage_tex = crate::library::chart_image(dir, &self.d.meta.stagefile)
                 .and_then(|rp| crate::gfx::ImageTex::load(gfx, &rp, &|_| {}));
             let kind = if self.d.course_total {
                 SkinType::CourseResult
@@ -489,7 +489,7 @@ impl Scene for ResultScene {
                 }
                 // 1-4: keep the replay in that slot (not a key that plays)
                 if let Some(n) =
-                    slot_key(*code).filter(|_| nav_from_key(*code, &ctx.config.keys).is_none())
+                    slot_key(*code).filter(|_| ev.nav(&ctx.config.keys, None).is_none())
                 {
                     self.keep_in_slot(ctx, n);
                     return Next::Stay;
@@ -497,18 +497,12 @@ impl Scene for ResultScene {
                 if *code == KeyCode::KeyI && ctx.config.ir.submit == SubmitPolicy::Ask {
                     return self.send_asked(ctx);
                 }
-                if let Some(Nav::Decide | Nav::Back | Nav::Close) =
-                    nav_from_key(*code, &ctx.config.keys)
-                {
+                if let Some(Nav::Decide | Nav::Back | Nav::Close) = ev.nav(&ctx.config.keys, None) {
                     return self.leave(ctx, Leave::Proceed);
                 }
             }
-            InputEv::Pad {
-                id, pressed: true, ..
-            } => {
-                if let Some(Nav::Decide | Nav::Back | Nav::Close) =
-                    nav_from_pad(*id, &ctx.config.keys)
-                {
+            InputEv::Pad { .. } => {
+                if let Some(Nav::Decide | Nav::Back | Nav::Close) = ev.nav(&ctx.config.keys, None) {
                     return self.leave(ctx, Leave::Proceed);
                 }
             }

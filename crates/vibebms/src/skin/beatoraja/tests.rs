@@ -351,7 +351,7 @@ fn builtin_images_fit_small_gpus() {
 
 #[test]
 fn builtin_default_skins_load() {
-    use crate::scene::play_skin::default_skin;
+    use crate::scene::play::choice::default_skin;
     use vibebms_core::PlayMode;
     let size = |p: &Path| {
         let b = vfs::read(p).ok()?;
@@ -391,7 +391,7 @@ fn builtin_default_skins_load() {
 
 #[test]
 fn builtin_battle_skins_load() {
-    use crate::scene::play_skin::battle_skin;
+    use crate::scene::play::choice::battle_skin;
     use vibebms_core::PlayMode;
     for (mode, kind) in [
         (PlayMode::Beat14K, SkinType::Battle7),
@@ -421,7 +421,7 @@ fn builtin_battle_skins_load() {
 
 #[test]
 fn builtin_perspective_skins_load_and_reflow() {
-    use crate::scene::play_skin::perspective_skin;
+    use crate::scene::play::choice::perspective_skin;
     use vibebms_core::PlayMode;
     let size = |p: &Path| {
         let b = vfs::read(p).ok()?;

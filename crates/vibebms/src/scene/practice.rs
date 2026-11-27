@@ -9,7 +9,7 @@ use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::theme;
 use crate::gfx::{with_alpha, Draw, Gfx, Rect};
-use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase, Repeat};
+use crate::input::{InputEv, Nav, Phase, Repeat};
 use crate::library::Song;
 use crate::platform::vfs::Prefetch;
 use crate::platform::{Duration, Instant, Job};
@@ -739,17 +739,17 @@ impl Scene for PracticeScene {
                     KeyCode::Enter | KeyCode::NumpadEnter => return self.start(ctx),
                     KeyCode::PageUp => self.select(ctx, -4),
                     KeyCode::PageDown => self.select(ctx, 4),
-                    c => {
-                        if let Some(n) = nav_from_key(*c, &ctx.config.keys) {
+                    _ => {
+                        if let Some(n) = ev.nav(&ctx.config.keys, None) {
                             return self.nav(ctx, n);
                         }
                     }
                 }
             }
-            InputEv::Pad { id, pressed, .. } => {
+            InputEv::Pad { pressed, .. } => {
                 if !*pressed {
                     self.held = None;
-                } else if let Some(n) = nav_from_pad(*id, &ctx.config.keys) {
+                } else if let Some(n) = ev.nav(&ctx.config.keys, None) {
                     return self.nav(ctx, n);
                 }
             }

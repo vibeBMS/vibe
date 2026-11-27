@@ -4,11 +4,10 @@
 use super::row::onoff;
 use super::row::{ms, Act, Kind, Row, Rows};
 use super::{Sub, TextField};
-use crate::config::{HiSpeedMode, HsType};
+use crate::config::{Bpms, HiSpeedMode, HsType};
 use crate::ctx::Ctx;
 use crate::scene::cycle;
 use crate::scene::play_opts::add_offset;
-use crate::scene::select::REFERENCE_BPMS;
 use vibebms_core::engine::JudgeAlgorithm;
 use vibebms_core::gauge::{GaugePreset, GaugeType};
 use vibebms_core::judge::JudgePreset;
@@ -111,7 +110,7 @@ pub(super) fn rows(b: &mut Rows) {
         .keys("hispeed scroll"),
         Row::adjust("play.hs_type", tr!("Hi-speed type"), p.hs_type.label(), |c, d| {
             let t = cycle(&HsType::ALL, c.config.play.hs_type, d);
-            c.config.play.set_hs_type(t, &REFERENCE_BPMS)
+            c.config.play.set_hs_type(t, &Bpms::REFERENCE)
         })
         .desc(tr!("CLASSIC and LR2 multiply; NORMAL has IIDX's 20 levels; FLOATING keeps the green number."))
         .keys("hispeed classic normal floating lr2"),

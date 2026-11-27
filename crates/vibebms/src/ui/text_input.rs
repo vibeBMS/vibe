@@ -1,4 +1,4 @@
-use super::HitMap;
+use super::OkCancel;
 use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::theme;
@@ -14,8 +14,7 @@ pub struct TextInput {
     pub buf: String,
     /// Where it was drawn last: a tap outside cancels.
     area: Rect,
-    /// Its buttons: true OK, false Cancel.
-    buttons: HitMap<bool>,
+    buttons: OkCancel,
 }
 
 #[derive(Debug, PartialEq)]
@@ -82,8 +81,7 @@ impl TextInput {
         d.text_input = true;
         let ui = ctx.ui();
         self.area = r;
-        self.buttons.clear();
-        self.buttons.push(r, true);
+        self.buttons.ok_only(r);
         d.b.rect(r, with_alpha(theme::PANEL, 0.97));
         d.b.rect_outline(r, 2.0, theme::ACCENT);
         d.text(
@@ -124,12 +122,7 @@ impl TextInput {
         let (bw, bh) = (120.0 * ui, 36.0 * ui);
         let by = r.y + r.h - bh - 12.0 * ui;
         let ok = Rect::new(r.x + r.w - 14.0 * ui - bw, by, bw, bh);
-        let cancel = Rect::new(ok.x - 10.0 * ui - bw, by, bw, bh);
-        self.buttons.clear();
-        self.buttons
-            .push(super::button(d, ok, "OK", ui, true), true);
-        self.buttons
-            .push(super::button(d, cancel, tr!("Cancel"), ui, false), false);
+        self.buttons.draw(d, ok, tr!("Cancel"), ui, true);
     }
 }
 
@@ -162,8 +155,12 @@ mod tests {
     fn boxed() -> TextInput {
         let mut t = TextInput::new("ab".into());
         t.area = Rect::new(0.0, 0.0, 200.0, 100.0);
-        t.buttons.push(Rect::new(100.0, 60.0, 50.0, 30.0), true);
-        t.buttons.push(Rect::new(40.0, 60.0, 50.0, 30.0), false);
+        t.buttons
+            .hits
+            .push(Rect::new(100.0, 60.0, 50.0, 30.0), true);
+        t.buttons
+            .hits
+            .push(Rect::new(40.0, 60.0, 50.0, 30.0), false);
         t
     }
 

@@ -9,7 +9,7 @@ use crate::audio::sysound::Sound;
 use crate::config::Bpms;
 use crate::ctx::Ctx;
 use crate::gfx::{Draw, Gfx, ImageTex, Rect, TexId};
-use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
+use crate::input::{InputEv, Nav, Phase};
 use crate::library::{BestScore, Song};
 use crate::platform::Instant;
 use crate::scene::{Next, Scene};
@@ -195,7 +195,7 @@ impl Scene for DecideScene {
                 .unwrap_or(std::path::Path::new(""))
                 .to_path_buf();
             let mut load = |name: &str| {
-                super::select::resolve_image(&dir, name)
+                crate::library::chart_image(&dir, name)
                     .and_then(|p| ImageTex::load(gfx, &p, &|_| {}))
             };
             self.stage_tex = load(&song.stagefile);
@@ -242,19 +242,11 @@ impl Scene for DecideScene {
 
     fn input(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {
         let nav = match ev {
-            InputEv::Key {
-                code,
-                pressed: true,
-                repeat: false,
-                ..
-            } => nav_from_key(*code, &ctx.config.keys),
-            InputEv::Pad {
-                id, pressed: true, ..
-            } => nav_from_pad(*id, &ctx.config.keys),
+            InputEv::Key { repeat: true, .. } => None,
             InputEv::Pointer {
                 phase: Phase::Up, ..
             } => Some(Nav::Decide),
-            _ => None,
+            _ => ev.nav(&ctx.config.keys, None),
         };
         let now = Instant::now();
         match nav {
