@@ -130,7 +130,10 @@ without wasm-opt, plus the CJK fonts (see Reproducible builds).
   close it. CI's test job runs it: it fails on a use of a higher layer or a cycle it does not list, on another use
   that closes a listed cycle, on a listed use or cycle that is gone or a listed cycle that has grown, on an `impl`
   (not of a trait) of another top-level module's type, and on a module in no layer, so a change that adds a module
-  gives it a layer, and one that removes a listed use or cycle takes it off the list.
+  gives it a layer, and one that removes a listed use or cycle takes it off the list. It also counts, per top-level
+  module outside `platform/`, `app/` and `browser/`, the lines of code with a platform condition (a `cfg` naming a
+  target or one of `build.rs`'s groups, such as `desktop`): a count above the one the script lists fails (put the
+  difference behind `platform/`), and so does one below it, so the listed number is lowered.
 - The logo and icons: `tools/gen_logo.py` (fonttools, cairosvg, Pillow) writes `assets/logo/` and the platforms'
   icons.
 
