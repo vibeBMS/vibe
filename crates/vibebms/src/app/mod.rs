@@ -463,7 +463,7 @@ impl Running {
                 &self.ctx,
                 &mut d,
                 tr!("Third-party sources are on"),
-                crate::hosts::third_party_notice(),
+                crate::net::hosts::third_party_notice(),
                 tr!("Turn off"),
             );
         }
@@ -589,7 +589,7 @@ fn answer_third_party_notice(ctx: &mut Ctx, ok: bool) {
         ctx.config.third_party_acknowledged = true;
     } else {
         ctx.config.third_party_mirrors = false;
-        ctx.net.hosts = crate::hosts::context(&ctx.config);
+        ctx.net.hosts = crate::net::hosts::context(&ctx.config);
     }
     ctx.save_config();
 }

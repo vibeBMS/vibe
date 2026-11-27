@@ -2,9 +2,9 @@ use super::*;
 use crate::config::IrAccount;
 use crate::courses::{Course, Stage};
 use crate::gfx::Rect;
+use crate::net::skinstore::{SkinEntry, Source};
 use crate::platform::Instant;
 use crate::scene::keybind::Slot;
-use crate::skinstore::{SkinEntry, Source};
 use vibebms_core::course::CourseKind;
 
 fn key(code: KeyCode) -> InputEv {
@@ -859,7 +859,7 @@ fn third_party_skins_are_offered_with_their_sources_on() {
     std::fs::create_dir_all(ctx.paths.skins.join("kept")).unwrap();
     let set = |ctx: &mut Ctx, on: bool| {
         ctx.config.third_party_mirrors = on;
-        ctx.net.hosts = crate::hosts::context(&ctx.config);
+        ctx.net.hosts = crate::net::hosts::context(&ctx.config);
     };
     let armed = Armed::default();
     let listed = |ctx: &Ctx| -> (Vec<String>, Vec<&'static str>) {

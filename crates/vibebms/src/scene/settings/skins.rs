@@ -4,12 +4,12 @@
 use super::row::{mb, Act, Row, Rows};
 use super::{Armed, Confirm, Screen, Sub};
 use crate::ctx::Ctx;
+use crate::net::skinstore::{SkinEntry, State};
 use crate::platform::IS_WEB;
 use crate::scene::play_skin::{configured_path, PERSPECTIVE};
 use crate::scene::skinned;
 use crate::scene::skinselect::TYPES;
 use crate::skin::{SkinType, OFFSET_FIELDS};
-use crate::skinstore::{SkinEntry, State};
 use std::path::{Path, PathBuf};
 
 /// The row opening `s`, when its skin is chosen.

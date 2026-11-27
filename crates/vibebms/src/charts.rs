@@ -8,7 +8,7 @@
 //! match one): then the title and artist the finder was given choose.
 
 use crate::library::Song;
-use crate::placement::{same_artist, same_title};
+use crate::net::placement::{same_artist, same_title};
 use std::borrow::Cow;
 use std::collections::HashMap;
 

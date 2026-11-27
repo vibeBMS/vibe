@@ -315,7 +315,7 @@ impl Archives {
     pub fn download(
         &mut self,
         root: &Path,
-        cx: &crate::hosts::Context,
+        cx: &crate::net::hosts::Context,
         ev: usize,
         num: u32,
     ) -> Result<String, String> {
@@ -472,7 +472,7 @@ fn sources(files: &[File]) -> Vec<bmseeker::install::job::FileLink> {
 /// page, or the first mirror file (the proxy down: the browser downloads
 /// it itself), opens in the browser.
 fn missed(files: &[File], m: bmseeker::install::job::Missed) -> Fail {
-    use crate::hosts::Fetch;
+    use crate::net::hosts::Fetch;
     let mirrored = files.get(m.index).is_some_and(|f| !f.original.is_empty());
     match m.fetch {
         Fetch::Page if mirrored && m.index > 0 => Fail::Msg(format!("{}: did not download", m.url)),
@@ -532,7 +532,7 @@ impl bmseeker::install::job::Job for Telling {
 /// files ([`crate::platform::Vfs`]).
 fn fetch_work(
     root: &Path,
-    cx: &crate::hosts::Context,
+    cx: &crate::net::hosts::Context,
     files: Vec<File>,
     event: &str,
     tx: Sender<Msg>,
@@ -763,7 +763,7 @@ mod tests {
     #[test]
     fn a_work_is_not_fetched_outside_bms() {
         let root = std::env::temp_dir().join(format!("vibebms-archive-out-{}", std::process::id()));
-        let cx = crate::hosts::context(&crate::config::Config::default());
+        let cx = crate::net::hosts::context(&crate::config::Config::default());
         let (tx, _rx) = std::sync::mpsc::channel();
         let files = vec![File {
             name: "001.zip".into(),
@@ -811,7 +811,7 @@ mod tests {
             },
         ];
         // (the test's server is on this machine)
-        let cx = crate::hosts::Context::new(bmseeker::config::Config {
+        let cx = crate::net::hosts::Context::new(bmseeker::config::Config {
             local_hosts: true,
             ..Default::default()
         });

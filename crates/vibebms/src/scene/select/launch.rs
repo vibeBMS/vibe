@@ -298,7 +298,7 @@ impl SelectScene {
                 tr!(
                     "{n} charts queued: {at} at a time, in DOWNLOADS at the root",
                     n = n,
-                    at = crate::bulk::AT_ONCE
+                    at = crate::net::bulk::AT_ONCE
                 )
             }
             BulkBar::RetryFailed => {
@@ -318,7 +318,7 @@ impl SelectScene {
                 let Some(it) = net.bulk.items.get(k).cloned() else {
                     return;
                 };
-                if let crate::bulk::State::Page(_) = it.state {
+                if let crate::net::bulk::State::Page(_) = it.state {
                     let w = it.want;
                     self.fetch(
                         ctx,
@@ -339,7 +339,7 @@ impl SelectScene {
                     return;
                 }
                 match &net.bulk.items[k].state {
-                    crate::bulk::State::Queued => {
+                    crate::net::bulk::State::Queued => {
                         tr!("{title}: queued again", title = it.want.title)
                     }
                     _ => tr!("{title}: cancelled", title = it.want.title),
@@ -388,7 +388,7 @@ impl SelectScene {
         let root = ctx.paths.root.clone();
         // its own links, then the others known for the chart; its separate
         // chart's links; add-ons each after
-        let want = crate::bulk::Wanted {
+        let want = crate::net::bulk::Wanted {
             title: title.clone(),
             artist: artist.clone(),
             md5: md5.clone(),
@@ -397,13 +397,13 @@ impl SelectScene {
             url_diff: url_diff.clone(),
             ..Default::default()
         };
-        let entry = crate::songfetch::entry(&ctx.tables.links, &want, more);
+        let entry = crate::net::songfetch::entry(&ctx.tables.links, &want, more);
         // the song is in the library (another of its charts): what to say
         // when nothing can be tried
         let have_song = !md5.is_empty()
             && ctx.lib.songs.iter().any(|s| {
-                crate::placement::same_name(&s.title, &title)
-                    && crate::placement::same_artist(&s.artist, &artist)
+                crate::net::placement::same_name(&s.title, &title)
+                    && crate::net::placement::same_artist(&s.artist, &artist)
             });
         if ctx
             .net

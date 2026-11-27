@@ -216,7 +216,7 @@ impl Default for TableConfig {
     }
 }
 
-/// The event mirror's list of events (`archive`).
+/// The event mirror's list of events (`net::events`).
 pub const CATALOG: &str = "https://raw.githubusercontent.com/vibeBMS/BMS/main/events.json";
 
 /// Mirrors read unless the configuration names others: a list of events
@@ -256,7 +256,7 @@ pub struct Config {
     pub display: DisplayConfig,
     pub audio: AudioSettings,
     pub tables: Vec<TableConfig>,
-    /// Indexes of mirrored event entries (shown as folders; see `archive`).
+    /// Indexes of mirrored event entries (shown as folders; see `net::events`).
     pub archives: Vec<String>,
     /// Downloads may use third parties' copies: other people's mirrors of
     /// dead sites and uploaders, the community archive (bmseeker's

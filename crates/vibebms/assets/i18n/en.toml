@@ -9,16 +9,12 @@
 "Screenshots: this GPU's screen cannot be read" = "Screenshots: this GPU's screen cannot be read"
 "Graphics: {wanted} could not start, {used} is used instead (SETTINGS › DISPLAY & AUDIO › ADVANCED)" = "Graphics: {wanted} could not start, {used} is used instead (SETTINGS › DISPLAY & AUDIO › ADVANCED)"
 
-# archive.rs
-"Added {name} ({n} files)" = "Added {name} ({n} files)"
-"No direct download: opening its page" = "No direct download: opening its page"
-"Download failed: {url}" = "Download failed: {url}"
-
 # browser/android.rs
 "Save this download?" = "Save this download?"
 "Don't save" = "Don't save"
 "Could not open a browser" = "Could not open a browser"
 "Downloading {name}…" = "Downloading {name}…"
+"Download failed: {url}" = "Download failed: {url}"
 "One download at a time: {name} was not started" = "One download at a time: {name} was not started"
 "{name} is larger than {gb} GB: not kept" = "{name} is larger than {gb} GB: not kept"
 "Now the chart: download it from this page" = "Now the chart: download it from this page"
@@ -46,22 +42,6 @@
 # ctx/tables.rs
 "Table {name}: {e}" = "Table {name}: {e}"
 "Table updated: {name} ({n} charts)" = "Table updated: {name} ({n} charts)"
-
-# hosts.rs
-"""
-These are other people's copies and mirrors of songs, not the links their authors give.
-Whether a site allows this, and whether it is up, differs from site to site.
-Using them is your own responsibility: follow each site's terms and respect the rights of the songs' copyright holders.""" = """
-These are other people's copies and mirrors of songs, not the links their authors give.
-Whether a site allows this, and whether it is up, differs from site to site.
-Using them is your own responsibility: follow each site's terms and respect the rights of the songs' copyright holders."""
-
-# import.rs
-"Could not unpack the download: {e}" = "Could not unpack the download: {e}"
-"{name}: already installed" = "{name}: already installed"
-"{name}: download its song too" = "{name}: download its song too"
-"{name} is not a song (kept in downloads)" = "{name} is not a song (kept in downloads)"
-"{name} → its song" = "{name} → its song"
 
 # input/gamepad.rs
 "Controller connected: {name} ({side})" = "Controller connected: {name} ({side})"
@@ -140,6 +120,40 @@ Using them is your own responsibility: follow each site's terms and respect the 
 "keyboard and controller mixed" = "keyboard and controller mixed"
 "play time does not fit the chart" = "play time does not fit the chart"
 "no {gauge} gauge there" = "no {gauge} gauge there"
+
+# net/events.rs
+"Added {name} ({n} files)" = "Added {name} ({n} files)"
+"No direct download: opening its page" = "No direct download: opening its page"
+
+# net/hosts.rs
+"""
+These are other people's copies and mirrors of songs, not the links their authors give.
+Whether a site allows this, and whether it is up, differs from site to site.
+Using them is your own responsibility: follow each site's terms and respect the rights of the songs' copyright holders.""" = """
+These are other people's copies and mirrors of songs, not the links their authors give.
+Whether a site allows this, and whether it is up, differs from site to site.
+Using them is your own responsibility: follow each site's terms and respect the rights of the songs' copyright holders."""
+
+# net/import.rs
+"Could not unpack the download: {e}" = "Could not unpack the download: {e}"
+"{name}: already installed" = "{name}: already installed"
+"{name}: download its song too" = "{name}: download its song too"
+"{name} is not a song (kept in downloads)" = "{name} is not a song (kept in downloads)"
+"{name} → its song" = "{name} → its song"
+
+# net/skinstore.rs
+"a third-party source: turn on third-party sources in SETTINGS › LIBRARY" = "a third-party source: turn on third-party sources in SETTINGS › LIBRARY"
+"too large for the browser: use the desktop or mobile app" = "too large for the browser: use the desktop or mobile app"
+"no such skin" = "no such skin"
+"{name} is downloading already" = "{name} is downloading already"
+"Installed {name} in skins/{folders}: choose it in SKINS" = "Installed {name} in skins/{folders}: choose it in SKINS"
+"{title}: no direct download, opening its page" = "{title}: no direct download, opening its page"
+"{title}: cancelled" = "{title}: cancelled"
+"{title}: download failed ({e})" = "{title}: download failed ({e})"
+
+# net/songfetch.rs
+"{title}: already installed ({folder})" = "{title}: already installed ({folder})"
+"{title}: the song is in the library, but none of this chart's links works" = "{title}: the song is in the library, but none of this chart's links works"
 
 # platform/opfs.rs
 "Songs saved in this browser" = "Songs saved in this browser"
@@ -270,7 +284,6 @@ Using them is your own responsibility: follow each site's terms and respect the 
 "{n} downloads cancelled" = "{n} downloads cancelled"
 "Finished downloads cleared" = "Finished downloads cleared"
 "{title}: queued again" = "{title}: queued again"
-"{title}: cancelled" = "{title}: cancelled"
 "no such event" = "no such event"
 "{title}: being added to the library" = "{title}: being added to the library"
 "Downloading {title}… (choose it again to cancel)" = "Downloading {title}… (choose it again to cancel)"
@@ -1035,19 +1048,6 @@ Using them is your own responsibility: follow each site's terms and respect the 
 "{preset} preset · editing it makes a custom landscape layout" = "{preset} preset · editing it makes a custom landscape layout"
 "Drag a button to move it · drag its corners or pinch it to resize" = "Drag a button to move it · drag its corners or pinch it to resize"
 "Drag the line above the controls to change their height" = "Drag the line above the controls to change their height"
-
-# skinstore.rs
-"a third-party source: turn on third-party sources in SETTINGS › LIBRARY" = "a third-party source: turn on third-party sources in SETTINGS › LIBRARY"
-"too large for the browser: use the desktop or mobile app" = "too large for the browser: use the desktop or mobile app"
-"no such skin" = "no such skin"
-"{name} is downloading already" = "{name} is downloading already"
-"Installed {name} in skins/{folders}: choose it in SKINS" = "Installed {name} in skins/{folders}: choose it in SKINS"
-"{title}: no direct download, opening its page" = "{title}: no direct download, opening its page"
-"{title}: download failed ({e})" = "{title}: download failed ({e})"
-
-# songfetch.rs
-"{title}: already installed ({folder})" = "{title}: already installed ({folder})"
-"{title}: the song is in the library, but none of this chart's links works" = "{title}: the song is in the library, but none of this chart's links works"
 
 # ui/mod.rs
 "{hosts} refused, skipped" = "{hosts} refused, skipped"

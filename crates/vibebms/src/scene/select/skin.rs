@@ -504,7 +504,7 @@ impl<'a> SelectState<'a> {
             Bar::Folder { node, .. } => Some(folder_kind(node)),
             Bar::Song(_) => same(BAR_SONG),
             Bar::Bulk(BulkBar::Item(k)) => match ctx.net.bulk.items.get(*k)?.state {
-                crate::bulk::State::Done(_) => same(BAR_SONG),
+                crate::net::bulk::State::Done(_) => same(BAR_SONG),
                 _ => same(BAR_NOSONG),
             },
             Bar::Random | Bar::Bulk(_) => same(BAR_COMMAND),
@@ -545,7 +545,8 @@ impl<'a> SelectState<'a> {
                     BulkBar::Item(k) => {
                         let it = bulk.items.get(*k)?;
                         let why = match &it.state {
-                            crate::bulk::State::Done(s) | crate::bulk::State::Failed(s) => {
+                            crate::net::bulk::State::Done(s)
+                            | crate::net::bulk::State::Failed(s) => {
                                 format!("  ({s})")
                             }
                             _ => String::new(),

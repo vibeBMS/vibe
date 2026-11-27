@@ -5,8 +5,8 @@
 //! cancel. Politeness: at most `AT_ONCE` downloads at a time, and a new one
 //! started `SPACING` after the last.
 
+use crate::net::songfetch::{Outcome, SongFetch};
 use crate::platform::{Duration, Instant};
-use crate::songfetch::{Outcome, SongFetch};
 
 /// Downloads at once.
 pub const AT_ONCE: usize = 2;
@@ -247,8 +247,8 @@ struct Fetch<'a> {
     fetch: &'a mut SongFetch,
     root: &'a std::path::Path,
     songs: &'a std::sync::Arc<Vec<crate::library::Song>>,
-    hosts: &'a crate::hosts::Context,
-    known: &'a crate::links::LinkLists,
+    hosts: &'a crate::net::hosts::Context,
+    known: &'a crate::net::links::LinkLists,
 }
 
 impl Downloader for Fetch<'_> {
@@ -257,7 +257,7 @@ impl Downloader for Fetch<'_> {
     }
 
     fn start(&mut self, w: &Wanted) -> bool {
-        let entry = crate::songfetch::entry(self.known, w, Vec::new());
+        let entry = crate::net::songfetch::entry(self.known, w, Vec::new());
         (self.fetch).start(self.root, self.songs, self.hosts, entry, Vec::new(), true)
     }
 }
@@ -271,8 +271,8 @@ pub fn tick(
     fetch: &mut SongFetch,
     root: &std::path::Path,
     songs: &std::sync::Arc<Vec<crate::library::Song>>,
-    hosts: &crate::hosts::Context,
-    known: &crate::links::LinkLists,
+    hosts: &crate::net::hosts::Context,
+    known: &crate::net::links::LinkLists,
     now: Instant,
 ) -> bool {
     if bulk.items.is_empty() {

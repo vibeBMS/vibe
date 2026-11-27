@@ -3,11 +3,11 @@
 //! in jobs and taken in as they come, the song select listing their folders
 //! from then (`lib.version`); what is stale in them is fetched then.
 
-use crate::archive::Archives;
 use crate::config::TableConfig;
 use crate::ctx::Ctx;
+use crate::net::events::Archives;
+use crate::net::skinstore::SkinStore;
 use crate::platform::Job;
-use crate::skinstore::SkinStore;
 use bmseeker::links::Links;
 use bmseeker::table::DifficultyTable;
 

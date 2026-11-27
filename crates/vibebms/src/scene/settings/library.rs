@@ -262,7 +262,7 @@ pub(super) fn rows(b: &mut Rows) {
             if c.third_party_mirrors || c.third_party_acknowledged {
                 Act::Adjust(|c, _| {
                     c.config.third_party_mirrors ^= true;
-                    c.net.hosts = crate::hosts::context(&c.config);
+                    c.net.hosts = crate::net::hosts::context(&c.config);
                 })
             } else {
                 Act::Ask(Ask::ThirdParty)
@@ -278,7 +278,7 @@ pub(super) fn rows(b: &mut Rows) {
             onoff(c.name_song_folders),
             |c, _| {
                 c.config.name_song_folders ^= true;
-                c.net.hosts = crate::hosts::context(&c.config);
+                c.net.hosts = crate::net::hosts::context(&c.config);
             },
         )
         .desc(tr!("New downloads go into \"[artist] title\" folders.")),

@@ -1,35 +1,37 @@
 #!/usr/bin/env python3
 """tools/check_layers.py [src]: no module of the vibebms crate uses an item
-of a higher layer (LAYERS) but the uses listed in UPWARD, and no top-level
-modules use each other in a cycle but those listed in CYCLES
-(docs/BUILDING.md, "Development"; CI's test job runs it).
+of a higher layer (LAYERS) but the uses listed in UPWARD, and no units
+use each other in a cycle but those listed in CYCLES (docs/BUILDING.md,
+"Development"; CI's test job runs it).
 
 Every .rs file under src is a module (a/b.rs and a/b/mod.rs are a::b), in
-the layer of the longest prefix of its path that LAYERS names. What it
-uses is read from its text, with comments, strings and test code left out
-(an item under `#[cfg(test)]`, a file declared under it): its paths from
+the layer of the longest prefix of its path that LAYERS names. That
+prefix is the unit the module is checked as: a top-level module, or a
+part of a group that LAYERS names on its own (`net::hosts` in `net/`), so
+that putting files in a folder hides none of these checks. What it uses
+is read from its text, with comments, strings and test code left out (an
+item under `#[cfg(test)]`, a file declared under it): its paths from
 `crate::`, `super::` and `self::`, the paths through a module it imports
 (`use crate::platform::vfs;` then `vfs::read`), and the crate's own macros
 (`tr!`). A path's target is its longest prefix that is a module, the rest
 the item. A use of a higher layer fails unless UPWARD lists it; a use
 UPWARD lists that no longer exists fails too, so the list is shortened
-when one goes. Likewise a cycle: top-level modules (`a` for `a::b::c`)
-that use each other, each reached from the others through uses between
-top-level modules, fail unless CYCLES lists exactly that set, with the
-uses that close it: any other use in the direction of one of those (from
-its module to the other's) fails, and so do uses between the members
-that make a cycle without them. What a value's method reaches without
-naming its type is not seen, so an `impl` of a type of another top-level
-module (not of a trait) fails. A `#[path]` attribute, a path a macro makes
-from its argument after `crate::` (`crate::$m::…`), `use crate as x;` and
-`extern crate self as x;` fail: what they reach cannot be read from the
-text.
+when one goes. Likewise a cycle: units that use each other, each reached
+from the others through uses between units, fail unless CYCLES lists
+exactly that set, with the uses that close it: any other use in the
+direction of one of those (from its unit to the other's) fails, and so
+do uses between the members that make a cycle without them. What a
+value's method reaches without naming its type is not seen, so an `impl`
+of a type of another unit (not of a trait) fails. A `#[path]` attribute,
+a path a macro makes from its argument after `crate::` (`crate::$m::…`),
+`use crate as x;` and `extern crate self as x;` fail: what they reach
+cannot be read from the text.
 
-It also counts, per top-level module but platform, app and browser, the
-lines of code (not tests) with a platform condition: a `cfg` that names a
-target (`target_os`, `target_arch`, `windows`, ...) or a group build.rs
-names (`desktop`, ...). A count above CONDITIONS fails, and so does one
-below it, so the number is lowered when a condition goes.
+It also counts, per unit but platform, app and browser, the lines of
+code (not tests) with a platform condition: a `cfg` that names a target
+(`target_os`, `target_arch`, `windows`, ...) or a group build.rs names
+(`desktop`, ...). A count above CONDITIONS fails, and so does one below
+it, so the number is lowered when a condition goes.
 """
 import os
 import re
@@ -42,8 +44,8 @@ sys.dont_write_bytecode = True
 LAYERS = [
     ("base", ["formats", "i18n"]),
     ("platform", ["platform"]),
-    ("library", ["library", "lr2db", "links"]),
-    ("placement", ["placement", "charts"]),
+    ("library", ["library", "lr2db", "net::links"]),
+    ("placement", ["net::placement", "charts"]),
     ("courses and scores", ["courses", "scoredb"]),
     ("settings", ["config"]),
     ("kept files", ["replay", "screenshot"]),
@@ -52,8 +54,8 @@ LAYERS = [
     ("looks and touch", ["theme", "video", "touch"]),
     ("skins", ["skin"]),
     ("sound", ["loudness", "sysound"]),
-    ("services", ["hosts", "profiles", "update", "ir", "integrations", "import", "archive", "songfetch", "bulk",
-                  "skinstore", "web"]),
+    ("services", ["net", "net::hosts", "profiles", "update", "ir", "integrations", "net::import", "net::events",
+                  "net::songfetch", "net::bulk", "net::skinstore", "web"]),
     ("shared state", ["ctx"]),
     ("widgets", ["ui"]),
     ("browser", ["browser"]),
@@ -68,26 +70,26 @@ UPWARD = [
      "would read it at every start, not only when AUTO is chosen"),
 ]
 
-# (top-level modules that use each other, the uses that close the cycle as
+# (units that use each other, the uses that close the cycle as
 # (from module or the modules under it, to module, items), why they stay)
 CYCLES = [
     (["i18n", "platform"], [("i18n", "platform::android", ["locale"])], "the use listed in UPWARD"),
-    (["bulk", "songfetch"], [("songfetch", "bulk", ["Wanted"])],
+    (["net::bulk", "net::songfetch"], [("net::songfetch", "net::bulk", ["Wanted"])],
      "songfetch fetches a bulk::Wanted, the song a table asks for, and bulk downloads through songfetch; Wanted "
      "is to move to songfetch when the top-level files are regrouped"),
 ]
 
 
-# The top-level modules where platform conditions belong: the platform
+# The units where platform conditions belong: the platform
 # layer, the window and its loop, the in-app browser.
 CONDITIONS_AT_HOME = ["platform", "app", "browser"]
 
-# Lines of the other top-level modules ("lib": lib.rs, main.rs) with a
+# Lines of the other units ("lib": lib.rs, main.rs) with a
 # platform condition (conditions()), outside test code: a count may only go
 # down.
 CONDITIONS = {
-    "config": 1, "ctx": 11, "gfx": 12, "i18n": 3, "input": 13, "integrations": 28, "ir": 5, "lib": 3,
-    "library": 12, "links": 5, "loudness": 1, "paths": 2, "replay": 2, "scene": 40, "screenshot": 2, "skin": 2,
+    "config": 1, "ctx": 11, "gfx": 12, "i18n": 3, "input": 13, "integrations": 28, "ir": 5, "lib": 2, "library": 12,
+    "loudness": 1, "net": 1, "net::links": 5, "paths": 2, "replay": 2, "scene": 40, "screenshot": 2, "skin": 2,
     "update": 12, "video": 5,
 }
 
@@ -237,6 +239,18 @@ def layer_of(module):
     return best[0] if best else None
 
 
+def unit_of(module):
+    """The unit `module` is checked as: the name LAYERS gives its layer by
+    (layer_of()), else its top-level module."""
+    best = None
+    for _, mods in LAYERS:
+        for m in mods:
+            if module == m or (m and module.startswith(m + "::")) or (not m and not module):
+                if best is None or len(m) > len(best):
+                    best = m
+    return module.split("::")[0] if best is None else best
+
+
 def under(module, prefix):
     return module == prefix or module.startswith(prefix + "::")
 
@@ -330,7 +344,7 @@ def uses(src):
                 seen = True
             if not seen:
                 found[(mod, to, "(module)")].append(at % line)
-        # (methods here of another top-level module's type reach this module
+        # (methods here of another unit's type reach this module
         # from wherever the type is used, unseen)
         inherent = (r"(?<!\w)impl\s*(?:<[^{;]*?>)?\s*([\w:]+?)\s*(?:<(?:(?!\bfor\b)[^{;])*>)?\s*"
                     r"(?:where\b[^{;]*)?\{")
@@ -343,7 +357,7 @@ def uses(src):
                 to = target(aliases[first][0].split("::"), "self::" + rest)[0]
             else:
                 to = named.get(name)
-            if to is not None and to.split("::")[0] != mod.split("::")[0]:
+            if to is not None and unit_of(to) != unit_of(mod):
                 line = text.count("\n", 0, m.start()) + 1
                 odd.append(at % line + ": methods of %s's %s: write them in its module, or as functions here"
                            % (to or "lib", name.split("::")[-1]))
@@ -365,7 +379,7 @@ def groups(build_rs):
 def conditions(src, names):
     """The lines with a platform condition (a `cfg(…)`, `cfg_attr(…, …)` or
     `cfg!(…)` whose condition names one of `names`) outside test code, by
-    top-level module: {module: ["file:line", ...]} (an attribute or a
+    unit: {unit: ["file:line", ...]} (an attribute or a
     `cfg!` over several lines is the line it starts on)."""
     texts, tests = read(src)
     named = re.compile(r"(?<![\w:])(%s)(?!\w)" % "|".join(map(re.escape, names)))
@@ -393,8 +407,8 @@ def conditions(src, names):
             # (cfg_attr: its condition, not the attributes it adds)
             if named.search(parts[0] if m.group(1) else ",".join(parts)):
                 lines.add(text.count("\n", 0, m.start()) + 1)
-        top = mod.split("::")[0] or "lib"
-        if lines and top not in CONDITIONS_AT_HOME:
+        top = unit_of(mod) or "lib"
+        if lines and top.split("::")[0] not in CONDITIONS_AT_HOME:
             out[top] += ["%s:%d" % (os.path.relpath(f, src), n) for n in sorted(lines)]
     return out
 
@@ -416,10 +430,10 @@ def condition_problems(found, listed):
 
 
 def cycles(found):
-    """The sets of top-level modules that use each other (strongly
-    connected, more than one), each as a sorted tuple, with the uses
-    between their members: {(module, ...): ["a -> b::item at file:line", ...]}."""
-    top = lambda m: m.split("::")[0]
+    """The sets of units that use each other (strongly connected, more
+    than one), each as a sorted tuple, with the uses between their
+    members: {(unit, ...): ["a -> b::item at file:line", ...]}."""
+    top = unit_of
     edges = defaultdict(dict)
     for (a, b, i), at in sorted(found.items()):
         if top(a) != top(b):
@@ -455,10 +469,10 @@ def cycles(found):
 
 def cycle_problems(found, listed):
     """What is wrong with the cycles of `found` against `listed` (CYCLES)."""
-    top = lambda m: m.split("::")[0]
+    top = unit_of
     have = cycles(found)
     want = {tuple(sorted(c)) for c, _, _ in listed}
-    bad = ["a cycle between top-level modules: %s (%s)" % (", ".join(m or "lib" for m in c), "; ".join(at))
+    bad = ["a cycle between units: %s (%s)" % (", ".join(m or "lib" for m in c), "; ".join(at))
            for c, at in sorted(have.items()) if c not in want]
     for c in sorted(want):
         if c in have:
@@ -520,7 +534,7 @@ def main():
         print(line)
     if bad:
         return 1
-    print("layers: %d modules, %d upward uses (at %d places), %d cycles between top-level modules, each listed; "
+    print("layers: %d modules, %d upward uses (at %d places), %d cycles between units, each listed; "
           "%d lines with a platform condition outside %s"
           % (len(modules), len(upward), sum(len(at) for at in upward.values()), n_cycles,
              sum(len(at) for at in conds.values()), ", ".join(CONDITIONS_AT_HOME)))

@@ -149,8 +149,8 @@ pub(crate) enum BulkBar {
 
 impl Missing {
     /// What the bulk queue downloads of it.
-    pub(crate) fn wanted(&self) -> crate::bulk::Wanted {
-        crate::bulk::Wanted {
+    pub(crate) fn wanted(&self) -> crate::net::bulk::Wanted {
+        crate::net::bulk::Wanted {
             title: self.title.clone(),
             artist: self.artist.clone(),
             md5: self.md5.clone(),
@@ -554,8 +554,11 @@ impl SelectScene {
                         }
                         None => (0..songs.len())
                             .filter(|i| {
-                                crate::placement::same_title(&songs[*i].title, &w.title)
-                                    && crate::placement::same_artist(&songs[*i].artist, &w.artist)
+                                crate::net::placement::same_title(&songs[*i].title, &w.title)
+                                    && crate::net::placement::same_artist(
+                                        &songs[*i].artist,
+                                        &w.artist,
+                                    )
                             })
                             .collect(),
                     };
@@ -705,8 +708,8 @@ impl SelectScene {
 
     /// The charts a table (`Node::Table`) or a level lists that the
     /// library lacks, as the bulk queue takes them.
-    pub(crate) fn missing_of(&self, ctx: &Ctx, node: &Node) -> Vec<crate::bulk::Wanted> {
-        let of = |bars: Vec<Bar>| -> Vec<crate::bulk::Wanted> {
+    pub(crate) fn missing_of(&self, ctx: &Ctx, node: &Node) -> Vec<crate::net::bulk::Wanted> {
+        let of = |bars: Vec<Bar>| -> Vec<crate::net::bulk::Wanted> {
             (bars.into_iter())
                 .filter_map(|b| match b {
                     Bar::Missing(m) => Some(m.wanted()),

@@ -1,7 +1,7 @@
 //! Browser integration: pickers for a BMS folder, loose files or song pack
 //! zips -> virtual file system.
 
-use crate::placement::{self, Located};
+use crate::net::placement::{self, Located};
 use crate::platform::vfs;
 use std::cell::RefCell;
 use std::collections::{HashSet, VecDeque};
@@ -238,7 +238,7 @@ fn show_next_dialog() {
         let shade2 = shade.clone();
         let cb = Closure::<dyn FnMut()>::new(move || {
             if let Some(dir) = &dir {
-                if crate::placement::bring(&chart, dir).is_some() {
+                if crate::net::placement::bring(&chart, dir).is_some() {
                     vfs::mark_added();
                 }
             }

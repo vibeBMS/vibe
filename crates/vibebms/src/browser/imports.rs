@@ -1,8 +1,8 @@
 //! Downloads of the in-app browser being brought into the library.
 
 use crate::ctx::Ctx;
-use crate::import;
 use crate::library::Song;
+use crate::net::import;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
@@ -70,7 +70,7 @@ fn ask_folder(ctx: &mut Ctx, chart: &Path, folders: &[(PathBuf, String)]) -> boo
     let Some(dir) = dialog.pick_folder() else {
         return false;
     };
-    let placed = crate::placement::bring(chart, &dir).is_some();
+    let placed = crate::net::placement::bring(chart, &dir).is_some();
     if placed {
         ctx.toast(format!("{name} → {}", bmseeker::fs::file_name(&dir)));
     }
@@ -90,7 +90,7 @@ fn ask_folder(ctx: &mut Ctx, chart: &Path, _folders: &[(PathBuf, String)]) -> bo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::import::Imported;
+    use crate::net::import::Imported;
     use std::sync::atomic::Ordering;
 
     fn toasts(ctx: &Ctx) -> Vec<String> {

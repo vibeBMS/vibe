@@ -129,25 +129,26 @@ class CheckLayers(unittest.TestCase):
         self.assertEqual(self.run_on(one)[0], 0)
         code, out = self.run_on(dict(one, **{"screenshot.rs": "pub fn r() {\n    crate::replay::dir();\n}\n"}))
         self.assertEqual(code, 1, out)
-        self.assertIn("a cycle between top-level modules: replay, screenshot "
+        self.assertIn("a cycle between units: replay, screenshot "
                       "(replay -> screenshot::dir at replay.rs:", out)
         self.assertIn("screenshot -> replay::dir at screenshot.rs:", out)
 
     def test_a_listed_cycle_that_grows_fails(self):
-        code, out = self.run_on({"hosts.rs": "pub fn b() {\n    crate::bulk::tick();\n}\n",
-                                 "bulk.rs": "pub fn h() {\n    crate::hosts::fetch();\n}\n"})
+        code, out = self.run_on({"net/hosts.rs": "pub fn b() {\n    crate::net::bulk::tick();\n}\n",
+                                 "net/bulk.rs": "pub fn h() {\n    crate::net::hosts::fetch();\n}\n"})
         self.assertEqual(code, 1, out)
-        self.assertIn("a cycle between top-level modules: bulk, hosts, songfetch (", out)
-        self.assertIn("the cycle bulk, songfetch has grown: hosts joined it", out)
+        self.assertIn("a cycle between units: net::bulk, net::hosts, net::songfetch (", out)
+        self.assertIn("the cycle net::bulk, net::songfetch has grown: net::hosts joined it", out)
         self.assertNotIn("no longer", out)
 
     def test_a_listed_cycle_closes_only_through_its_listed_uses(self):
-        code, out = self.run_on({"songfetch.rs": "pub fn t() {\n    crate::bulk::tick();\n}\n"})
+        code, out = self.run_on({"net/songfetch.rs": "pub fn t() {\n    crate::net::bulk::tick();\n}\n"})
         self.assertEqual(code, 1, out)
-        self.assertIn("songfetch uses bulk::tick (songfetch.rs:", out)
-        self.assertIn("closes the cycle bulk, songfetch", out)
+        self.assertIn("net::songfetch uses net::bulk::tick (net/songfetch.rs:", out)
+        self.assertIn("closes the cycle net::bulk, net::songfetch", out)
         # the other way, more is fine
-        self.assertEqual(self.run_on({"bulk.rs": "pub fn t() {\n    crate::songfetch::poll();\n}\n"})[0], 0)
+        self.assertEqual(self.run_on({"net/bulk.rs": "pub fn t() {\n    crate::net::songfetch::poll();\n}\n"})[0],
+                         0)
         listed = [(["a", "b", "c"], [("c", "a", ["x"])], "")]
         found = {("a", "b", "u"): ["a.rs:1"], ("b", "c", "v"): ["b.rs:2"], ("c::d", "a", "x"): ["c/d.rs:3"]}
         self.assertEqual(check_layers.cycle_problems(found, listed), ([], 1))
@@ -174,6 +175,24 @@ class CheckLayers(unittest.TestCase):
         bad, n = check_layers.cycle_problems(found, [(["a", "b", "c"], closing, "")])
         self.assertEqual((bad[0], n), ("a, b, c no longer use each other in a cycle: take it out of CYCLES in "
                                        "tools/check_layers.py", 0))
+
+    def test_a_groups_parts_are_units(self):
+        # (a part LAYERS names, else the top-level module)
+        self.assertEqual([check_layers.unit_of(m) for m in ["net::hosts", "net", "scene::select::skin", "", "a::b"]],
+                         ["net::hosts", "net", "scene", "", "a"])
+        # parts of one folder in one layer: a cycle between them fails
+        code, out = self.run_on({"net/hosts.rs": "pub fn e() {\n    crate::net::events::poll();\n}\n",
+                                 "net/events.rs": "pub fn h() {\n    crate::net::hosts::fetch();\n}\n"})
+        self.assertEqual(code, 1, out)
+        self.assertIn("a cycle between units: net::events, net::hosts (", out)
+        # methods of another part's type
+        code, out = self.run_on({"net/hosts.rs": "use crate::net::events::Archives;\nimpl Archives {}\n"})
+        self.assertEqual(code, 1, out)
+        self.assertIn("methods of net::events's Archives", out)
+        # a part's platform condition is counted under it
+        code, out = self.run_on({"net/hosts.rs": '#[cfg(windows)]\npub fn f() {}\n'})
+        self.assertEqual(code, 1, out)
+        self.assertIn("net::hosts: 1 lines with a platform condition, more than the 0", out)
 
     def test_a_platform_condition_more_fails(self):
         for text in ['#[cfg(target_os = "linux")]\npub fn f() {}\n',
