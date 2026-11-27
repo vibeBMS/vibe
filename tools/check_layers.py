@@ -101,24 +101,31 @@ def blank(text):
 
 
 def item_end(text, i):
-    """Where the item starting at `i` ends: its `;`, or its `{ … }`."""
-    while i < len(text) and text[i] not in "{;":
-        i += 1
-    if i < len(text) and text[i] == "{":
-        depth = 0
-        while i < len(text):
-            depth += {"{": 1, "}": -1}.get(text[i], 0)
+    """Where the item starting at `i` (its attributes first) ends: after its
+    `;` or `,` (a field, a variant, a match arm), before a `}` that closes
+    what holds it, or after its `{ … }`."""
+    depth = 0
+    while i < len(text):
+        c = text[i]
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
             if depth == 0:
-                break
-            i += 1
-    return i + 1
+                return i
+            depth -= 1
+            if depth == 0 and c == "}":
+                return i + 1
+        elif c in ";," and depth == 0:
+            return i + 1
+        i += 1
+    return i
 
 
 def cut_tests(text):
     """`text` with each item under `#[cfg(test)]` (or `all(test, …)`) as
     spaces, newlines kept."""
     for m in reversed(list(re.finditer(r"#\[cfg\((all\()?test\b", text))):
-        j = item_end(text, m.end())
+        j = item_end(text, m.start())
         text = text[: m.start()] + re.sub(r"[^\n]", " ", text[m.start() : j]) + text[j:]
     return text
 
