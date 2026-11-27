@@ -412,7 +412,7 @@ mod imp {
                         // a chart's bytes stay until the library has read
                         // it (the scan may be about to: a file swapped out
                         // here is not read until read in again)
-                        if matches!(n.data, Data::Bytes(_)) && crate::library::is_chart(&to) {
+                        if matches!(n.data, Data::Bytes(_)) && vibebms_core::is_chart(&to) {
                             fs.stored_charts.insert(to.clone(), file);
                         } else {
                             n.data = Data::File(file);

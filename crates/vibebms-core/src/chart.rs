@@ -292,6 +292,17 @@ pub struct ChartMeta {
     pub has_invisible: bool,
 }
 
+impl ChartMeta {
+    /// beatoraja's judge rank number (400): `#RANK`, else the percentage.
+    pub fn judge_rank_number(&self) -> i64 {
+        match self.judge_rank {
+            JudgeRank::Rank(r) => r as i64,
+            JudgeRank::NoNumber => 2,
+            JudgeRank::DefExRank(v) | JudgeRank::Bmson(v) => v.round() as i64,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Chart {
     pub meta: ChartMeta,

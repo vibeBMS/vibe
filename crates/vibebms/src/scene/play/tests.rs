@@ -476,8 +476,8 @@ fn bot_replay() {
         ops: e.recorded().to_vec(),
         course: None,
     };
-    crate::replay::save(&r, &root, crate::replay::Slot::Best).unwrap();
-    crate::replay::save(&r, &root, crate::replay::Slot::Last).unwrap();
+    crate::replay::save(&r, &root, vibebms_core::replay::Slot::Best).unwrap();
+    crate::replay::save(&r, &root, vibebms_core::replay::Slot::Last).unwrap();
     println!("EX {} of {}", r.ex_score, e.score.max_ex());
 }
 

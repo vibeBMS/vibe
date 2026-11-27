@@ -47,6 +47,7 @@ use vibebms_core::gauge::{GaugePreset, GaugeType};
 use vibebms_core::judge::Judge;
 use vibebms_core::play::RuleOptions;
 use vibebms_core::record::{ChartFacts, InputSource, RuleFacts};
+use vibebms_core::replay::Slot;
 use vibebms_core::score::{ClearType, Score};
 use vibebms_core::{LnType, PlayMode};
 
@@ -72,7 +73,7 @@ pub struct CourseRun {
     /// The gauge the last stage ended on, and its value.
     pub last_gauge: Option<(GaugeType, f32)>,
     /// The course is watched: each stage's replay of this slot.
-    pub watch: Option<crate::replay::Slot>,
+    pub watch: Option<Slot>,
 }
 
 impl CourseRun {
@@ -215,7 +216,7 @@ impl PlayRequest {
 
 /// The chart's replay `slot` as a G-BATTLE opponent, or why it cannot be
 /// one.
-pub fn ghost_for(ctx: &Ctx, song: &Song, slot: crate::replay::Slot) -> Result<Arc<Replay>, String> {
+pub fn ghost_for(ctx: &Ctx, song: &Song, slot: Slot) -> Result<Arc<Replay>, String> {
     let ln = ctx.config.play.ln_pref();
     let r = crate::replay::load_filed(
         &ctx.paths.player,
@@ -244,12 +245,7 @@ pub fn ghost_for(ctx: &Ctx, song: &Song, slot: crate::replay::Slot) -> Result<Ar
 /// Stage `index`'s replay of course `run` in `slot` (NONSTOP: the
 /// course's), under the rule mode chosen; of whichever LN mode it was
 /// played in (the course's stages may differ).
-pub fn course_replay(
-    ctx: &Ctx,
-    run: &CourseRun,
-    index: usize,
-    slot: crate::replay::Slot,
-) -> Option<Replay> {
+pub fn course_replay(ctx: &Ctx, run: &CourseRun, index: usize, slot: Slot) -> Option<Replay> {
     let ln = ctx.config.play.ln_pref().ty as i32;
     let rule = ctx.config.play.judge_preset;
     let key = run.replay_key(index);
@@ -264,7 +260,7 @@ pub enum Versus {
     Local,
     /// G-BATTLE: a replay of the chart (its seed and lane option make the
     /// chart; its inputs play again on the second side), and which.
-    Ghost(Arc<Replay>, crate::replay::Slot),
+    Ghost(Arc<Replay>, Slot),
 }
 
 /// The single play mode of a double play mode (a battle chart's side).

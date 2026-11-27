@@ -62,14 +62,10 @@ UPWARD = [
      "AUTO's language on Android is the Java locale; passing the system's locale in from the start instead "
      "would read it at every start, not only when AUTO is chosen"),
     ("formats", "gfx", ["fits"], "the size every image decoder keeps to: it belongs in formats"),
-    ("platform", "library", ["is_chart"], "the test of a chart's extension: it belongs in vibebms-core beside "
-     "CHART_EXTENSIONS"),
     ("platform::vfs", "placement", ["Vfs"], "the player's files as bmseeker sees them: platform code"),
     ("platform::opfs", "replay", ["dir"], "which folders the browser keeps: the start can say"),
     ("platform::ios", "input::hid", ["key_code"], "only iOS' keyboard reads HID usages: it belongs in platform"),
-    ("library", "scene::skinvals", ["judge_rank_number"], "a chart's judge rank: it belongs to ChartMeta"),
     ("config", "archive", ["DEFAULT_INDEXES", "CATALOG", "OLD_DEFAULT"], "default settings: they belong in config"),
-    ("config", "replay", ["Slot"], "which of a chart's replays: it belongs in vibebms-core's replay"),
     ("paths", "update", ["app_bundle"], "the macOS bundle's layout: it belongs in paths"),
     ("input", "touch", ["START", "SELECT", "START2", "SELECT2"], "lanes of the input: they belong in input"),
     ("gfx::text", "skin", ["read_font"], "the font reader is gfx's; the capped read belongs in platform::vfs"),

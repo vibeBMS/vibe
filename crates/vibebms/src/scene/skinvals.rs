@@ -7,7 +7,7 @@ use crate::app::Ctx;
 use crate::config::{Bpms, HiSpeedMode, PlayConfig};
 use crate::library::{BestScore, Song};
 use crate::platform::Instant;
-use vibebms_core::chart::{ChartMeta, JudgeRank};
+use vibebms_core::chart::ChartMeta;
 use vibebms_core::gauge::{GaugeAutoShift, GaugeType};
 use vibebms_core::judge::{Judge, JudgePreset};
 use vibebms_core::lane_option::LaneOption;
@@ -68,7 +68,7 @@ impl ChartFacts<'_> {
             max_bpm: m.max_bpm,
             main_bpm: m.main_bpm,
             level: m.level.trim().parse::<f64>().ok().map(|v| v as i64),
-            judge: Some(judge_rank_number(m)),
+            judge: Some(m.judge_rank_number()),
             stagefile: &m.stagefile,
             banner: &m.banner,
             backbmp: Some(&m.backbmp),
@@ -365,15 +365,6 @@ pub fn judge_option(judge: i64, id: i32) -> bool {
     judge == k || (judge >= 10 && ((judge - 10) / 25).min(4) == k)
 }
 
-/// beatoraja's judge rank number (400): `#RANK`, else the percentage.
-pub fn judge_rank_number(m: &ChartMeta) -> i64 {
-    match m.judge_rank {
-        JudgeRank::Rank(r) => r as i64,
-        JudgeRank::NoNumber => 2,
-        JudgeRank::DefExRank(v) | JudgeRank::Bmson(v) => v.round() as i64,
-    }
-}
-
 /// LR2 lamp options 100-105 (exactly one holds: lamps LR2 lacks count as
 /// the nearest one) and beatoraja's exact 1100-1104.
 pub fn lamp_option(c: ClearType, id: i32) -> Option<bool> {
@@ -594,7 +585,7 @@ mod tests {
             level: "12".into(),
             has_ln: true,
             stagefile: "s.png".into(),
-            judge: Some(judge_rank_number(&m)),
+            judge: Some(m.judge_rank_number()),
             ..Song::default()
         };
         let (a, b) = (

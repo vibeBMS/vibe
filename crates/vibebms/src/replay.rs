@@ -8,53 +8,11 @@
 use crate::config::PlayConfig;
 use std::path::{Path, PathBuf};
 use vibebms_core::judge::JudgePreset;
+use vibebms_core::replay::Slot;
 pub use vibebms_core::replay::VERSION;
 
 /// A replay with the play options it was played with (rules and view).
 pub type Replay = vibebms_core::replay::Replay<PlayConfig>;
-
-/// Which of a chart's replays.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Slot {
-    /// The latest play.
-    Last,
-    /// The best EX score.
-    Best,
-    /// One the player saved: 1 to [`SAVED`].
-    Saved(u8),
-}
-
-/// How many replays the player can save per chart.
-pub const SAVED: u8 = 4;
-
-impl Slot {
-    /// The automatic replays, then the saved ones.
-    pub const ALL: [Slot; 2 + SAVED as usize] = [
-        Slot::Best,
-        Slot::Last,
-        Slot::Saved(1),
-        Slot::Saved(2),
-        Slot::Saved(3),
-        Slot::Saved(4),
-    ];
-
-    fn name(self) -> String {
-        match self {
-            Slot::Last => "last".into(),
-            Slot::Best => "best".into(),
-            Slot::Saved(n) => format!("slot{n}"),
-        }
-    }
-
-    /// As shown: "MY BEST", "LAST", "SLOT 1".
-    pub fn label(self) -> String {
-        match self {
-            Slot::Best => "MY BEST".into(),
-            Slot::Last => "LAST".into(),
-            Slot::Saved(n) => format!("SLOT {n}"),
-        }
-    }
-}
 
 /// The folder replays are kept in.
 pub fn dir(root: &Path) -> PathBuf {

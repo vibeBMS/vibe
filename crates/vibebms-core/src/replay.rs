@@ -29,6 +29,50 @@ pub const MAX_JSON: usize = 128 << 20;
 /// Why a replay past [`MAX_JSON`] is not kept.
 pub const TOO_LONG: &str = "the replay is too long to keep";
 
+/// Which of a chart's replays.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Slot {
+    /// The latest play.
+    Last,
+    /// The best EX score.
+    Best,
+    /// One the player saved: 1 to [`SAVED`].
+    Saved(u8),
+}
+
+/// How many replays the player can save per chart.
+pub const SAVED: u8 = 4;
+
+impl Slot {
+    /// The automatic replays, then the saved ones.
+    pub const ALL: [Slot; 2 + SAVED as usize] = [
+        Slot::Best,
+        Slot::Last,
+        Slot::Saved(1),
+        Slot::Saved(2),
+        Slot::Saved(3),
+        Slot::Saved(4),
+    ];
+
+    /// Its name in the file name the replay is kept under.
+    pub fn name(self) -> String {
+        match self {
+            Slot::Last => "last".into(),
+            Slot::Best => "best".into(),
+            Slot::Saved(n) => format!("slot{n}"),
+        }
+    }
+
+    /// As shown: "MY BEST", "LAST", "SLOT 1".
+    pub fn label(self) -> String {
+        match self {
+            Slot::Best => "MY BEST".into(),
+            Slot::Last => "LAST".into(),
+            Slot::Saved(n) => format!("SLOT {n}"),
+        }
+    }
+}
+
 /// A play's replay. `P`: its play options, the rules and whatever else the
 /// player kept with them (the app's view options).
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -611,9 +611,9 @@ pub(super) fn play_scene(ctx: &mut Ctx, cli: &Cli) -> Option<Box<dyn Scene>> {
     // --ghost best|last: G-BATTLE against that replay
     let ghost = cli.ghost.as_deref().map(|g| {
         let slot = if g == "last" {
-            crate::replay::Slot::Last
+            vibebms_core::replay::Slot::Last
         } else {
-            crate::replay::Slot::Best
+            vibebms_core::replay::Slot::Best
         };
         ghost_for(ctx, &song, slot).map(|r| (r, slot))
     });

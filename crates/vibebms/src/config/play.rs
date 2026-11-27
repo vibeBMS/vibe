@@ -31,8 +31,8 @@ pub enum Versus {
 
 impl Versus {
     /// G-BATTLE's opponent: which replay of the chart.
-    pub fn ghost(self) -> Option<crate::replay::Slot> {
-        use crate::replay::Slot;
+    pub fn ghost(self) -> Option<vibebms_core::replay::Slot> {
+        use vibebms_core::replay::Slot;
         match self {
             Versus::GhostBest => Some(Slot::Best),
             Versus::GhostLast => Some(Slot::Last),

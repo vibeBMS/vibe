@@ -456,7 +456,7 @@ impl bmseeker::fs::Store for Capture<'_> {
 /// [`CHARTS_MAX`] of charts, or more files than one may list, is not read
 /// (an error of kind `OutOfMemory`: it is too large until it changes).
 pub fn read_charts(archive: &Path, want: Option<&HashSet<PathBuf>>) -> io::Result<Unpacked> {
-    let take = |r: &Path| crate::library::is_chart(r) && want.is_none_or(|w| w.contains(r));
+    let take = |r: &Path| vibebms_core::is_chart(r) && want.is_none_or(|w| w.contains(r));
     let count = want.map(HashSet::len);
     unpack(
         archive,
@@ -549,7 +549,7 @@ mod tests {
             assert_eq!(u.files, charts[1..], "{name}");
 
             // 16 bytes of charts
-            let chart = |r: &Path| crate::library::is_chart(r);
+            let chart = |r: &Path| vibebms_core::is_chart(r);
             let read = |cap| unpack(&a, &chart, true, None, &Dest::Charts, cap).map(|u| u.files);
             assert_eq!(read(16).unwrap(), charts, "{name}");
             assert_eq!(read(15).err().unwrap().kind(), OutOfMemory, "{name}");
