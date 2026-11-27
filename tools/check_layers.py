@@ -44,7 +44,7 @@ sys.dont_write_bytecode = True
 LAYERS = [
     ("base", ["formats", "i18n"]),
     ("platform", ["platform"]),
-    ("library", ["library", "library::lr2db", "net::links"]),
+    ("library", ["library", "library::sqlite", "library::lr2db", "net::links"]),
     ("placement", ["net::placement", "library::charts"]),
     ("courses and scores", ["library::courses", "library::scoredb"]),
     ("settings", ["config"]),

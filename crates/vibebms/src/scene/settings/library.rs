@@ -37,7 +37,7 @@ pub(super) fn import_scores(c: &mut Ctx, path: &str) {
         return;
     }
     let read = scoredb::find(std::path::Path::new(path)).and_then(|f| {
-        let bytes = crate::library::lr2db::read_file(&f)?;
+        let bytes = crate::library::sqlite::read_file(&f)?;
         scoredb::read(&bytes, scoredb::is_lr2oraja(&f))
     });
     let rows = match read {

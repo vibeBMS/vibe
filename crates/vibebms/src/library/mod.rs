@@ -10,6 +10,7 @@ pub mod courses;
 pub mod lr2db;
 pub mod replay;
 pub mod scoredb;
+pub mod sqlite;
 
 use crate::platform::{arcfs, vfs};
 use serde::{Deserialize, Serialize};

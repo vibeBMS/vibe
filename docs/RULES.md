@@ -228,8 +228,8 @@ vibe-LR2 profile does not take them (gap A10). LR2's course gauges are below ("L
 LR2's three course kinds [S-OLR2b; S-OLR2 3.6]. vibeBMS's difficulty-table courses are class courses; the player's own
 are made in the settings' COURSES page (a chart added with C in the song select), drawn by RANDOM MIX (expert and
 NONSTOP, LR2's settings) or imported from an LR2 `song.db` (its `expert`, `nonstop` and `grade` tables, read by
-`lr2db`, a small SQLite reader of vibeBMS's own that builds for the web too; LR2's `.lr2folder` course folders only
-name those tables, and carry no course). At most 5 stages.
+`library::lr2db` with `library::sqlite`, a small SQLite reader of vibeBMS's own that builds for the web too; LR2's
+`.lr2folder` course folders only name those tables, and carry no course). At most 5 stages.
 
 Identity [S-OLR2b 2.3]: LR2's packed course string, a 32-character header (a join digit per join, the kind digit at
 11, zeros) and the stages' MD5s. Its characters 29 to 32 are in LR2 the start of the MD5 of the player's password;
