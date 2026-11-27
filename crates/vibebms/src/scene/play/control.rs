@@ -1,8 +1,8 @@
 //! START / SELECT while playing: the hi-speed and lane cover panel, quitting.
 
 use super::PlayScene;
-use crate::app::Ctx;
 use crate::config::{Bpms, PlayConfig, HISPEED_STEP};
+use crate::ctx::Ctx;
 use crate::input::{self, LaneEv, LaneMapper};
 use crate::platform::{Duration, Instant};
 use vibebms_core::PlayMode;

@@ -1,7 +1,7 @@
 use super::row::onoff;
 use super::row::{mb, Act, Row, Rows};
 use super::{library, Confirm, Sub, TextField};
-use crate::app::Ctx;
+use crate::ctx::Ctx;
 use crate::i18n::Language;
 use crate::ui::Armed;
 use crate::update::{Status, Version, SUPPORTED, VERSION};

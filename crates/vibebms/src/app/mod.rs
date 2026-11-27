@@ -1,20 +1,17 @@
-//! Window, event loop, shared context and the scene stack.
+//! Window, event loop and the scene stack (the state they share: `ctx`).
 
 mod activity;
 mod cli;
-mod ctx;
 mod diag;
 mod events;
 #[cfg(desktop)]
 pub mod export;
 mod pacing;
 mod startup;
-mod tables;
 mod viewer;
 
-pub use ctx::{AppEvent, Ctx};
-
 use crate::config::Config;
+use crate::ctx::Ctx;
 use crate::gfx::text::{Align, Text, TextStyle};
 use crate::gfx::{rgba, with_alpha, Batch, Draw, Gfx, Rect};
 use crate::input::{InputEv, Phase};
@@ -406,6 +403,8 @@ impl Running {
         #[cfg(target_os = "ios")]
         crate::platform::ios::poll_keyboard();
         self.ctx.poll_jobs();
+        crate::scene::skinned::settle(&mut self.ctx, Instant::now());
+        self.ctx.poll_library();
         self.startup.poll(&mut self.ctx);
         self.poll_viewer(el);
         self.poll_profile(el);
@@ -654,7 +653,7 @@ impl App {
             screen.guessed_inches(scale),
             screen.points_per_inch
         );
-        let view = ctx::View::new(size, scale, screen, &gfx.adapter_name);
+        let view = crate::ctx::View::new(size, scale, screen, &gfx.adapter_name);
         // this launch's options (not saved)
         let overrides = std::mem::take(&mut self.launch.overrides);
         for l in overrides.describe() {

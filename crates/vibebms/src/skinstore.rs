@@ -18,7 +18,6 @@
 //! archive of a whole `LR2files` keeps its themes' names). A beatoraja
 //! skin's paths are its own: it goes to `skins/<folder>/` too.
 
-use crate::app::AppEvent;
 use crate::archive::{safe_name, Fail};
 use crate::platform::Job;
 use bmseeker::progress::Progress;
@@ -252,6 +251,16 @@ pub enum State {
 /// failed.
 type Installing = Job<Result<Vec<String>, Fail>>;
 
+/// What [`SkinStore::poll`] reports, in order.
+#[derive(Debug, PartialEq)]
+pub enum Polled {
+    Toast(String),
+    /// Skins were added or replaced.
+    SkinsChanged,
+    /// A skin's download page, for the system's browser.
+    OpenUrl(String),
+}
+
 #[derive(Default)]
 pub struct SkinStore {
     pub catalog: Catalog,
@@ -435,7 +444,7 @@ impl SkinStore {
     }
 
     /// What happened since the last frame.
-    pub fn poll(&mut self, paths: &crate::paths::Paths) -> Vec<AppEvent> {
+    pub fn poll(&mut self, paths: &crate::paths::Paths) -> Vec<Polled> {
         let mut out = Vec::new();
         if let Some(r) = self.fetching.as_mut().and_then(Job::poll) {
             self.fetching = None;
@@ -469,7 +478,7 @@ impl SkinStore {
             let name = e.map(|e| e.name.clone()).unwrap_or_else(|| id.clone());
             match r {
                 Ok(folders) => {
-                    out.push(AppEvent::Toast(tr!(
+                    out.push(Polled::Toast(tr!(
                         "Installed {name} in skins/{folders}: choose it in SKINS",
                         name = name,
                         folders = folders.join(", skins/")
@@ -477,20 +486,20 @@ impl SkinStore {
                     let version = e.map(|e| e.version.clone()).unwrap_or_default();
                     self.installed.insert(id, Installed { version, folders });
                     self.save_record(paths);
-                    out.push(AppEvent::SkinsChanged);
+                    out.push(Polled::SkinsChanged);
                 }
                 Err(Fail::Page(url)) => {
-                    out.push(AppEvent::Toast(tr!(
+                    out.push(Polled::Toast(tr!(
                         "{title}: no direct download, opening its page",
                         title = name
                     )));
                     // (not the in-app browser: what it downloads goes to the library)
-                    out.push(AppEvent::OpenUrl(url));
+                    out.push(Polled::OpenUrl(url));
                 }
                 Err(Fail::Msg(e)) if e == bmseeker::progress::CANCELLED => {
-                    out.push(AppEvent::Toast(tr!("{title}: cancelled", title = name)))
+                    out.push(Polled::Toast(tr!("{title}: cancelled", title = name)))
                 }
-                Err(Fail::Msg(e)) => out.push(AppEvent::Toast(tr!(
+                Err(Fail::Msg(e)) => out.push(Polled::Toast(tr!(
                     "{title}: download failed ({e})",
                     title = name,
                     e = e

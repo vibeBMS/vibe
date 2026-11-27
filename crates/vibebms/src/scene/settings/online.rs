@@ -5,8 +5,8 @@
 use super::row::onoff;
 use super::row::{Act, Kind, Row, Rows, Tone};
 use super::{Sub, TextField};
-use crate::app::Ctx;
 use crate::config::{provider_name, Beside, IrAccount, PlayerKey, SubmitPolicy};
+use crate::ctx::Ctx;
 use crate::ir::creds;
 use crate::platform::{store, unix_ms, IS_WEB};
 use crate::scene::cycle;

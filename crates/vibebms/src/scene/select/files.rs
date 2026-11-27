@@ -6,7 +6,7 @@
 use super::status::song_dir;
 use super::tree::{Bar, Node};
 use super::SelectScene;
-use crate::app::Ctx;
+use crate::ctx::Ctx;
 use crate::library::Song;
 use crate::platform::{open, vfs};
 use std::path::Path;

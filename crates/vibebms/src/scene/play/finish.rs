@@ -2,8 +2,8 @@
 
 use super::session::Role;
 use super::{single_mode, CourseRun, PlayRequest, PlayScene, Versus};
-use crate::app::Ctx;
 use crate::config::PlayConfig;
+use crate::ctx::Ctx;
 use crate::replay::Replay;
 use crate::scene::result::{ResultData, ResultScene, SideResult};
 use crate::scene::Next;

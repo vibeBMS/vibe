@@ -10,8 +10,8 @@
 //! Controller: key 1 layout, 2 key mode, 3/5 controls lower/higher,
 //! 4 START/SELECT side, 6 flip, 7 reset, START save, SELECT cancel.
 
-use crate::app::Ctx;
 use crate::config::{Side, TouchConfig, TouchSide, TouchStyle};
+use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{rgba, with_alpha, Draw, Gfx, Rect};
 use crate::input::{nav_from_pad, InputEv, Nav, Phase};

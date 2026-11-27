@@ -1,7 +1,7 @@
 //! Which play skin a mode uses: the built-in ones and the configured
 //! paths.
 
-use crate::app::Ctx;
+use crate::ctx::Ctx;
 use crate::skin::SkinType;
 use std::path::PathBuf;
 use vibebms_core::PlayMode;

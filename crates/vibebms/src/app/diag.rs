@@ -5,7 +5,7 @@
 //! Off, nothing is recorded (a relaxed load per sample). The start's phases
 //! are timed in the log (`startup:` lines) always.
 
-use super::Ctx;
+use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::Draw;
 use crate::input::InputEv;

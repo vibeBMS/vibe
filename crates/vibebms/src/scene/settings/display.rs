@@ -3,8 +3,8 @@
 use super::row::onoff;
 use super::row::{percent, Row, Rows};
 use super::{skins, Sub};
-use crate::app::Ctx;
 use crate::config::PresentMode;
+use crate::ctx::Ctx;
 use crate::scene::cycle;
 use crate::scene::skinned;
 use crate::skin::SkinType;

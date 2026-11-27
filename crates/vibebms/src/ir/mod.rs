@@ -20,7 +20,6 @@ pub mod download;
 pub mod lamps;
 pub mod store;
 
-use crate::app::AppEvent;
 use crate::config::{Beside, IrAccount, IrSettings, SubmitPolicy};
 use crate::paths::Paths;
 use crate::platform::{http, Job, IS_WEB};
@@ -71,6 +70,19 @@ struct Answer {
     p: ProviderId,
     ticket: Ticket,
     r: Result<HttpResponse, String>,
+}
+
+/// What [`IrService::poll`] reports, in order.
+#[derive(Debug, PartialEq)]
+pub enum Polled {
+    Toast(String),
+    /// An account was checked (who it is, whether its key holds): the
+    /// configuration keeps it. (The outbox's progress is read as it is
+    /// shown.)
+    Changed,
+    /// The player's own scores read from an IR: to be taken into the
+    /// records (`download`).
+    Scores(Box<download::Download>),
 }
 
 /// The IR's state: the history of plays, the accounts' keys, the outbox
@@ -395,7 +407,7 @@ impl IrService {
 
     /// The downloads whose lamp sets are all read: their scores, for the
     /// records.
-    fn downloads_done(&mut self, ir: &IrSettings) -> Vec<AppEvent> {
+    fn downloads_done(&mut self, ir: &IrSettings) -> Vec<Polled> {
         let mut out = Vec::new();
         let lamps = &self.lamps;
         self.downloads.retain(|&p| {
@@ -422,46 +434,46 @@ impl IrService {
                 }
             }
             d.why.dedup();
-            out.push(AppEvent::IrScores(Box::new(d)));
+            out.push(Polled::Scores(Box::new(d)));
             false
         });
         out
     }
 
     /// The answer to a vibeBMS IR's scores route.
-    fn scores_came(a: &IrAccount, r: Result<HttpResponse, String>) -> AppEvent {
+    fn scores_came(a: &IrAccount, r: Result<HttpResponse, String>) -> Polled {
         let title = a.title().to_string();
         let parsed = match (r, provider(a)) {
             (Ok(resp), Some(prov)) => prov.parse(&Op::PlayerScores { player: &a.user_id }, &resp),
             (Ok(_), None) => {
-                return AppEvent::Toast(tr!("{title}: not available here", title = title))
+                return Polled::Toast(tr!("{title}: not available here", title = title))
             }
             (Err(why), _) => {
-                return AppEvent::Toast(tr!("{title}: no answer ({why})", title = title, why = why))
+                return Polled::Toast(tr!("{title}: no answer ({why})", title = title, why = why))
             }
         };
         match parsed {
             Outcome::Scores { scores, .. } => {
                 let (rows, left_out) = download::rows_of_scores(&scores);
-                AppEvent::IrScores(Box::new(download::Download {
+                Polled::Scores(Box::new(download::Download {
                     title,
                     rows,
                     left_out,
                     why: Vec::new(),
                 }))
             }
-            Outcome::Unsupported => AppEvent::Toast(tr!(
+            Outcome::Unsupported => Polled::Toast(tr!(
                 "{title}: this server cannot list your scores",
                 title = title
             )),
             Outcome::Rejected(why) | Outcome::Auth(why) | Outcome::Retry { why, .. } => {
-                AppEvent::Toast(tr!(
+                Polled::Toast(tr!(
                     "{title}: your scores could not be read ({why})",
                     title = title,
                     why = why
                 ))
             }
-            o => AppEvent::Toast(tr!(
+            o => Polled::Toast(tr!(
                 "{title}: unexpected answer: {answer}",
                 title = title,
                 answer = format!("{o:?}")
@@ -677,7 +689,7 @@ impl IrService {
 
     /// What came back and what is due: answers settle their items, due
     /// items are sent. An account's check changes `ir`.
-    pub fn poll(&mut self, now_ms: i64, ir: &mut IrSettings) -> Vec<AppEvent> {
+    pub fn poll(&mut self, now_ms: i64, ir: &mut IrSettings) -> Vec<Polled> {
         let mut events = Vec::new();
         let mut changed = false;
         self.lock(now_ms);
@@ -709,11 +721,11 @@ impl IrService {
                 }
                 (Ticket::Verify, Some(account)) => {
                     events.extend(self.verified(account, a.r));
-                    events.push(AppEvent::IrChanged);
+                    events.push(Polled::Changed);
                 }
                 (Ticket::Item(id), Some(account)) => {
                     let failed = self.settle(account, &id, a.r, now_ms);
-                    events.extend(failed.map(AppEvent::Toast));
+                    events.extend(failed.map(Polled::Toast));
                 }
                 // the account was removed meanwhile, its plays with it
                 (Ticket::Item(id), None) => {
@@ -746,7 +758,7 @@ impl IrService {
         if changed {
             self.save();
         }
-        events.extend(self.notes.drain(..).map(AppEvent::Toast));
+        events.extend(self.notes.drain(..).map(Polled::Toast));
         events
     }
 
@@ -799,7 +811,7 @@ impl IrService {
         k: &SetKey,
         r: Result<HttpResponse, String>,
         now_ms: i64,
-    ) -> Option<AppEvent> {
+    ) -> Option<Polled> {
         let mut parsed = match (r, a.as_deref().and_then(provider)) {
             (Ok(resp), Some(prov)) => {
                 let op = Op::PlayerLamps {
@@ -838,14 +850,14 @@ impl IrService {
                 self.checking.retain(|&p| p != own.provider);
                 (!name.is_empty() && name != own.user).then(|| {
                     own.user = name;
-                    AppEvent::IrChanged
+                    Polled::Changed
                 })
             }
             Err(why) if checking && !why.is_empty() => {
                 self.checking.retain(|&p| p != own.provider);
                 own.user.clear();
                 let player = &own.user_id;
-                Some(AppEvent::Toast(tr!(
+                Some(Polled::Toast(tr!(
                     "{title}: player {player}: {why}",
                     title = own.title(),
                     player = player,
@@ -901,7 +913,7 @@ impl IrService {
     }
 
     /// The account's check came back: who it is, or why not.
-    fn verified(&mut self, a: &mut IrAccount, r: Result<HttpResponse, String>) -> Option<AppEvent> {
+    fn verified(&mut self, a: &mut IrAccount, r: Result<HttpResponse, String>) -> Option<Polled> {
         let p = provider(a)?;
         let said = match r.map(|resp| p.parse(&Op::Verify, &resp)) {
             Ok(Outcome::Account(info)) => {
@@ -929,7 +941,7 @@ impl IrService {
             Ok(_) => tr!("the key could not be checked").into(),
             Err(why) => tr!("no answer ({why})", why = why),
         };
-        Some(AppEvent::Toast(format!("{}: {said}", a.title())))
+        Some(Polled::Toast(format!("{}: {said}", a.title())))
     }
 
     fn resume(&mut self, p: ProviderId) {
@@ -1451,7 +1463,7 @@ mod tests {
     }
 
     /// Poll at `now` until no request is out; what the polls said.
-    fn events(ir: &mut IrService, s: &mut IrSettings, now: i64) -> Vec<AppEvent> {
+    fn events(ir: &mut IrService, s: &mut IrSettings, now: i64) -> Vec<Polled> {
         let mut got = Vec::new();
         for _ in 0..500 {
             got.extend(ir.poll(now, s));
@@ -1556,9 +1568,7 @@ mod tests {
         let said = events(&mut ir, &mut s, t0);
         assert_eq!(
             said,
-            [AppEvent::Toast(
-                "BMS-IR: player 1: player not public".into()
-            )]
+            [Polled::Toast("BMS-IR: player 1: player not public".into())]
         );
         assert!(seen.recv().unwrap().starts_with(
             "GET /api/player_lamps.json?id=1&table=satellite&client_view=all_clients "
@@ -1567,7 +1577,7 @@ mod tests {
         // another id: its name comes with its lamps
         s.accounts[0].user_id = "100002".into();
         ir.verify(&s, p);
-        assert_eq!(events(&mut ir, &mut s, t0), [AppEvent::IrChanged]);
+        assert_eq!(events(&mut ir, &mut s, t0), [Polled::Changed]);
         assert_eq!(s.accounts[0].user, "プレイヤー");
         let md5 = "02c4d238c7ab99ae088bae519d92dc06";
         let lamp = ir.lamp(p, "100002", md5, "").unwrap();
@@ -1638,7 +1648,7 @@ mod tests {
             .recv()
             .unwrap()
             .starts_with("GET /api/players/7/scores "));
-        let [AppEvent::IrScores(d)] = &got[..] else {
+        let [Polled::Scores(d)] = &got[..] else {
             panic!("{got:?}")
         };
         assert_eq!((d.title.as_str(), d.rows.len(), d.left_out), ("IR", 1, 1));
@@ -1651,7 +1661,7 @@ mod tests {
         ir.download_scores(&s, p).unwrap();
         assert_eq!(
             events(&mut ir, &mut s, t0),
-            [AppEvent::Toast(
+            [Polled::Toast(
                 "IR: this server cannot list your scores".into()
             )]
         );
@@ -1693,12 +1703,11 @@ mod tests {
         let mut got = Vec::new();
         for _ in 0..50 {
             got.extend(events(&mut ir, &mut s, t0));
-            if got.iter().any(|e| matches!(e, AppEvent::IrScores(_))) {
+            if got.iter().any(|e| matches!(e, Polled::Scores(_))) {
                 break;
             }
         }
-        let Some(AppEvent::IrScores(d)) = got.iter().find(|e| matches!(e, AppEvent::IrScores(_)))
-        else {
+        let Some(Polled::Scores(d)) = got.iter().find(|e| matches!(e, Polled::Scores(_))) else {
             panic!("{got:?}")
         };
         // the fixture's five charts, NO PLAY left out; LR2's: as LN
@@ -1772,7 +1781,7 @@ mod tests {
         let said = ir.poll(t0 + 10_000, &mut s);
         assert_eq!(
             said,
-            [AppEvent::Toast(
+            [Polled::Toast(
                 "IR outbox full (500 waiting): dropped SONG".into()
             )]
         );

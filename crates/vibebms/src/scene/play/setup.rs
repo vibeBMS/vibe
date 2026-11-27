@@ -7,7 +7,7 @@ use super::session::{Feed, Role, Session, SideState};
 use super::skin::ghost_ex;
 use super::sound::Audio;
 use super::{battle_skin_fits, single_mode, Facts, PlayScene, Stage, Versus};
-use crate::app::Ctx;
+use crate::ctx::Ctx;
 use crate::gfx::Gfx;
 use crate::input::LaneMapper;
 use crate::platform::{Duration, Instant};
@@ -32,7 +32,13 @@ impl PlayScene {
             nonstop,
             section,
         } = *l;
-        crate::loudness::start_play(ctx, &self.req.song.sha256, loudness);
+        crate::loudness::start_play(
+            &mut ctx.audio.loudness,
+            &ctx.audio.mixer,
+            &ctx.config.audio,
+            &self.req.song.sha256,
+            loudness,
+        );
         let mode = chart.mode();
         let vs = self.req.is_vs();
         let ghost = match &self.req.vs {

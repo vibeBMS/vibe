@@ -2,7 +2,7 @@
 //! groups (their rows only while open), and the section each row is in.
 
 use super::{Ask, Confirm, Screen, Sub, TextField};
-use crate::app::Ctx;
+use crate::ctx::Ctx;
 use crate::scene::keybind::Slot;
 use crate::skin::SkinType;
 use crate::ui::Armed;

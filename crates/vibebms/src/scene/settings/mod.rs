@@ -30,7 +30,7 @@ mod system;
 mod web_storage;
 
 use super::keybind::{self, Learn, Learned};
-use crate::app::Ctx;
+use crate::ctx::Ctx;
 use crate::gfx::{Draw, Gfx};
 use crate::input::{nav_from_key, nav_from_pad, AxisStepper, InputEv, Nav, Phase};
 use crate::platform::{Duration, Instant};

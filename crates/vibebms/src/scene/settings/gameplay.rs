@@ -4,8 +4,8 @@
 use super::row::onoff;
 use super::row::{ms, Act, Kind, Row, Rows};
 use super::{Sub, TextField};
-use crate::app::Ctx;
 use crate::config::{HiSpeedMode, HsType};
+use crate::ctx::Ctx;
 use crate::scene::cycle;
 use crate::scene::play_opts::add_offset;
 use crate::scene::select::REFERENCE_BPMS;

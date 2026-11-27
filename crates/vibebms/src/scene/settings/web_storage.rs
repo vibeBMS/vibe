@@ -2,7 +2,7 @@
 
 use super::row::{Act, Row, Rows};
 use super::{Armed, Confirm};
-use crate::app::Ctx;
+use crate::ctx::Ctx;
 use crate::platform::vfs::{self, Kept};
 
 /// Days a kept song folder may go unplayed (and unchanged) before the

@@ -18,7 +18,7 @@ pub mod skinvals;
 pub mod target;
 pub mod touch_layout;
 
-use crate::app::Ctx;
+use crate::ctx::Ctx;
 use crate::gfx::{Draw, Gfx};
 use crate::input::InputEv;
 use crate::platform::Instant;

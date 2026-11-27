@@ -2,8 +2,8 @@
 
 use super::control::adjust_cover;
 use super::{PlayScene, Stage};
-use crate::app::Ctx;
 use crate::config::HISPEED_STEP;
+use crate::ctx::Ctx;
 use crate::input::{InputEv, LaneEv};
 use crate::platform::Instant;
 use crate::scene::Next;

@@ -27,14 +27,17 @@ pub struct Report {
     pub song_arrived: bool,
     /// A chart that could belong to several songs, and their folders.
     pub ask: Option<(PathBuf, Vec<(PathBuf, String)>)>,
+    /// What to tell the user, in order.
+    pub said: Vec<String>,
 }
 
-/// Tell the user how an import went, and of the charts that waited for it.
-pub fn report(ctx: &mut crate::app::Ctx, r: Outcome) -> Report {
+/// How an import went, and the charts that waited for it.
+pub fn report(r: Outcome) -> Report {
     let mut out = Report {
         rescan: true,
         song_arrived: false,
         ask: None,
+        said: Vec::new(),
     };
     let (r, placed) = match r {
         Ok((i, placed)) => (Ok(i), placed),
@@ -42,11 +45,12 @@ pub fn report(ctx: &mut crate::app::Ctx, r: Outcome) -> Report {
     };
     match r {
         Err(e) => {
-            ctx.toast(tr!("Could not unpack the download: {e}", e = e));
+            out.said
+                .push(tr!("Could not unpack the download: {e}", e = e));
             out.rescan = false;
         }
         Ok(Imported::Unpacked(dir, n)) => {
-            ctx.toast(tr!(
+            out.said.push(tr!(
                 "Added {name} ({n} files)",
                 name = file_name(&dir),
                 n = n
@@ -54,14 +58,16 @@ pub fn report(ctx: &mut crate::app::Ctx, r: Outcome) -> Report {
             out.song_arrived = true;
         }
         Ok(Imported::Owned(dir)) => {
-            ctx.toast(tr!("{name}: already installed", name = file_name(&dir)));
+            out.said
+                .push(tr!("{name}: already installed", name = file_name(&dir)));
         }
         Ok(Imported::Placed(p)) => {
             let dir = p.parent().map(file_name).unwrap_or_default();
-            ctx.toast(format!("{} → {dir}", file_name(&p)));
+            out.said.push(format!("{} → {dir}", file_name(&p)));
         }
         Ok(Imported::Waiting(p)) => {
-            ctx.toast(tr!("{name}: download its song too", name = file_name(&p)));
+            out.said
+                .push(tr!("{name}: download its song too", name = file_name(&p)));
             out.rescan = false;
         }
         Ok(Imported::Ask(chart, folders)) => {
@@ -69,7 +75,7 @@ pub fn report(ctx: &mut crate::app::Ctx, r: Outcome) -> Report {
             out.ask = Some((chart, folders));
         }
         Ok(Imported::Other(p)) => {
-            ctx.toast(tr!(
+            out.said.push(tr!(
                 "{name} is not a song (kept in downloads)",
                 name = file_name(&p)
             ));
@@ -81,7 +87,7 @@ pub fn report(ctx: &mut crate::app::Ctx, r: Outcome) -> Report {
         }
     }
     for p in &placed {
-        ctx.toast(tr!("{name} → its song", name = file_name(p)));
+        out.said.push(tr!("{name} → its song", name = file_name(p)));
     }
     out.rescan |= !placed.is_empty();
     out

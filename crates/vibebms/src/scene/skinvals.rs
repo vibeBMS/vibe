@@ -3,8 +3,8 @@
 //! settings' buttons, the clock and the player's totals. Each screen
 //! answers the ids it has from these.
 
-use crate::app::Ctx;
 use crate::config::{Bpms, HiSpeedMode, PlayConfig};
+use crate::ctx::Ctx;
 use crate::library::{BestScore, Song};
 use crate::platform::Instant;
 use vibebms_core::chart::ChartMeta;

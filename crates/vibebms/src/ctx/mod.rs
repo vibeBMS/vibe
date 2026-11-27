@@ -1,6 +1,15 @@
 //! The state every scene shares, and the background work it polls.
 
-use super::tables::Tables;
+mod event;
+mod mute;
+pub mod overrides;
+pub mod tables;
+
+pub use event::AppEvent;
+pub use mute::Mute;
+pub use overrides::Overrides;
+use tables::Tables;
+
 use crate::config::{Config, TouchMode};
 use crate::library::{BestScore, Library, RecordKey, ScanProgress, Song};
 use crate::paths::Paths;
@@ -15,30 +24,6 @@ use std::sync::Arc;
 use vibebms_audio::Mixer;
 use vibebms_core::judge::JudgePreset;
 use vibebms_core::replay::Slot;
-
-/// What a background subsystem's `poll` reports, for the app to act on.
-#[derive(Debug, PartialEq)]
-pub enum AppEvent {
-    Toast(String),
-    /// Files came into the library: scan it again.
-    Rescan,
-    /// What the music select lists changed (an event's works, a table).
-    LibraryChanged,
-    /// A download page that needs a person: in the in-app browser where
-    /// there is one (what it downloads goes to the library).
-    Browse(String),
-    /// A page for the system's browser.
-    OpenUrl(String),
-    /// Skins were added or replaced.
-    SkinsChanged,
-    /// An IR account was checked (who it is, whether its key holds): the
-    /// configuration keeps it. (The outbox's progress is read as it is
-    /// shown.)
-    IrChanged,
-    /// The player's own scores read from an IR: to be taken into the
-    /// records (`ir::download`).
-    IrScores(Box<crate::ir::download::Download>),
-}
 
 /// Shared state available to every scene.
 pub struct Ctx {
@@ -60,7 +45,7 @@ pub struct Ctx {
     pub skins: Skins,
     /// This launch's command-line options, which the saved config leaves
     /// out.
-    pub overrides: super::cli::Overrides,
+    pub overrides: Overrides,
     /// The player profiles, the others' records as local rivals.
     pub profiles: crate::profiles::Profiles,
     /// Discord Rich Presence and OBS (desktop).
@@ -94,6 +79,10 @@ pub struct Lib {
     /// Web: picked charts being read before the scan.
     pub prefetch: Option<crate::platform::vfs::Prefetch>,
 }
+
+/// Songs are downloaded in an in-app browser (desktop, Android, iOS):
+/// [`Net::browse`].
+pub const IN_APP_BROWSER: bool = cfg!(in_app_browser);
 
 /// Downloads, the self-update and the internet ranking.
 pub struct Net {
@@ -137,7 +126,7 @@ pub struct Audio {
     pub mixer: Mixer,
     pub sounds: crate::sysound::SystemSounds,
     /// Silenced while the app is not the one in use (`app::activity`).
-    pub mute: super::activity::Mute,
+    pub mute: Mute,
     /// The charts' loudness measured so far.
     pub loudness: crate::loudness::LoudnessCache,
 }
@@ -293,7 +282,7 @@ impl Ctx {
         paths: Paths,
         profiles: crate::profiles::Profiles,
         config: Config,
-        overrides: super::cli::Overrides,
+        overrides: Overrides,
         mixer: Mixer,
         view: View,
     ) -> Ctx {
@@ -654,17 +643,34 @@ impl Ctx {
         self.lib.version += 1;
     }
 
-    /// What the background work did since the last frame.
+    /// What the downloads, the self-update and the IR did since the last
+    /// frame.
     pub fn poll_jobs(&mut self) {
-        let mut events = self.net.archives.poll(&self.paths);
-        events.extend(self.net.song_fetch.poll());
-        crate::bulk::tick(self, Instant::now());
+        let archives = self.net.archives.poll(&self.paths);
+        let mut events: Vec<AppEvent> = archives.into_iter().map(AppEvent::from).collect();
+        events.extend(self.net.song_fetch.poll().into_iter().map(AppEvent::from));
+        if crate::bulk::tick(
+            &mut self.net.bulk,
+            &mut self.net.song_fetch,
+            &self.paths.root,
+            &self.lib.songs,
+            &self.net.hosts,
+            &self.tables.links,
+            Instant::now(),
+        ) {
+            self.lib.version += 1;
+        }
         events.extend(self.net.updater.poll().into_iter().map(AppEvent::Toast));
-        events.extend(self.skins.store.poll(&self.paths));
+        let skins = self.skins.store.poll(&self.paths);
+        events.extend(skins.into_iter().map(AppEvent::from));
         let now = crate::platform::unix_ms();
-        events.extend(self.net.ir.poll(now, &mut self.config.ir));
+        let ir = self.net.ir.poll(now, &mut self.config.ir);
+        events.extend(ir.into_iter().map(AppEvent::from));
         self.handle(events);
-        crate::scene::skinned::settle(self, crate::platform::Instant::now());
+    }
+
+    /// What the scan and the tables did since the last frame.
+    pub fn poll_library(&mut self) {
         self.poll_scan();
         let events = self.tables.poll(&self.paths, &self.config.tables);
         self.handle(events);
@@ -687,7 +693,7 @@ impl Ctx {
             }
         }
         if !pages.is_empty() {
-            if crate::browser::IN_APP_BROWSER {
+            if IN_APP_BROWSER {
                 self.net.browse(pages);
             } else {
                 for p in &pages {

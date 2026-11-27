@@ -30,8 +30,8 @@ pub(crate) use {
     skin::{ghost_ex, PlayState},
 };
 
-use crate::app::Ctx;
 use crate::config::PlayConfig;
+use crate::ctx::Ctx;
 use crate::gfx::{Draw, Gfx};
 use crate::input::{InputEv, LaneEv};
 use crate::library::Song;

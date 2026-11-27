@@ -6,7 +6,6 @@
 //! mirror and unpacks into `bms/<EVENT>/` on choosing it, or opens its
 //! author's download page.
 
-use crate::app::AppEvent;
 use crate::platform::Job;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -162,6 +161,19 @@ enum Msg {
     Status(String),
     /// A work finished: (event, number, its folder relative to the data root).
     Done(String, u32, Result<(PathBuf, usize), Fail>),
+}
+
+/// What [`Archives::poll`] reports, in order.
+#[derive(Debug, PartialEq)]
+pub enum Polled {
+    Toast(String),
+    /// A work came into the library: scan it again.
+    Rescan,
+    /// A work's download page, which needs a person.
+    Browse(String),
+    /// What the music select lists of the events changed (their works,
+    /// one installed).
+    LibraryChanged,
 }
 
 #[derive(Default)]
@@ -384,7 +396,7 @@ impl Archives {
     }
 
     /// What happened since the last frame.
-    pub fn poll(&mut self, paths: &crate::paths::Paths) -> Vec<AppEvent> {
+    pub fn poll(&mut self, paths: &crate::paths::Paths) -> Vec<Polled> {
         let msgs = Job::drain_all(&mut self.jobs);
         let mut out = Vec::new();
         let (mut changed, mut new_events) = (false, false);
@@ -414,13 +426,13 @@ impl Archives {
                     }
                 }
                 Msg::Index(url, Err(e)) => log::warn!("archive index {url}: {e}"),
-                Msg::Status(s) => out.push(AppEvent::Toast(s)),
+                Msg::Status(s) => out.push(Polled::Toast(s)),
                 Msg::Done(event, num, r) => {
                     let k = key(&event, num);
                     self.busy.retain(|b| *b != k);
                     match r {
                         Ok((dir, n)) => {
-                            out.push(AppEvent::Toast(tr!(
+                            out.push(Polled::Toast(tr!(
                                 "Added {name} ({n} files)",
                                 name = dir.display(),
                                 n = n
@@ -433,17 +445,17 @@ impl Archives {
                                     &j,
                                 );
                             }
-                            out.push(AppEvent::Rescan);
+                            out.push(Polled::Rescan);
                             changed = true;
                         }
                         Err(Fail::Page(url)) => {
-                            out.push(AppEvent::Toast(
+                            out.push(Polled::Toast(
                                 tr!("No direct download: opening its page").into(),
                             ));
-                            out.push(AppEvent::Browse(url));
+                            out.push(Polled::Browse(url));
                         }
                         Err(Fail::Msg(e)) => {
-                            out.push(AppEvent::Toast(tr!("Download failed: {url}", url = e)))
+                            out.push(Polled::Toast(tr!("Download failed: {url}", url = e)))
                         }
                     }
                 }
@@ -456,7 +468,7 @@ impl Archives {
             changed = true;
         }
         if changed {
-            out.push(AppEvent::LibraryChanged);
+            out.push(Polled::LibraryChanged);
         }
         out
     }

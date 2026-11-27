@@ -4,7 +4,7 @@
 
 use super::genpreview::Preview;
 use super::SelectScene;
-use crate::app::Ctx;
+use crate::ctx::Ctx;
 use crate::gfx::Gfx;
 use crate::gfx::ImageJobs;
 use crate::ir::NotAsked;

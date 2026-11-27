@@ -6,12 +6,12 @@ use super::input::PanelKey;
 use super::skin::{panel_of_op, PANELS, PANEL_TILES};
 use super::status::SIBLINGS;
 use super::{SelectScene, REFERENCE_BPMS};
-use crate::app::Ctx;
 use crate::config::{AudioSettings, PlayConfig};
 use crate::config::{
     Bpms, DifficultyFilter, HsFix, HsType, KeyFilter, RandomSelect, ReplayPick, SortMode, Versus,
     HISPEED_STEP,
 };
+use crate::ctx::Ctx;
 use crate::gfx::Rect;
 use crate::input::{Nav, Repeat};
 use crate::library::{Favorites, Song};

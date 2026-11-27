@@ -262,29 +262,36 @@ impl Downloader for Fetch<'_> {
     }
 }
 
-/// One step of the queue in `ctx` (each frame).
-pub fn tick(ctx: &mut crate::app::Ctx, now: Instant) {
-    let net = &mut ctx.net;
-    if net.bulk.items.is_empty() {
-        return;
+/// One step of the queue `bulk` (each frame), its songs downloaded by
+/// `fetch` into the library below `root`, whose charts are `songs`, with
+/// `hosts` and the links `known`. True when what the music select lists
+/// changed.
+pub fn tick(
+    bulk: &mut Bulk,
+    fetch: &mut SongFetch,
+    root: &std::path::Path,
+    songs: &std::sync::Arc<Vec<crate::library::Song>>,
+    hosts: &crate::hosts::Context,
+    known: &crate::links::LinkLists,
+    now: Instant,
+) -> bool {
+    if bulk.items.is_empty() {
+        return false;
     }
-    let ended = net.song_fetch.take_ended();
-    if ended.is_empty() && !net.bulk.items.iter().any(|i| i.state == State::Queued) {
-        return;
+    let ended = fetch.take_ended();
+    if ended.is_empty() && !bulk.items.iter().any(|i| i.state == State::Queued) {
+        return false;
     }
-    let songs = ctx.lib.songs.clone();
     let have =
         |w: &Wanted| !w.md5.is_empty() && songs.iter().any(|s| s.md5.eq_ignore_ascii_case(&w.md5));
     let mut dl = Fetch {
-        fetch: &mut net.song_fetch,
-        root: &ctx.paths.root,
-        songs: &songs,
-        hosts: &net.hosts,
-        known: &ctx.tables.links,
+        fetch,
+        root,
+        songs,
+        hosts,
+        known,
     };
-    if net.bulk.tick(now, ended, have, &mut dl) {
-        ctx.lib.version += 1;
-    }
+    bulk.tick(now, ended, have, &mut dl)
 }
 
 #[cfg(test)]
