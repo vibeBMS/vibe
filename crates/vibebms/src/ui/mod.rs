@@ -1,12 +1,14 @@
 //! Small immediate-mode widgets shared by the menu scenes.
 
 mod confirm;
+mod drag;
 mod hit;
 mod list;
 mod notice;
 mod text_input;
 
 pub use confirm::Armed;
+pub use drag::DragScroll;
 pub use hit::HitMap;
 pub use list::ListView;
 pub use notice::Notice;

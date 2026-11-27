@@ -15,7 +15,7 @@ use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::theme;
 use crate::gfx::{rgba, with_alpha, Draw, Gfx, Rect};
-use crate::input::{nav_from_pad, InputEv, Nav, Phase};
+use crate::input::{InputEv, Nav, Phase};
 use crate::platform::Instant;
 use crate::scene::{Next, Scene};
 use crate::touch::{self, TouchInput, Zone};
@@ -545,9 +545,7 @@ impl Scene for TouchLayoutScene {
                 _ => {}
             },
             // a touch editor: a controller only leaves it
-            InputEv::Pad {
-                id, pressed: true, ..
-            } => match nav_from_pad(*id, &ctx.config.keys) {
+            InputEv::Pad { .. } => match ev.nav(&ctx.config.keys, None) {
                 Some(Nav::Option) => return self.save(ctx),
                 Some(Nav::Settings) => return self.cancel(ctx),
                 _ => {}

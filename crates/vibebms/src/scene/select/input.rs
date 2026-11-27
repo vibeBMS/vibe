@@ -8,7 +8,7 @@ use crate::ctx::Ctx;
 use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase, Repeat};
 use crate::platform::{Duration, Instant};
 use crate::scene::Next;
-use crate::ui::{TextEvent, TextInput, DRAG_SLOP};
+use crate::ui::{DragScroll, TextEvent, TextInput, DRAG_SLOP};
 use winit::keyboard::KeyCode;
 
 /// A held up / down moves on after 300 ms, every 70 ms, every 25 ms once
@@ -42,16 +42,6 @@ impl PanelKey {
         }
         has(&p.scratch_down).then_some(PanelKey::Down)
     }
-}
-
-/// A press on the list: the list follows it once it moves.
-#[derive(Debug)]
-pub(super) struct Drag {
-    id: u64,
-    y: f32,
-    /// The list's position when it went down.
-    scroll: f32,
-    moved: bool,
 }
 
 impl SelectScene {
@@ -277,23 +267,15 @@ impl SelectScene {
                 if let Some(next) = self.tap(ctx, x, y) {
                     return next;
                 }
-                self.drag = Some(Drag {
-                    id,
-                    y,
-                    scroll: self.scroll,
-                    moved: false,
-                });
+                self.drag = Some(DragScroll::new(id, x, y, self.scroll));
             }
             Phase::Move => {
                 let slop = DRAG_SLOP * ctx.ui();
                 let pitch = self.bar_pitch.unwrap_or(46.0 * ctx.ui());
-                let Some(d) = self.drag.as_mut().filter(|d| d.id == id) else {
-                    return Next::Stay;
-                };
-                d.moved |= (y - d.y).abs() > slop;
-                if d.moved && !self.bars.is_empty() {
+                let to = self.drag.as_mut().and_then(|d| d.to(id, y, slop, pitch));
+                if let Some(s) = to.filter(|_| !self.bars.is_empty()) {
                     let n = self.bars.len();
-                    self.scroll = (d.scroll - (y - d.y) / pitch).rem_euclid(n as f32);
+                    self.scroll = s.rem_euclid(n as f32);
                     let c = (self.scroll.round() as usize) % n;
                     if c != self.cursor {
                         self.cursor = c;
@@ -302,7 +284,7 @@ impl SelectScene {
                 }
             }
             Phase::Up => {
-                let tap = self.drag.take().is_some_and(|d| d.id == id && !d.moved);
+                let tap = self.drag.take().is_some_and(|d| d.tap(id));
                 if let Some(&i) = self.bar_rects.at(x, y).filter(|_| tap) {
                     if i == self.cursor {
                         return self.decide(ctx, false);

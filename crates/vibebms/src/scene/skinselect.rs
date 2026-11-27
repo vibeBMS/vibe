@@ -22,7 +22,7 @@ use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::theme;
 use crate::gfx::{with_alpha, Draw, Gfx, Rect};
-use crate::input::{nav_from_key, nav_from_pad_rows, AxisStepper, InputEv, Nav, Phase};
+use crate::input::{AxisStepper, InputEv, Nav, Phase};
 use crate::platform::Instant;
 use crate::scene::{Next, Scene};
 use crate::skin::render::{Hooks, LoadedSkin};
@@ -552,25 +552,19 @@ impl Scene for SkinSelectScene {
                 KeyCode::ArrowRight => self.change(ctx, 1),
                 KeyCode::PageUp | KeyCode::BracketLeft => self.step_kind(ctx, -1),
                 KeyCode::PageDown | KeyCode::BracketRight => self.step_kind(ctx, 1),
-                c => {
-                    if let Some(n) = nav_from_key(*c, &ctx.config.keys) {
-                        if ready || matches!(n, Nav::Back | Nav::Settings) {
-                            return self.nav(ctx, n);
-                        }
+                // keys wait for the screen, but for leaving it
+                _ => match ev.nav_rows(&ctx.config.keys, None) {
+                    Some(n) if ready || matches!(n, Nav::Back | Nav::Settings) => {
+                        return self.nav(ctx, n)
                     }
-                }
+                    _ => {}
+                },
             },
-            InputEv::Pad {
-                id, pressed: true, ..
-            } => {
-                if let Some(n) = nav_from_pad_rows(*id, &ctx.config.keys) {
+            InputEv::Pad { .. } | InputEv::Axis { .. } => {
+                if let Some(n) = ev.nav_rows(&ctx.config.keys, Some(&mut self.axis)) {
                     return self.nav(ctx, n);
                 }
             }
-            InputEv::Axis { id, value, .. } => match self.axis.step(*id, *value) {
-                0 => {}
-                d => self.step(ctx, d),
-            },
             InputEv::Wheel { dy } => {
                 let n = (-dy).round() as i32;
                 if n != 0 {

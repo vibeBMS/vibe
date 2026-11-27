@@ -4,7 +4,7 @@ use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::theme;
 use crate::gfx::{Draw, Rect};
-use crate::input::{nav_from_key, nav_from_pad_rows, InputEv, Nav, Phase};
+use crate::input::{InputEv, Nav, Phase};
 use winit::keyboard::KeyCode;
 
 /// A message over the screen that asks OK or Cancel: its title, its text
@@ -39,11 +39,8 @@ impl Notice {
             } => match code {
                 KeyCode::ArrowLeft | KeyCode::ArrowRight | KeyCode::Tab => Some(Nav::Up),
                 KeyCode::Space => Some(Nav::Decide),
-                c => nav_from_key(*c, keys),
+                _ => ev.nav_rows(keys, None),
             },
-            InputEv::Pad {
-                id, pressed: true, ..
-            } => nav_from_pad_rows(*id, keys),
             InputEv::Pointer {
                 id,
                 phase: Phase::Down,
@@ -65,7 +62,7 @@ impl Notice {
                 let up = self.buttons.at(*x, *y).copied();
                 return down.filter(|d| d.0 == *id && Some(d.1) == up).map(|d| d.1);
             }
-            _ => None,
+            _ => ev.nav_rows(keys, None),
         };
         match nav? {
             Nav::Up | Nav::Down => {

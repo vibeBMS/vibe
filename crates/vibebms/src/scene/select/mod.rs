@@ -27,7 +27,7 @@ use crate::scene::skin_host::SkinHost;
 use crate::scene::{skinned, Next, Scene};
 use crate::skin::SkinType;
 use crate::ui::{HitMap, TextInput};
-use input::{Drag, PanelKey};
+use input::PanelKey;
 use preview::Rank;
 use skin::{SelectHooks, PANELS};
 use std::cell::RefCell;
@@ -70,7 +70,7 @@ pub struct SelectScene {
     bar_rects: HitMap<usize>,
     /// The skin's distance between bars on screen (`SelectHooks::pitch`).
     bar_pitch: Option<f32>,
-    drag: Option<Drag>,
+    drag: Option<crate::ui::DragScroll>,
     last_move: Instant,
     /// Up / down held: the cursor moves on.
     held_nav: Option<Repeat<Nav>>,

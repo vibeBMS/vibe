@@ -410,6 +410,45 @@ pub fn nav_from_pad(id: u64, cfg: &KeyConfig) -> Option<Nav> {
     None
 }
 
+impl InputEv {
+    /// The menu move this event makes: a key pressed (its repeats too) or
+    /// a controller button pressed, by [`nav_from_key`] / [`nav_from_pad`];
+    /// with `axis`, a turntable turned by a step is `Up` / `Down`.
+    pub fn nav(&self, keys: &KeyConfig, axis: Option<&mut AxisStepper>) -> Option<Nav> {
+        self.nav_by(keys, nav_from_pad, axis)
+    }
+
+    /// [`InputEv::nav`], with the buttons bound to the turntable moving up
+    /// and down ([`nav_from_pad_rows`]: the screens a controller walks).
+    pub fn nav_rows(&self, keys: &KeyConfig, axis: Option<&mut AxisStepper>) -> Option<Nav> {
+        self.nav_by(keys, nav_from_pad_rows, axis)
+    }
+
+    fn nav_by(
+        &self,
+        keys: &KeyConfig,
+        pad: fn(u64, &KeyConfig) -> Option<Nav>,
+        axis: Option<&mut AxisStepper>,
+    ) -> Option<Nav> {
+        match self {
+            InputEv::Key {
+                code,
+                pressed: true,
+                ..
+            } => nav_from_key(*code, keys),
+            InputEv::Pad {
+                id, pressed: true, ..
+            } => pad(*id, keys),
+            InputEv::Axis { id, value, .. } => match axis?.step(*id, *value) {
+                0 => None,
+                d if d > 0 => Some(Nav::Down),
+                _ => Some(Nav::Up),
+            },
+            _ => None,
+        }
+    }
+}
+
 /// A turntable axis as list steps: one per `AXIS_STEP` turned (the axis
 /// wraps around at ±1).
 #[derive(Debug, Default)]
@@ -481,6 +520,94 @@ impl<K> Repeat<K> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `InputEv::nav` makes of each event what the screens made of it
+    /// before it: a pressed key (repeats too) through `nav_from_key`, a
+    /// pressed button through `nav_from_pad` (`_rows`), an axis through an
+    /// `AxisStepper` (a step up `Up`); nothing of releases, of the other
+    /// events, or of an axis without a stepper.
+    #[test]
+    fn nav_is_what_the_screens_made_of_an_event() {
+        let mut cfg = KeyConfig::default();
+        // buttons on every lane, the turntable, START and SELECT
+        let mut id = 1_000_000;
+        let mut bind = |l: &mut LaneKeys| {
+            id += 1;
+            l.pad.push(id);
+        };
+        cfg.p1.keys.iter_mut().for_each(&mut bind);
+        bind(&mut cfg.p1.scratch_up);
+        bind(&mut cfg.p1.scratch_down);
+        bind(&mut cfg.start);
+        bind(&mut cfg.select);
+        let t = Instant::now();
+        let mut codes: Vec<KeyCode> = (cfg.p1.keys.iter().chain([
+            &cfg.p1.scratch_up,
+            &cfg.p1.scratch_down,
+            &cfg.start,
+            &cfg.select,
+        ]))
+        .flat_map(|l| l.keys.clone())
+        .collect();
+        codes.extend([
+            KeyCode::ArrowUp,
+            KeyCode::ArrowDown,
+            KeyCode::ArrowLeft,
+            KeyCode::ArrowRight,
+            KeyCode::Enter,
+            KeyCode::NumpadEnter,
+            KeyCode::Escape,
+            KeyCode::Backspace,
+            KeyCode::F1,
+            KeyCode::Tab,
+            KeyCode::KeyQ,
+            KeyCode::F12,
+        ]);
+        for code in codes {
+            for (pressed, repeat) in [(true, false), (true, true), (false, false)] {
+                let ev = InputEv::Key {
+                    code,
+                    pressed,
+                    repeat,
+                    time: t,
+                    text: None,
+                };
+                let want = nav_from_key(code, &cfg).filter(|_| pressed);
+                assert_eq!(ev.nav(&cfg, None), want, "{code:?}");
+                assert_eq!(ev.nav_rows(&cfg, None), want, "{code:?}");
+            }
+        }
+        for id in 1_000_000..=id + 1 {
+            for pressed in [true, false] {
+                let ev = InputEv::Pad {
+                    id,
+                    pressed,
+                    time: t,
+                };
+                let plain = nav_from_pad(id, &cfg).filter(|_| pressed);
+                let rows = nav_from_pad_rows(id, &cfg).filter(|_| pressed);
+                assert_eq!(ev.nav(&cfg, None), plain, "{id}");
+                assert_eq!(ev.nav_rows(&cfg, None), rows, "{id}");
+            }
+        }
+        // the turntable: the stepper's steps, the same stepper state
+        let (mut a, mut b) = (AxisStepper::default(), AxisStepper::default());
+        for v in [0.0, 0.03, 0.07, 0.2, 0.19, -0.5, 0.99, -0.98, -0.9] {
+            let ev = InputEv::Axis {
+                id: 3,
+                value: v,
+                time: t,
+            };
+            let want = match b.step(3, v) {
+                0 => None,
+                d if d > 0 => Some(Nav::Down),
+                _ => Some(Nav::Up),
+            };
+            assert_eq!(ev.nav(&cfg, Some(&mut a)), want, "{v}");
+            assert_eq!(ev.nav(&cfg, None), None);
+        }
+        assert_eq!(InputEv::Wheel { dy: 1.0 }.nav(&cfg, Some(&mut a)), None);
+    }
 
     #[test]
     fn default_bindings() {
