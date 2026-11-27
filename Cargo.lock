@@ -389,7 +389,7 @@ dependencies = [
 [[package]]
 name = "bmseeker"
 version = "0.1.0-dev"
-source = "git+https://github.com/vibeBMS/BMSeeker#db39316fa8a64d006fbdce3fd0305fb6d13cbf5b"
+source = "git+https://github.com/vibeBMS/BMSeeker#2c81da623ae62a39be5125548a67325cffdc9480"
 dependencies = [
  "aes",
  "delharc",
@@ -5138,7 +5138,6 @@ dependencies = [
  "wgpu",
  "winit",
  "wry",
- "zip",
 ]
 
 [[package]]

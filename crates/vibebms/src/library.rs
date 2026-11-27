@@ -1166,7 +1166,7 @@ fn walk(dir: &Path, depth: usize, skip: &HashSet<PathBuf>, out: &mut Found) {
             }
         } else if vibebms_core::is_chart(&e.path) {
             out.charts.push(e.path);
-        } else if arcfs::is_archive(&e.path) {
+        } else if bmseeker::unpack::is_archive(&e.path) {
             out.archives.push(e.path);
         } else if (e.path.extension().and_then(|x| x.to_str()))
             .is_some_and(|x| vfs::AUDIO_EXTS.iter().any(|a| x.eq_ignore_ascii_case(a)))

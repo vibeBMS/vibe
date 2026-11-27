@@ -1,14 +1,15 @@
 //! Reading an archive: its list of files, the files wanted (into memory
 //! or a folder), the rest not kept.
 
-use super::safe_rel;
+#[cfg(target_arch = "wasm32")]
 use crate::platform::vfs;
 use bmseeker::fs::ReadSeek;
+use bmseeker::unpack::{Error, Format, Limits, Member, Sink, Take, HEAD};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
 use std::io::{self, Read, Seek, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// The largest chart file read by the scan (larger ones are no chart: the
 /// decoders' own limit).
@@ -25,26 +26,20 @@ const CHARTS_MAX: u64 = if cfg!(small_device) {
     1 << 30
 };
 
-/// What is read of an archive at most, whatever is wanted of it.
-#[derive(Clone, Copy)]
-struct Limits {
-    /// The files it may list (each costs memory and a line of
-    /// `cache/archives.json`): a pack of thousands of songs has some
-    /// hundreds of thousands. One with more is not read ([`too_large`]).
-    entries: usize,
-    /// What a 7z, RAR, LZH or tar may decode to (bytes; what is passed by
-    /// counts too): a small one can decode to anything, and a real one
-    /// this large takes minutes to reach a song in.
-    decode: u64,
-}
-
+/// What is read of an archive at most, whatever is wanted of it: the
+/// files it may list (each costs memory and a line of
+/// `cache/archives.json`: a pack of thousands of songs has some hundreds of
+/// thousands; one with more is not read, [`too_large`]), and what it may
+/// decode to (bytes; in a 7z or a solid RAR what is passed by counts too:
+/// a small one can decode to anything, and a real one this large takes
+/// minutes to reach a song in).
 const LIMITS: Limits = Limits {
-    entries: if cfg!(small_device) {
+    bytes: 64 << 30,
+    members: if cfg!(small_device) {
         250_000
     } else {
         1_000_000
     },
-    decode: 64 << 30,
 };
 
 /// How many times `archive` was opened (tests).
@@ -137,12 +132,6 @@ pub struct Unpacked {
     pub files: Vec<(PathBuf, Vec<u8>)>,
 }
 
-/// The first bytes of an archive its format is told by.
-const HEAD: usize = 4096;
-
-/// Said by [`Capture`] once it has what it wants (the rest is not decoded).
-const ENOUGH: &str = "vibebms: the files wanted are read";
-
 impl Dest {
     /// The largest file kept (a larger one is passed by).
     fn each(&self) -> u64 {
@@ -195,192 +184,97 @@ fn unpack_within(
     r.seek(io::SeekFrom::Start(0))?;
     let format = bmseeker::unpack::sniff(&head)
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "not an archive"))?;
-    if format == bmseeker::unpack::Format::Zip {
-        return unzip(r, want, list, dest, cap, limits.entries);
-    }
-    let cap = Capture {
+    let mut sink = Taken {
         want,
         dest,
+        list,
         count: count.filter(|_| !list),
-        cap,
-        entries: limits.entries,
-        reader: Mutex::new(Some(r)),
-        out: Mutex::default(),
+        // (a RAR may not give a file's size: its bytes are counted)
+        sizeless: list && format == Format::Rar,
+        left: cap,
+        listing: BTreeMap::new(),
+        files: Vec::new(),
+        taken: 0,
+        keep: Keep::Skip,
+        too_large: false,
     };
-    let r = bmseeker::unpack::unpack(
-        bmseeker::unpack::Blob::File(archive.to_path_buf()),
-        &cap,
-        Path::new(""),
-        limits.decode,
-    );
-    let out = cap.out.into_inner().unwrap_or_else(|e| e.into_inner());
+    let r = bmseeker::unpack::read(r, format, limits, &mut sink);
+    if sink.too_large {
+        return Err(too_large());
+    }
     match r {
-        _ if out.too_large => return Err(too_large()),
-        Ok(_) => {}
-        Err(e) if e.contains(ENOUGH) && !list => {}
-        Err(e) => return Err(io::Error::new(io::ErrorKind::InvalidData, e)),
+        Ok(()) => {}
+        Err(Error::TooMany(_)) => return Err(too_large()),
+        Err(e) => return Err(io::Error::new(io::ErrorKind::InvalidData, e.to_string())),
     }
     Ok(Unpacked {
         format: format.ext().into(),
-        listing: list.then_some(out.listing),
-        files: out.files,
+        listing: list.then_some(sink.listing),
+        files: sink.files,
     })
 }
 
-/// A zip: its list from its central directory, the files wanted read
-/// where they are (nothing else decoded).
-fn unzip(
-    r: Box<dyn ReadSeek + Send>,
-    want: &(dyn Fn(&Path) -> bool + Sync),
-    list: bool,
-    dest: &Dest,
-    cap: u64,
-    entries: usize,
-) -> io::Result<Unpacked> {
-    let bad = |e: zip::result::ZipError| io::Error::new(io::ErrorKind::InvalidData, e);
-    let mut z = zip::ZipArchive::new(r).map_err(bad)?;
-    if z.len() > entries {
-        return Err(too_large());
-    }
-    let mut listing = BTreeMap::new();
-    let mut wanted = Vec::new();
-    for i in 0..z.len() {
-        let e = z.by_index_data(i).map_err(bad)?;
-        // (as BMSeeker unpacks a zip: no folders, no links)
-        if e.is_dir() || e.is_symlink() {
-            continue;
-        }
-        let Some(rel) = safe_rel(&vfs::decode_name(e.name_raw())) else {
-            continue;
-        };
-        if want(&rel) {
-            wanted.push((i, rel.clone()));
-        }
-        listing.insert(rel, e.size());
-    }
-    let mut files = Vec::new();
-    let mut left = cap;
-    let each = dest.each();
-    for (i, rel) in wanted {
-        let e = z.by_index(i).map_err(bad)?;
-        // (by the size it says, before any of it is read)
-        if e.size() > each {
-            continue;
-        }
-        if e.size() > left {
-            return Err(too_large());
-        }
-        let mut e = e.take(left.min(each).saturating_add(1));
-        match dest {
-            Dest::Memory | Dest::Charts => {
-                let mut b = Vec::new();
-                e.read_to_end(&mut b)?;
-                // (larger than it said)
-                if b.len() as u64 > each {
-                    continue;
-                }
-                left = left.checked_sub(b.len() as u64).ok_or_else(too_large)?;
-                files.push((rel, b));
-            }
-            #[cfg(not(target_arch = "wasm32"))]
-            Dest::Folder(d) => {
-                let p = d.join(&rel);
-                if let Some(parent) = p.parent() {
-                    std::fs::create_dir_all(parent)?;
-                }
-                let mut f = io::BufWriter::new(std::fs::File::create(&p)?);
-                let n = io::copy(&mut e, &mut f)?;
-                f.flush()?;
-                left = left.checked_sub(n).ok_or_else(too_large)?;
-            }
-        }
-    }
-    Ok(Unpacked {
-        format: "zip".into(),
-        listing: list.then_some(listing),
-        files,
-    })
-}
-
-/// BMSeeker's unpacking into this: the files wanted kept, the others only
-/// counted.
-struct Capture<'a> {
+/// What [`unpack`] reads an archive into: the files wanted kept, the
+/// others listed.
+struct Taken<'a> {
     want: &'a (dyn Fn(&Path) -> bool + Sync),
     dest: &'a Dest,
+    list: bool,
     count: Option<usize>,
-    cap: u64,
-    /// The files it may list.
-    entries: usize,
-    /// The archive, read once.
-    reader: Mutex<Option<Box<dyn ReadSeek + Send>>>,
-    out: Mutex<CaptureOut>,
-}
-
-#[derive(Default)]
-struct CaptureOut {
+    /// The files offered without a size are written (counted) to list them.
+    sizeless: bool,
+    /// What may still be kept.
+    left: u64,
     listing: BTreeMap<PathBuf, u64>,
     files: Vec<(PathBuf, Vec<u8>)>,
     /// Files wanted taken.
     taken: usize,
-    kept: u64,
+    /// Where the file being written goes.
+    keep: Keep,
     too_large: bool,
 }
 
 enum Keep {
+    /// Counted only.
     Skip,
     Memory(Vec<u8>),
     #[cfg(not(target_arch = "wasm32"))]
     File(io::BufWriter<std::fs::File>),
 }
 
-/// A file being unpacked.
-struct Member<'a> {
-    cap: &'a Capture<'a>,
-    /// Its path (`None`: its name is no file's, and it is not listed).
-    rel: Option<PathBuf>,
-    keep: Keep,
+/// A file being written: its bytes where [`Keep`] says, within what is
+/// left.
+struct Writing<'a> {
+    keep: &'a mut Keep,
+    too_large: &'a mut bool,
+    dest: &'a Dest,
     n: u64,
-    /// What it may keep.
     left: u64,
 }
 
-impl Write for Member<'_> {
+impl Write for Writing<'_> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.n += buf.len() as u64;
-        if self.n > self.cap.dest.each() {
+        if self.n > self.dest.each() {
             // passed by: what was kept of it goes
-            self.keep = Keep::Skip;
+            *self.keep = Keep::Skip;
         }
-        let over = || {
-            self.cap
-                .out
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .too_large = true;
-            too_large()
-        };
-        match &mut self.keep {
+        // (the scan's is judged once whole: it may yet be one passed by)
+        let kept = !matches!(self.keep, Keep::Skip);
+        if kept && self.n > self.left && !matches!(self.dest, Dest::Charts) {
+            *self.too_large = true;
+            return Err(too_large());
+        }
+        match &mut *self.keep {
             Keep::Skip => {}
-            Keep::Memory(v) => {
-                // (the scan's is judged once whole: it may yet be one
-                // passed by)
-                if self.n > self.left && !matches!(self.cap.dest, Dest::Charts) {
-                    return Err(over());
-                }
-                v.extend_from_slice(buf);
-            }
+            Keep::Memory(v) => v.extend_from_slice(buf),
             #[cfg(not(target_arch = "wasm32"))]
-            Keep::File(f) => {
-                if self.n > self.left {
-                    return Err(over());
-                }
-                f.write_all(buf)?;
-            }
+            Keep::File(f) => f.write_all(buf)?,
         }
         Ok(buf.len())
     }
     fn flush(&mut self) -> io::Result<()> {
-        match &mut self.keep {
+        match &mut *self.keep {
             #[cfg(not(target_arch = "wasm32"))]
             Keep::File(f) => f.flush(),
             _ => Ok(()),
@@ -388,111 +282,76 @@ impl Write for Member<'_> {
     }
 }
 
-impl Drop for Member<'_> {
-    fn drop(&mut self) {
-        let Some(rel) = self.rel.take() else { return };
-        let mut out = self.cap.out.lock().unwrap_or_else(|e| e.into_inner());
-        out.listing.insert(rel.clone(), self.n);
+impl Sink for Taken<'_> {
+    fn open(&mut self, m: &Member) -> Result<Take<'_>, String> {
+        if self.too_large {
+            return Err(too_large().to_string());
+        }
+        if self.count.is_some_and(|n| self.taken >= n) {
+            return Ok(Take::Stop);
+        }
+        let each = self.dest.each();
+        // (by the size it says, before any of it is read)
+        self.keep = if (self.want)(&m.rel) && m.size <= each {
+            if m.size > self.left {
+                self.too_large = true;
+                return Err(too_large().to_string());
+            }
+            match self.dest {
+                Dest::Memory | Dest::Charts => Keep::Memory(Vec::new()),
+                #[cfg(not(target_arch = "wasm32"))]
+                Dest::Folder(d) => {
+                    let to = d.join(&m.rel);
+                    let made = to.parent().map_or(Ok(()), std::fs::create_dir_all);
+                    let f = made.and_then(|_| std::fs::File::create(&to));
+                    Keep::File(io::BufWriter::new(f.map_err(|e| e.to_string())?))
+                }
+            }
+        } else if self.sizeless && m.size == 0 {
+            Keep::Skip
+        } else {
+            if self.list {
+                self.listing.insert(m.rel.clone(), m.size);
+            }
+            return Ok(Take::Skip);
+        };
+        Ok(Take::Write(Box::new(Writing {
+            keep: &mut self.keep,
+            too_large: &mut self.too_large,
+            dest: self.dest,
+            n: 0,
+            left: self.left,
+        })))
+    }
+    fn close(&mut self, m: Member) {
+        if self.list {
+            self.listing.insert(m.rel.clone(), m.size);
+        }
         match std::mem::replace(&mut self.keep, Keep::Skip) {
             Keep::Skip => return,
-            Keep::Memory(_) if self.n > self.left => {
-                out.too_large = true;
+            Keep::Memory(_) if m.size > self.left => {
+                self.too_large = true;
                 return;
             }
             Keep::Memory(mut v) => {
                 // (kept while its song is: not the room it grew into)
                 v.shrink_to_fit();
-                out.files.push((rel, v))
+                self.files.push((m.rel, v));
             }
             #[cfg(not(target_arch = "wasm32"))]
             Keep::File(_) => {}
         }
-        out.taken += 1;
-        out.kept += self.n;
+        self.taken += 1;
+        self.left -= m.size;
     }
-}
-
-impl bmseeker::fs::Fs for Capture<'_> {
-    fn read(&self, p: &Path) -> io::Result<Vec<u8>> {
-        Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            p.display().to_string(),
-        ))
-    }
-    fn read_dir(&self, _: &Path) -> io::Result<Vec<bmseeker::fs::Entry>> {
-        Ok(Vec::new())
-    }
-    fn rename(&self, _: &Path, _: &Path) -> io::Result<()> {
-        Err(io::ErrorKind::Unsupported.into())
-    }
-    fn stamp(&self, _: &Path) -> Option<(i64, u64)> {
-        None
-    }
-    /// A file that could not be unpacked in full: it goes.
-    fn remove(&self, p: &Path) -> io::Result<()> {
-        let Some(p) = &safe_rel(&p.to_string_lossy()) else {
-            return Ok(());
-        };
-        let mut out = self.out.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(i) = out.files.iter().position(|(r, _)| r == p) {
-            let (_, b) = out.files.remove(i);
-            out.taken -= 1;
-            out.kept -= b.len() as u64;
-        }
-        out.listing.remove(p);
+    /// A file that could not be written in full: it goes.
+    #[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
+    fn drop_partial(&mut self, rel: &Path) {
+        self.keep = Keep::Skip;
         #[cfg(not(target_arch = "wasm32"))]
         if let Dest::Folder(d) = self.dest {
-            let _ = std::fs::remove_file(d.join(p));
+            let _ = std::fs::remove_file(d.join(rel));
         }
-        Ok(())
-    }
-}
-
-impl bmseeker::fs::Store for Capture<'_> {
-    fn create(&self, p: &Path, _mtime: Option<i64>) -> io::Result<Box<dyn Write + '_>> {
-        let (left, enough) = {
-            let mut out = self.out.lock().unwrap_or_else(|e| e.into_inner());
-            if out.too_large || out.listing.len() >= self.entries {
-                out.too_large = true;
-                return Err(too_large());
-            }
-            (
-                self.cap.saturating_sub(out.kept),
-                self.count.is_some_and(|n| out.taken >= n),
-            )
-        };
-        if enough {
-            return Err(io::Error::other(ENOUGH));
-        }
-        // (BMSeeker's path of it, made a file's name here too)
-        let rel = safe_rel(&p.to_string_lossy());
-        let keep = match &rel {
-            Some(r) if (self.want)(r) => match self.dest {
-                Dest::Memory | Dest::Charts => Keep::Memory(Vec::new()),
-                #[cfg(not(target_arch = "wasm32"))]
-                Dest::Folder(d) => {
-                    let to = d.join(r);
-                    if let Some(parent) = to.parent() {
-                        std::fs::create_dir_all(parent)?;
-                    }
-                    Keep::File(io::BufWriter::new(std::fs::File::create(to)?))
-                }
-            },
-            _ => Keep::Skip,
-        };
-        Ok(Box::new(Member {
-            cap: self,
-            rel,
-            keep,
-            n: 0,
-            left,
-        }))
-    }
-    fn remove_dir(&self, _: &Path) {}
-    /// The archive (once); an archive in it is not read.
-    fn open(&self, p: &Path) -> io::Result<Box<dyn ReadSeek + Send>> {
-        let r = self.reader.lock().unwrap_or_else(|e| e.into_inner()).take();
-        r.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, p.display().to_string()))
     }
 }
 
@@ -630,22 +489,24 @@ mod tests {
                 unpack_within(&a, &|_| false, true, None, &Dest::Memory, 0, limits)
                     .map(|u| u.listing.unwrap().len())
             };
-            let entries = |entries| Limits { entries, ..LIMITS };
+            let entries = |members| Limits { members, ..LIMITS };
             assert_eq!(list(entries(4)).unwrap(), 4, "{name}");
             assert_eq!(
                 list(entries(3)).err().unwrap().kind(),
                 OutOfMemory,
                 "{name}"
             );
-            // 32 MiB to decode, in the formats read from their start
-            if name != "p.zip" {
-                let decode = |decode| Limits { decode, ..LIMITS };
-                assert_eq!(list(decode(64 << 20)).unwrap(), 4, "{name}");
-                assert_eq!(
+            // 32 MiB to decode: a .tar.gz's, decompressed to be listed (a
+            // zip's and a tar's files are listed unread)
+            let decode = |bytes| Limits { bytes, ..LIMITS };
+            assert_eq!(list(decode(64 << 20)).unwrap(), 4, "{name}");
+            match name {
+                "p.tar.gz" => assert_eq!(
                     list(decode(1 << 20)).err().unwrap().kind(),
                     InvalidData,
                     "{name}"
-                );
+                ),
+                _ => assert_eq!(list(decode(1 << 20)).unwrap(), 4, "{name}"),
             }
         }
         std::fs::remove_dir_all(&d).ok();
@@ -682,5 +543,72 @@ mod tests {
             assert_eq!(u.files, [(safe[1].clone(), b"RIFF".to_vec())], "{name}");
         }
         std::fs::remove_dir_all(&d).ok();
+    }
+
+    /// A zip is read as BMSeeker reads one: a file more than 32 folders
+    /// deep is not listed, one whose local header names another file than
+    /// its directory is refused; one with bytes before it is still read.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn zips_as_bmseeker_reads_them() {
+        let d = std::env::temp_dir().join(format!("vibebms-arcfs-zips-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let list = |name: &str, bytes: &[u8]| {
+            let a = d.join(name);
+            std::fs::write(&a, bytes).unwrap();
+            let u = unpack(&a, &|_| false, true, None, &Dest::Memory, 0)?;
+            Ok::<_, io::Error>(u.listing.unwrap().into_keys().collect::<Vec<_>>())
+        };
+        let deep = "d/".repeat(33) + "x.wav";
+        let files = [("Song/a.bms", "#TITLE A"), (deep.as_str(), "RIFF")];
+        let z = bmseeker::testkit::zip(&files);
+        assert_eq!(list("deep.zip", &z).unwrap(), [PathBuf::from("Song/a.bms")]);
+        let mut other = bmseeker::testkit::zip(&[("x.txt", "x")]);
+        other.extend(&z);
+        assert_eq!(
+            list("joined.zip", &other).unwrap(),
+            [PathBuf::from("Song/a.bms")]
+        );
+        let at = z.windows(10).position(|w| w == b"Song/a.bms").unwrap();
+        let mut differs = z.clone();
+        differs[at..at + 10].copy_from_slice(b"Song/b.bms");
+        let e = list("differs.zip", &differs).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::InvalidData, "{e}");
+        assert!(e.to_string().contains("local header"), "{e}");
+        std::fs::remove_dir_all(&d).ok();
+    }
+
+    /// A file an archive gives no size of (a RAR may not) is listed by
+    /// the bytes it unpacks to; one with a size is listed by it, unread.
+    #[test]
+    fn a_file_of_no_size_is_listed_by_its_bytes() {
+        let mut sink = Taken {
+            want: &|_| false,
+            dest: &Dest::Memory,
+            list: true,
+            count: None,
+            sizeless: true,
+            left: 0,
+            listing: BTreeMap::new(),
+            files: Vec::new(),
+            taken: 0,
+            keep: Keep::Skip,
+            too_large: false,
+        };
+        let m = |rel: &str, size| Member {
+            rel: PathBuf::from(rel),
+            size,
+            mtime: None,
+        };
+        let Ok(Take::Write(mut w)) = sink.open(&m("a.wav", 0)) else {
+            panic!("not written");
+        };
+        w.write_all(b"RIFFxxxx").unwrap();
+        drop(w);
+        sink.close(m("a.wav", 8));
+        assert!(matches!(sink.open(&m("b.wav", 3)), Ok(Take::Skip)));
+        let listed: Vec<(PathBuf, u64)> = sink.listing.into_iter().collect();
+        assert_eq!(listed, [("a.wav".into(), 8), ("b.wav".into(), 3)]);
+        assert!(sink.files.is_empty());
     }
 }

@@ -20,10 +20,9 @@
 //!   tar, cannot be read otherwise), its song is unpacked, else the file
 //!   alone (decoding stops there).
 //!
-//! The formats are BMSeeker's (`bmseeker::unpack`, which decodes the 7z,
-//! RAR, LZH and tar here: on the web too); a zip's files are read with the
-//! `zip` crate it uses, as names are decoded there (Shift_JIS, EUC-KR).
-//! Nothing is ever written into an archive.
+//! The formats, the names of files in them (Shift_JIS, EUC-KR, made safe)
+//! and the reading of the files wanted are BMSeeker's (`bmseeker::unpack`:
+//! on the web too). Nothing is ever written into an archive.
 
 mod index;
 mod mount;
@@ -43,7 +42,7 @@ pub use mount::{is_ready, prepare, read, retain};
 pub use unpack::times_opened;
 pub use unpack::{read_charts, watched, Moved, Unpacked};
 
-use crate::platform::vfs;
+use bmseeker::unpack::is_archive;
 use mount::{Mount, Recent};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Component, Path, PathBuf};
@@ -51,37 +50,6 @@ use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 
 /// What follows an archive's name in a path to a file in it.
 pub const MARK: char = '!';
-
-/// Archive file names, by extension (`tar.gz`: a name's last two).
-const EXTS: &[&str] = &["zip", "7z", "rar", "lzh", "lha", "tar", "tgz", "tar.gz"];
-
-/// Whether `p` names an archive (by its extension).
-pub fn is_archive(p: &Path) -> bool {
-    p.file_name()
-        .is_some_and(|n| archive_stem(&n.to_string_lossy()).is_some())
-}
-
-/// The file name `name` without its archive extension, if it has one, in
-/// any case (`Song.TAR.GZ`: `Song`).
-pub fn archive_stem(name: &str) -> Option<&str> {
-    EXTS.iter().find_map(|e| {
-        let at = name.len().checked_sub(e.len() + 1)?;
-        let (stem, ext) = (name.get(..at)?, name.get(at..)?);
-        (ext.starts_with('.') && ext[1..].eq_ignore_ascii_case(e) && !stem.is_empty())
-            .then_some(stem)
-    })
-}
-
-/// The folder an archive called `name` (another party's name) unpacks
-/// into: its name without its extension, as one name every file system
-/// takes (`Song.tar.gz`: `Song`; `...zip`: `zip`). `None`: nothing is
-/// left of it (`. .zip`: a space, which Windows takes for no name at all).
-pub fn archive_folder(name: &str) -> Option<String> {
-    let name = bmseeker::install::safe_name(name);
-    let stem = archive_stem(&name).or_else(|| Path::new(&name).file_stem()?.to_str())?;
-    let stem = stem.trim_matches([' ', '.']);
-    (!stem.is_empty()).then(|| bmseeker::install::safe_name(stem))
-}
 
 /// `p` as the archive it is in and its path there, if it is in one
 /// (`a/pack.zip!/Song/x.bme`: `a/pack.zip`, `Song/x.bme`; `a/pack.zip!`:
@@ -137,39 +105,6 @@ pub fn shown_name(name: &str) -> &str {
     }
 }
 
-/// One part of a path from an archive as every file system holds it,
-/// Windows' too (a song unpacked is written under its names): `< > " | ? *`
-/// and control characters as `_`, no dot or space at its end (Windows
-/// drops them: `a.bms.` would be `a.bms` there), `_` before a device's
-/// name ([`vfs::device_name`]). `None`: nothing is left of it.
-fn safe_part(part: &str) -> Option<String> {
-    let part: String = part
-        .chars()
-        .map(|c| match c {
-            '<' | '>' | '"' | '|' | '?' | '*' => '_',
-            c if c.is_control() => '_',
-            c => c,
-        })
-        .collect();
-    match part.trim_end_matches(['.', ' ']) {
-        "" => None,
-        p if vfs::device_name(p) => Some(format!("_{p}")),
-        p => Some(p.to_string()),
-    }
-}
-
-/// `name` from an archive as a path that cannot leave its folder, each
-/// part a name a file can have ([`safe_part`]): as BMSeeker unpacks.
-fn safe_rel(name: &str) -> Option<PathBuf> {
-    let rel: PathBuf = name
-        .split(['/', '\\'])
-        .filter(|c| !c.is_empty() && *c != "." && *c != "..")
-        .filter(|c| !c.contains(':'))
-        .filter_map(safe_part)
-        .collect();
-    (!rel.as_os_str().is_empty()).then_some(rel)
-}
-
 #[derive(Default)]
 struct State {
     index: HashMap<PathBuf, Arc<Index>>,
@@ -221,7 +156,6 @@ mod tests {
         );
         assert_eq!(shown_name("pack.zip!"), "pack.zip");
         assert_eq!(shown_name("wow!"), "wow!");
-        assert!(is_archive(Path::new("x.LZH")) && !is_archive(Path::new("x.gz")));
         assert_eq!(
             split(Path::new("/bms/Pack.TAR.GZ!/Song/a.bms")),
             Some((
@@ -231,59 +165,5 @@ mod tests {
         );
         assert_eq!(shown_name("pack.tgz!"), "pack.tgz");
         assert_eq!(shown_name("x.tar!"), "x.tar");
-        assert_eq!(archive_stem("Song.tar.gz"), Some("Song"));
-        assert_eq!(archive_stem(".tar.gz"), None);
-    }
-
-    /// The folder an archive unpacks into is one plain name below its
-    /// folder, whatever the archive is called.
-    #[test]
-    fn archive_folders() {
-        for (name, folder) in [
-            ("Song.tar.gz", Some("Song")),
-            ("Song_ogg.ZIP", Some("Song_ogg")),
-            ("notes.txt", Some("notes")),
-            ("...zip", Some("zip")),
-            ("..", Some("download")),
-            (". .zip", None),
-            (" . .zip", None),
-            ("a. .zip", Some("a")),
-            (". .x.zip", Some("x")),
-            ("..hidden.7z", Some("hidden")),
-            ("x/../..zip", Some("x_.._")),
-            ("CON.zip", Some("_CON")),
-            ("con .zip", Some("_con")),
-        ] {
-            assert_eq!(archive_folder(name).as_deref(), folder, "{name:?}");
-        }
-    }
-
-    /// A name in an archive is a file's below its folder, on every system.
-    #[test]
-    fn names_in_archives_are_made_safe() {
-        for (name, safe) in [
-            ("Song/a.bms", Some("Song/a.bms")),
-            ("Song\\bga\\ソ.bmp", Some("Song/bga/ソ.bmp")),
-            ("../../etc/passwd", Some("etc/passwd")),
-            ("/abs/./x", Some("abs/x")),
-            ("C:\\Windows\\x.dll", Some("Windows/x.dll")),
-            ("Song/a.bms:stream", Some("Song")),
-            // a device's name, in any case, whatever follows its dot
-            ("Song/CON", Some("Song/_CON")),
-            ("Song/nul.wav", Some("Song/_nul.wav")),
-            ("com1/Aux.tar.gz", Some("_com1/_Aux.tar.gz")),
-            ("LPT9 .bmp", Some("_LPT9 .bmp")),
-            ("console.wav", Some("console.wav")),
-            // what Windows drops from a name's end, or refuses in one
-            ("Song ./a.bms. . ", Some("Song/a.bms")),
-            ("Song/nul. ", Some("Song/_nul")),
-            ("a<b>c\"d|e?f*.wav", Some("a_b_c_d_e_f_.wav")),
-            ("a\tb\u{7f}.wav", Some("a_b_.wav")),
-            ("... /. ", None),
-            (" ", None),
-            ("x:y", None),
-        ] {
-            assert_eq!(safe_rel(name), safe.map(PathBuf::from), "{name:?}");
-        }
     }
 }

@@ -556,7 +556,7 @@ mod imp {
             for i in 0..files.length() {
                 let Some(f) = files.get(i) else { continue };
                 // (song packs are unpacked: `web::install_file_input`)
-                if super::super::arcfs::is_archive(Path::new(&f.name())) {
+                if bmseeker::unpack::is_archive(Path::new(&f.name())) {
                     continue;
                 }
                 let rel = js_sys::Reflect::get(&f, &JsValue::from_str("webkitRelativePath"))
@@ -586,8 +586,7 @@ mod imp {
     /// holding no chart unpacked too).
     pub fn add_archive_at(dir: &Path, name: &str, bytes: Vec<u8>) -> usize {
         use bmseeker::unpack::{unpack, Blob, BUDGET};
-        let stem = super::super::arcfs::archive_folder(name).unwrap_or_else(|| "archive".into());
-        let base = dir.join(stem);
+        let base = dir.join(bmseeker::unpack::archive_folder(name));
         match unpack(Blob::Bytes(bytes), &crate::platform::Vfs, &base, BUDGET) {
             Ok(m) => m.len(),
             Err(e) => {
@@ -680,7 +679,7 @@ mod imp {
                                 n.data = Data::Bytes(Rc::new(bytes));
                                 // an archive leaves memory again once read
                                 // (`release`, `release_charts`)
-                                if super::super::arcfs::is_archive(&p) {
+                                if bmseeker::unpack::is_archive(&p) {
                                     fs.stored_charts.insert(p.clone(), f);
                                 }
                             }
@@ -705,12 +704,6 @@ fn builtin(p: &Path) -> Option<&'static [u8]> {
     let rel = p.strip_prefix(BUILTIN).ok()?;
     let rel = rel.to_string_lossy().replace('\\', "/");
     BUILTIN_FILES.get_file(rel.as_str()).map(|f| f.contents())
-}
-
-/// A file name from an archive: UTF-8, else Shift_JIS / EUC-KR as BMS
-/// packs use.
-pub fn decode_name(raw: &[u8]) -> String {
-    vibebms_core::encoding::decode_text(raw)
 }
 
 /// Read a file (built-in files first; a file in an archive (`a.zip!/x`:
@@ -934,31 +927,17 @@ pub fn normalize(p: &Path) -> PathBuf {
     out
 }
 
-/// Whether Windows keeps the file name `name` for a device, whatever
-/// comes after its first dot (`CON`, `nul.wav`, `COM1`, `LPT²`): opened
-/// there, in any folder, it is the device that is read or written, not a
-/// file. (The rule of BMSeeker's unpacking, `fs::device_name`.)
-pub fn device_name(name: &str) -> bool {
-    let stem = name.split('.').next().unwrap_or("").trim_end_matches(' ');
-    let stem = stem.to_ascii_uppercase();
-    let numbered = |port: &str| {
-        let mut rest = stem.strip_prefix(port).unwrap_or("").chars();
-        let digit = rest.next().is_some_and(|c| "0123456789¹²³".contains(c));
-        digit && rest.next().is_none()
-    };
-    let devices = ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "CLOCK$"];
-    devices.contains(&stem.as_str()) || numbered("COM") || numbered("LPT")
-}
-
-/// Whether a part of `rel` is a device's name ([`device_name`]).
+/// Whether a part of `rel` is a name Windows keeps for a device
+/// (`bmseeker::fs::device_name`: `CON`, `nul.wav`): opened there, in any
+/// folder, it is the device that is read or written, not a file.
 fn names_a_device(rel: &Path) -> bool {
     rel.components()
-        .any(|c| device_name(&c.as_os_str().to_string_lossy()))
+        .any(|c| bmseeker::fs::device_name(&c.as_os_str().to_string_lossy()))
 }
 
 /// `name` (a file a chart or skin refers to) under `dir`; `None` for an
 /// absolute path, a drive or network path, one that climbs out with `..`,
-/// or one with a device's name in it ([`device_name`]).
+/// or one with a device's name in it ([`names_a_device`]).
 pub fn inside(dir: &Path, name: &str) -> Option<PathBuf> {
     use std::path::Component;
     let name = name.replace('\\', "/");
@@ -975,7 +954,7 @@ pub fn inside(dir: &Path, name: &str) -> Option<PathBuf> {
 /// below `root`: `..` is resolved without looking at the file system, and
 /// a path that ends outside `root` (an absolute one, a drive or network
 /// path, `..` past it) gives `None`, so that it is never opened or listed;
-/// so does one with a device's name below `root` ([`device_name`]).
+/// so does one with a device's name below `root` ([`names_a_device`]).
 /// Unlike [`inside`], `..` that stays below `root` and a full path into it
 /// are taken: skins name `../parts/x.png`, and scripts get full paths.
 pub fn within(root: &Path, base: &Path, name: &str) -> Option<PathBuf> {
@@ -1180,7 +1159,7 @@ mod tests {
             "conout$.wav",
             "CLOCK$",
         ] {
-            assert!(device_name(device), "{device}");
+            assert!(bmseeker::fs::device_name(device), "{device}");
         }
         for file in [
             "",
@@ -1197,7 +1176,7 @@ mod tests {
             "a.nul.wav",
             "conin.wav",
         ] {
-            assert!(!device_name(file), "{file}");
+            assert!(!bmseeker::fs::device_name(file), "{file}");
         }
         let dir = Path::new("/songs/a");
         assert_eq!(inside(dir, "console.wav"), Some(dir.join("console.wav")));

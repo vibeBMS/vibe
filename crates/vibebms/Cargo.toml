@@ -53,9 +53,6 @@ json5 = "1"
 flate2 = "1"
 # the translation tables' hash (the version mlua builds with)
 rustc-hash = "2"
-# a zip's files read where they are (charts in archives: platform/arcfs.rs;
-# the version and features BMSeeker unpacks with)
-zip = { version = "9.0.5", default-features = false, features = ["deflate-flate2"] }
 # download pages of charts a difficulty table lists but the library lacks
 webbrowser = { version = "1", features = ["hardened"] }
 
