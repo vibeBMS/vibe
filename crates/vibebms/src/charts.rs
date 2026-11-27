@@ -86,11 +86,6 @@ impl Charts {
         self.taken.len()
     }
 
-    /// Whether record `i` is the copy of its chart that is taken.
-    pub fn is_taken(&self, i: usize) -> bool {
-        self.taken[self.chart[i] as usize] == i
-    }
-
     /// The chart of this SHA-256 (its copy taken).
     pub fn by_sha(&self, sha: &str) -> Option<usize> {
         let n = *self.by_sha.get(key(sha).as_ref())?;
@@ -180,7 +175,8 @@ mod tests {
         assert_eq!(c.by_sha("s3"), Some(5));
         assert_eq!(c.by_sha(""), None);
         assert_eq!(c.by_md5(&songs, "", "", ""), None);
-        let taken: Vec<usize> = (0..songs.len()).filter(|&i| c.is_taken(i)).collect();
+        let mut taken: Vec<usize> = (0..songs.len()).collect();
+        c.one_each(&mut taken);
         assert_eq!(taken, [1, 3, 4, 5]);
         let mut v = vec![6, 4, 2, 0, 3, 5];
         c.one_each(&mut v);

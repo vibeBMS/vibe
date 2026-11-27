@@ -333,10 +333,15 @@ fn mix<'a>(
         (r.min_bpm <= 0.0 || s.main_bpm >= r.min_bpm)
             && (r.max_bpm <= 0.0 || s.main_bpm <= r.max_bpm)
     };
-    let mut pool: Vec<&Song> = (songs.iter().enumerate())
-        .filter(|&(i, s)| charts.is_taken(i) && s.mode == mode && level_ok(s) && bpm_ok(s))
-        .map(|(_, s)| s)
+    // (a chart once: of its copies those limits keep)
+    let mut pool: Vec<usize> = (0..songs.len())
+        .filter(|&i| {
+            let s = &songs[i];
+            s.mode == mode && level_ok(s) && bpm_ok(s)
+        })
         .collect();
+    charts.one_each(&mut pool);
+    let mut pool: Vec<&Song> = pool.into_iter().map(|i| &songs[i]).collect();
     // Fisher-Yates with the seed's sequence
     for i in (1..pool.len()).rev() {
         let j = rng.next_int_bounded(i as i32 + 1) as usize;
@@ -554,6 +559,31 @@ mod tests {
             let got = mix(&r, &songs, &Charts::new(&songs), PlayMode::Beat7K, seed);
             assert_eq!(got.len(), 1, "{seed}");
             assert_eq!(got[0].path, "/bms/a/5.bms");
+        }
+    }
+
+    /// A file held as a BMS and a PMS is drawn as the copy of the mode
+    /// asked for, whichever is first.
+    #[test]
+    fn mix_draws_the_copy_of_its_mode() {
+        let pms = Song {
+            path: "/bms/b/5.pms".into(),
+            mode: PlayMode::Popn9K,
+            ..song("b", "5", 150.0, 'a')
+        };
+        let songs = [song("a", "5", 150.0, 'a'), pms];
+        let r = RandomMix {
+            stages: 1,
+            bpm_range: 0.0,
+            ..Default::default()
+        };
+        for (mode, path) in [
+            (PlayMode::Beat7K, "/bms/a/5.bms"),
+            (PlayMode::Popn9K, "/bms/b/5.pms"),
+        ] {
+            let got = mix(&r, &songs, &Charts::new(&songs), mode, 1);
+            let got: Vec<&str> = got.iter().map(|s| s.path.as_str()).collect();
+            assert_eq!(got, [path], "{mode:?}");
         }
     }
 }
