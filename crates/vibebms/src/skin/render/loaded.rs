@@ -222,7 +222,7 @@ impl LoadedSkin {
             }
             d.b.set_blend(fr.blend);
             d.b.quad_rot(t, r, uv, fr.color, fr.angle, center);
-            d.b.set_additive(false);
+            d.b.set_blend(crate::gfx::Blend::Alpha);
         }
     }
 

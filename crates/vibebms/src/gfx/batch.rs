@@ -107,11 +107,6 @@ impl Batch {
         });
     }
 
-    /// Additive blending for following draws (skin glow effects).
-    pub fn set_additive(&mut self, on: bool) {
-        self.blend = if on { Blend::Add } else { Blend::Alpha };
-    }
-
     /// Blend mode for following draws.
     pub fn set_blend(&mut self, b: Blend) {
         self.blend = b;

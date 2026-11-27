@@ -82,7 +82,7 @@ impl LoadedSkin {
                     uv,
                     fr.color,
                 );
-                d.b.set_additive(false);
+                d.b.set_blend(crate::gfx::Blend::Alpha);
             }
         }
     }
