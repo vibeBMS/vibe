@@ -402,6 +402,7 @@ impl Running {
         self.poll_gamepads(el);
         #[cfg(target_os = "ios")]
         crate::platform::ios::poll_keyboard();
+        // (in this order a frame's toasts and config saves come as they always have)
         self.ctx.poll_jobs();
         crate::scene::skinned::settle(&mut self.ctx, Instant::now());
         self.ctx.poll_library();
