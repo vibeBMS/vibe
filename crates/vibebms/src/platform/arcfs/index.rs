@@ -159,8 +159,13 @@ pub fn load_index(file: &Path) {
         let ix = if s.format.is_empty() {
             Index::left_out(stamp, s.error, &s.left_out_by)
         } else {
+            // a path as it was listed (made safe), else not one: an entry
+            // that is not comes back as no other name
             let files = (s.files.into_iter())
-                .filter_map(|(p, n)| Some((bmseeker::unpack::member_path(p.as_bytes())?, n)))
+                .filter_map(|(p, n)| {
+                    let rel = bmseeker::unpack::member_path(p.as_bytes())?;
+                    (rel_text(&rel) == p).then_some((rel, n))
+                })
                 .collect();
             Index::new(stamp, &s.format, files)
         };
@@ -216,8 +221,10 @@ pub fn set_index(archive: &Path, ix: Index) {
 }
 
 /// `archive`'s index: as the scan left it; a zip's read now when there is
-/// none or it changed (its list is quick to read). With `slow`, a 7z's,
-/// RAR's, LZH's or tar's too (decoded in full: not for the main thread).
+/// none or it changed (its list is its directory, read alone). With
+/// `slow`, a 7z's, RAR's, LZH's or tar's too (not for the main thread: a
+/// 7z, a solid RAR and a .tar.gz are decoded in full, an LZH and a tar
+/// read through).
 pub(super) fn index(archive: &Path, slow: bool) -> Option<Arc<Index>> {
     let now = vfs::stamp(archive);
     let have = index_of(archive);
@@ -305,6 +312,30 @@ pub fn stamp(archive: &Path, rel: &Path) -> (i64, i64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A path in `cache/archives.json` comes back as it was written, or not
+    /// at all: one that is no path an archive is listed with is dropped.
+    #[test]
+    fn a_cached_path_comes_back_as_it_was() {
+        let dir = std::env::temp_dir().join(format!("vibebms-index-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("archives.json");
+        let archive = dir.join("p.zip");
+        let json = serde_json::json!({
+            archive.to_string_lossy(): {
+                "mtime": 1,
+                "size": 2,
+                "format": "zip",
+                "files": [["\u{feff}x.wav", 4], ["Song/a.bms", 8], ["Song/../b.bms", 8]],
+            }
+        });
+        std::fs::write(&file, serde_json::to_vec(&json).unwrap()).unwrap();
+        load_index(&file);
+        let ix = index_of(&archive).unwrap();
+        let files: Vec<&PathBuf> = ix.files.keys().collect();
+        assert_eq!(files, [Path::new("Song/a.bms")]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     #[test]
     fn an_index_lists_folders() {
