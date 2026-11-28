@@ -573,6 +573,40 @@ impl Text {
 mod tests {
     use super::*;
 
+    /// The symbols the screens draw (arrows, triangles, marks) are in the
+    /// bundled font: a system's fonts need not have them (iOS's have no
+    /// small triangles), and the web build starts with no other font.
+    #[test]
+    fn the_symbols_the_screens_draw_are_in_the_bundled_font() {
+        fn read(dir: &Path, out: &mut String) {
+            for e in std::fs::read_dir(dir).unwrap() {
+                let p = e.unwrap().path();
+                if p.is_dir() {
+                    read(&p, out);
+                } else if p.extension().is_some_and(|x| x == "rs" || x == "toml") {
+                    // (without comments: a line up to its `//`)
+                    for line in std::fs::read_to_string(&p).unwrap().lines() {
+                        out.push_str(line.split("//").next().unwrap());
+                    }
+                }
+            }
+        }
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut text = String::new();
+        read(&root.join("src"), &mut text);
+        read(&root.join("assets/i18n"), &mut text);
+        let font = Font::new(Arc::new(Bytes::Static(EMBEDDED_FONT)), 0).unwrap();
+        // punctuation, arrows, shapes, marks
+        let missing: std::collections::BTreeSet<char> = text
+            .chars()
+            .filter(|c| ('\u{2000}'..'\u{2c00}').contains(c) && !font.has(*c))
+            .collect();
+        assert!(
+            text.contains('\u{25b6}') && missing.is_empty(),
+            "{missing:?}"
+        );
+    }
+
     /// Korean, kana, kanji and Latin: a select screen's worth.
     fn sample_chars() -> Vec<char> {
         let hangul = (0xAC00..0xD7A4).step_by(37);

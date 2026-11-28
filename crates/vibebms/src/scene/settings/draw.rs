@@ -908,7 +908,9 @@ impl SettingsScene {
                     border,
                     if sel { 1.5 } else { 1.0 },
                 );
-                let arrow = if *open { "▾" } else { "▸" };
+                // (triangles the bundled font has: the small ones are in no font
+                // of some systems)
+                let arrow = if *open { "▼" } else { "▶" };
                 spans(
                     d,
                     r.x + u(18.0),
