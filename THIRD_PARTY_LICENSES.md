@@ -6,16 +6,20 @@ licence text is here once, then the crates under it, each with the copyright
 notices its own licence file has (files that differ only in white space,
 letter case, a title line, `http`/`https` or the Apache licence's appendix are
 one text). A crate that offers a choice (`MIT OR Apache-2.0`) is listed under
-the licence used; its own expression is beside its name. Code vibeBMS took or
-derived directly (Lua, the BeMusicSeeker fork, the fonts, UnRAR) is in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+the licence used; its own expression is beside its name. Each crate ships the
+text it is under, with the copyright notices listed under it (none: its file
+has none) or, for a text printed as the files have it, in it, unless its line
+says that it ships no file with that text. A crate's notice files that are
+not a licence text (a `COPYRIGHT`, a third party's notice) are under it as the
+crate has them. Code vibeBMS took or derived directly (Lua, the BeMusicSeeker
+fork, the fonts, UnRAR) is in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Made by `tools/gen_licenses.sh` with cargo-about, from Cargo.lock and
 about.toml: do not edit it (CI checks that it is current).
 
-505 crates, 28 licence texts (each once, then the crates under it):
+505 crates, 31 licence texts (each once, then the crates under it):
 
-- Apache License 2.0 (`Apache-2.0`): 341 crates, 6 texts
+- Apache License 2.0 (`Apache-2.0`): 341 crates, 8 texts
 - BSD 2-Clause "Simplified" License (`BSD-2-Clause`): 1 crate, 1 text
 - BSD 3-Clause "New" or "Revised" License (`BSD-3-Clause`): 4 crates, 3 texts
 - Creative Commons Zero v1.0 Universal (`CC0-1.0`): 1 crate, 1 text
@@ -24,7 +28,7 @@ about.toml: do not edit it (CI checks that it is current).
 - MIT License (`MIT`): 118 crates, 6 texts
 - Mozilla Public License 2.0 (`MPL-2.0`): 16 crates, 2 texts
 - Unicode License v3 (`Unicode-3.0`): 20 crates, 2 texts
-- zlib License (`Zlib`): 3 crates, 1 text
+- zlib License (`Zlib`): 3 crates, 2 texts
 - bzip2 and libbzip2 License v1.0.6 (`bzip2-1.0.6`): 1 crate, 1 text
 
 ## Apache License 2.0 (`Apache-2.0`)
@@ -105,19 +109,18 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ````
 
-- `ab_glyph` (Apache-2.0): https://github.com/alexheretic/ab-glyph; ships no file with this licence's text
-- `ab_glyph_rasterizer` (Apache-2.0): https://github.com/alexheretic/ab-glyph; ships no file with this licence's text
+- `ab_glyph` (Apache-2.0): https://github.com/alexheretic/ab-glyph
+- `ab_glyph_rasterizer` (Apache-2.0): https://github.com/alexheretic/ab-glyph
 - `adler2` (0BSD OR MIT OR Apache-2.0): https://github.com/oyvindln/adler2
 - `aes` (MIT OR Apache-2.0): https://github.com/RustCrypto/block-ciphers
 - `ahash` (MIT OR Apache-2.0): https://github.com/tkaitchuck/ahash
-- `allocator-api2` (MIT OR Apache-2.0): https://github.com/zakarumych/allocator-api2; ships no file with this licence's text
-- `alsa` (Apache-2.0 OR MIT): https://github.com/diwic/alsa-rs; ships no file with this licence's text
-- `android-activity` (MIT OR Apache-2.0): https://github.com/rust-mobile/android-activity; ships no file with this licence's text
+- `allocator-api2` (MIT OR Apache-2.0): https://github.com/zakarumych/allocator-api2
+- `alsa` (Apache-2.0 OR MIT): https://github.com/diwic/alsa-rs
+- `android-activity` (MIT OR Apache-2.0): https://github.com/rust-mobile/android-activity
 - `android_log-sys` (MIT OR Apache-2.0): https://github.com/rust-mobile/android_log-sys-rs
   - Copyright 2016 The android_log_sys Developers
 - `android_logger` (MIT OR Apache-2.0): https://github.com/rust-mobile/android_logger-rs
   - Copyright 2016 The android_logger Developers
-- `android_system_properties` (MIT OR Apache-2.0): https://github.com/nical/android_system_properties; ships no file with this licence's text
 - `anstream` (MIT OR Apache-2.0): https://github.com/rust-cli/anstyle.git
 - `anstyle` (MIT OR Apache-2.0): https://github.com/rust-cli/anstyle.git
 - `anstyle-parse` (MIT OR Apache-2.0): https://github.com/rust-cli/anstyle.git
@@ -141,6 +144,21 @@ limitations under the License.
 - `cbc` (MIT OR Apache-2.0): https://github.com/RustCrypto/block-modes
 - `cc` (MIT OR Apache-2.0): https://github.com/rust-lang/cc-rs
 - `cesu8` (Apache-2.0 OR MIT): https://github.com/emk/cesu8-rs; ships no file with this licence's text
+  - from its `COPYRIGHT-RUST.txt`:
+
+    ````text
+    The Rust Project is copyright 2014, The Rust Project
+    Developers (given in the file AUTHORS.txt).
+
+    Licensed under the Apache License, Version 2.0
+    <LICENSE-APACHE or
+    http://www.apache.org/licenses/LICENSE-2.0> or the MIT
+    license <LICENSE-MIT or http://opensource.org/licenses/MIT>,
+    at your option. All files in the project carrying such
+    notice may not be copied, modified, or distributed except
+    according to those terms.
+    ````
+
 - `cfg-expr` (MIT OR Apache-2.0): https://github.com/EmbarkStudios/cfg-expr
 - `cfg-if` (MIT OR Apache-2.0): https://github.com/rust-lang/cfg-if
 - `cipher` (MIT OR Apache-2.0): https://github.com/RustCrypto/traits
@@ -151,7 +169,7 @@ limitations under the License.
 - `console_error_panic_hook` (Apache-2.0 OR MIT): https://github.com/rustwasm/console_error_panic_hook
 - `console_log` (MIT OR Apache-2.0): https://github.com/iamcodemaker/console_log
 - `const-oid` (Apache-2.0 OR MIT): https://github.com/RustCrypto/formats
-- `constant_time_eq` (CC0-1.0 OR MIT-0 OR Apache-2.0): https://codeberg.org/cesarb/constant_time_eq, https://github.com/cesarb/constant_time_eq; ships no file with this licence's text
+- `constant_time_eq` (CC0-1.0 OR MIT-0 OR Apache-2.0): https://codeberg.org/cesarb/constant_time_eq, https://github.com/cesarb/constant_time_eq
 - `cookie` (MIT OR Apache-2.0): https://github.com/SergioBenitez/cookie-rs
   - Copyright 2017 Sergio Benitez
   - Copyright 2014 Alex Chricton
@@ -180,26 +198,46 @@ limitations under the License.
 - `deranged` (MIT OR Apache-2.0): https://github.com/jhpratt/deranged
   - Copyright 2024 Jacob Pratt et al.
 - `digest` (MIT OR Apache-2.0): https://github.com/RustCrypto/traits
-- `dirs` (MIT OR Apache-2.0): https://codeberg.org/dirs/dirs-rs; ships no file with this licence's text
-- `dirs-sys` (MIT OR Apache-2.0): https://github.com/dirs-dev/dirs-sys-rs; ships no file with this licence's text
 - `dispatch2` (Zlib OR Apache-2.0 OR MIT): https://github.com/madsmtm/objc2; ships no file with this licence's text
 - `displaydoc` (MIT OR Apache-2.0): https://github.com/yaahc/displaydoc
 - `document-features` (MIT OR Apache-2.0): https://github.com/slint-ui/document-features; ships no file with this licence's text
 - `downcast-rs` (MIT OR Apache-2.0): https://github.com/marcianx/downcast-rs
 - `dpi` (Apache-2.0 AND MIT): https://github.com/rust-windowing/winit
-- `dtoa` (MIT OR Apache-2.0): https://github.com/dtolnay/dtoa; ships no file with this licence's text
+- `dtoa` (MIT OR Apache-2.0): https://github.com/dtolnay/dtoa
 - `dunce` (CC0-1.0 OR MIT-0 OR Apache-2.0): https://gitlab.com/kornelski/dunce; ships no file with this licence's text
 - `ehttp` (MIT OR Apache-2.0): https://github.com/emilk/ehttp; ships no file with this licence's text
 - `either` (MIT OR Apache-2.0): https://github.com/rayon-rs/either
 - `encoding_rs` ((Apache-2.0 OR MIT) AND BSD-3-Clause): https://github.com/hsivonen/encoding_rs
+  - its `COPYRIGHT`:
+
+    ````text
+    encoding_rs is copyright Mozilla Foundation.
+
+    Licensed under the Apache License, Version 2.0
+    <LICENSE-APACHE or
+    https://www.apache.org/licenses/LICENSE-2.0> or the MIT
+    license <LICENSE-MIT or https://opensource.org/licenses/MIT>,
+    at your option. All files in the project carrying such
+    notice may not be copied, modified, or distributed except
+    according to those terms.
+
+    This crate includes data derived from the data files supplied
+    with the WHATWG Encoding Standard, which, when incorporated into
+    source code, are licensed under the BSD 3-Clause License
+    <LICENSE-WHATWG>.
+
+    Test code within encoding_rs is dedicated to the Public Domain when so
+    designated (see the individual files for PD/CC0-dedicated sections).
+    ````
+
 - `env_filter` (MIT OR Apache-2.0): https://github.com/rust-cli/env_logger
 - `env_logger` (MIT OR Apache-2.0): https://github.com/rust-cli/env_logger
 - `equivalent` (Apache-2.0 OR MIT): https://github.com/indexmap-rs/equivalent
-- `erased-serde` (MIT OR Apache-2.0): https://github.com/dtolnay/erased-serde; ships no file with this licence's text
+- `erased-serde` (MIT OR Apache-2.0): https://github.com/dtolnay/erased-serde
 - `errno` (MIT OR Apache-2.0): https://github.com/lambda-fairy/rust-errno
 - `fastrand` (Apache-2.0 OR MIT): https://github.com/smol-rs/fastrand
-- `fdeflate` (MIT OR Apache-2.0): https://github.com/image-rs/fdeflate; ships no file with this licence's text
-- `field-offset` (MIT OR Apache-2.0): https://github.com/Diggsey/rust-field-offset; ships no file with this licence's text
+- `fdeflate` (MIT OR Apache-2.0): https://github.com/image-rs/fdeflate
+- `field-offset` (MIT OR Apache-2.0): https://github.com/Diggsey/rust-field-offset
 - `filetime` (MIT OR Apache-2.0): https://github.com/alexcrichton/filetime
 - `find-msvc-tools` (MIT OR Apache-2.0): https://github.com/rust-lang/cc-rs
 - `flate2` (MIT OR Apache-2.0): https://github.com/rust-lang/flate2-rs
@@ -236,6 +274,28 @@ limitations under the License.
 - `getrandom` (MIT OR Apache-2.0): https://github.com/rust-random/getrandom
 - `gif` (MIT OR Apache-2.0): https://github.com/image-rs/image-gif
 - `gilrs` (Apache-2.0 OR MIT): https://gitlab.com/gilrs-project/gilrs; ships no file with this licence's text
+  - its `SDL_GameControllerDB/LICENSE`:
+
+    ````text
+    Copyright (C) 1997-2025 Sam Lantinga <slouken@libsdl.org>
+
+    This software is provided 'as-is', without any express or implied
+    warranty.  In no event will the authors be held liable for any damages
+    arising from the use of this software.
+
+    Permission is granted to anyone to use this software for any purpose,
+    including commercial applications, and to alter it and redistribute it
+    freely, subject to the following restrictions:
+
+    1. The origin of this software must not be misrepresented; you must not
+       claim that you wrote the original software. If you use this software
+       in a product, an acknowledgment in the product documentation would be
+       appreciated but is not required.
+    2. Altered source versions must be plainly marked as such, and must not be
+       misrepresented as being the original software.
+    3. This notice may not be removed or altered from any source distribution.
+    ````
+
 - `gilrs-core` (Apache-2.0 OR MIT): https://gitlab.com/gilrs-project/gilrs; ships no file with this licence's text
 - `gl_generator` (Apache-2.0): https://github.com/brendanzab/gl-rs/; ships no file with this licence's text
 - `glow` (MIT OR Apache-2.0 OR Zlib): https://github.com/grovesNL/glow
@@ -243,7 +303,7 @@ limitations under the License.
   - Copyright 2022 Kirill Chibisov
 - `gpu-allocator` (MIT OR Apache-2.0): https://github.com/Traverse-Research/gpu-allocator
   - Copyright 2021 Traverse Research B.V.
-- `half` (MIT OR Apache-2.0): https://github.com/VoidStarKat/half-rs; ships no file with this licence's text
+- `half` (MIT OR Apache-2.0): https://github.com/VoidStarKat/half-rs
 - `hashbrown` (MIT OR Apache-2.0): https://github.com/rust-lang/hashbrown
 - `heck` (MIT OR Apache-2.0): https://github.com/withoutboats/heck
 - `hmac` (MIT OR Apache-2.0): https://github.com/RustCrypto/MACs
@@ -256,12 +316,12 @@ limitations under the License.
   - Copyright 2020 Andrew Straw
 - `idna` (MIT OR Apache-2.0): https://github.com/servo/rust-url/
 - `idna_adapter` (Apache-2.0 OR MIT): https://github.com/hsivonen/idna_adapter
-- `image` (MIT OR Apache-2.0): https://github.com/image-rs/image; ships no file with this licence's text
-- `image-webp` (MIT OR Apache-2.0): https://github.com/image-rs/image-webp; ships no file with this licence's text
+- `image` (MIT OR Apache-2.0): https://github.com/image-rs/image
+- `image-webp` (MIT OR Apache-2.0): https://github.com/image-rs/image-webp
 - `indexmap` (Apache-2.0 OR MIT): https://github.com/indexmap-rs/indexmap
 - `inout` (MIT OR Apache-2.0): https://github.com/RustCrypto/utils
 - `is_terminal_polyfill` (MIT OR Apache-2.0): https://github.com/polyfill-rs/is_terminal_polyfill
-- `itoa` (MIT OR Apache-2.0): https://github.com/dtolnay/itoa; ships no file with this licence's text
+- `itoa` (MIT OR Apache-2.0): https://github.com/dtolnay/itoa
 - `jni` (MIT OR Apache-2.0): https://github.com/jni-rs/jni-rs; ships no file with this licence's text
 - `jni-macros` (MIT OR Apache-2.0): https://github.com/jni-rs/jni-rs; ships no file with this licence's text
 - `jni-sys` (MIT OR Apache-2.0): https://github.com/jni-rs/jni-sys
@@ -271,35 +331,55 @@ limitations under the License.
 - `khronos-egl` (MIT OR Apache-2.0): https://github.com/timothee-haudebourg/khronos-egl
 - `khronos_api` (Apache-2.0): https://github.com/brendanzab/gl-rs/; ships no file with this licence's text
 - `lazy_static` (MIT OR Apache-2.0): https://github.com/rust-lang-nursery/lazy-static.rs
-- `libc` (MIT OR Apache-2.0): https://github.com/rust-lang/libc; ships no file with this licence's text
+- `libc` (MIT OR Apache-2.0): https://github.com/rust-lang/libc
 - `linux-raw-sys` (Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT): https://github.com/sunfishcode/linux-raw-sys
-- `litrs` (MIT OR Apache-2.0): https://github.com/LukasKalbertodt/litrs; ships no file with this licence's text
+- `litrs` (MIT OR Apache-2.0): https://github.com/LukasKalbertodt/litrs
 - `lock_api` (MIT OR Apache-2.0): https://github.com/Amanieu/parking_lot
 - `log` (MIT OR Apache-2.0): https://github.com/rust-lang/log
 - `lzma-rust2` (Apache-2.0): https://github.com/hasenbanck/lzma-rust2/
-- `mach2` (BSD-2-Clause OR MIT OR Apache-2.0): https://github.com/JohnTitor/mach2; ships no file with this licence's text
+- `mach2` (BSD-2-Clause OR MIT OR Apache-2.0): https://github.com/JohnTitor/mach2
 - `markup5ever` (MIT OR Apache-2.0): https://github.com/servo/html5ever
 - `maybe-dangling` (Zlib OR MIT OR Apache-2.0): https://github.com/danielhenrymantilla/maybe-dangling.rs
   - Copyright 2023 Daniel Henry-Mantilla <daniel.henry.mantilla@gmail.com>
 - `md-5` (MIT OR Apache-2.0): https://github.com/RustCrypto/hashes
 - `memmap2` (MIT OR Apache-2.0): https://github.com/RazrFalcon/memmap2-rs
   - Copyright [2015] [Dan Burkert]
-- `miniz_oxide` (MIT OR Zlib OR Apache-2.0): https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide; ships no file with this licence's text
+- `miniz_oxide` (MIT OR Zlib OR Apache-2.0): https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide
 - `moxcms` (BSD-3-Clause OR Apache-2.0): https://github.com/awxkee/moxcms.git
   - Copyright 2024 Radzivon Bartoshyk
 - `multiversion_no_op` (Apache-2.0 OR MIT): https://github.com/hsivonen/multiversion_no_op
-- `naga` (MIT OR Apache-2.0): https://github.com/gfx-rs/wgpu; ships no file with this licence's text
-- `naga-types` (MIT OR Apache-2.0): https://github.com/gfx-rs/wgpu; ships no file with this licence's text
+  - its `COPYRIGHT`:
+
+    ````text
+    Copyright Mozilla Foundation
+
+    Licensed under the Apache License (Version 2.0), or the MIT license,
+    (the "Licenses") at your option. You may not use this file except in
+    compliance with one of the Licenses. You may obtain copies of the
+    Licenses at:
+
+       https://www.apache.org/licenses/LICENSE-2.0
+       https://opensource.org/licenses/MIT
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the Licenses is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the Licenses for the specific language governing permissions and
+    limitations under the Licenses.
+    ````
+
+- `naga` (MIT OR Apache-2.0): https://github.com/gfx-rs/wgpu
+- `naga-types` (MIT OR Apache-2.0): https://github.com/gfx-rs/wgpu
 - `ndk` (MIT OR Apache-2.0): https://github.com/rust-mobile/ndk; ships no file with this licence's text
 - `ndk-context` (MIT OR Apache-2.0): https://github.com/rust-windowing/android-ndk-rs; ships no file with this licence's text
 - `ndk-sys` (MIT OR Apache-2.0): https://github.com/rust-mobile/ndk; ships no file with this licence's text
 - `num-complex` (MIT OR Apache-2.0): https://github.com/rust-num/num-complex
-- `num-conv` (MIT OR Apache-2.0): https://github.com/jhpratt/num-conv; ships no file with this licence's text
+- `num-conv` (MIT OR Apache-2.0): https://github.com/jhpratt/num-conv
 - `num-derive` (MIT OR Apache-2.0): https://github.com/rust-num/num-derive
 - `num-integer` (MIT OR Apache-2.0): https://github.com/rust-num/num-integer
 - `num-traits` (MIT OR Apache-2.0): https://github.com/rust-num/num-traits
-- `num_enum` (BSD-3-Clause OR MIT OR Apache-2.0): https://github.com/illicitonion/num_enum; ships no file with this licence's text
-- `num_enum_derive` (BSD-3-Clause OR MIT OR Apache-2.0): https://github.com/illicitonion/num_enum; ships no file with this licence's text
+- `num_enum` (BSD-3-Clause OR MIT OR Apache-2.0): https://github.com/illicitonion/num_enum
+- `num_enum_derive` (BSD-3-Clause OR MIT OR Apache-2.0): https://github.com/illicitonion/num_enum
 - `objc2-app-kit` (Zlib OR Apache-2.0 OR MIT): https://github.com/madsmtm/objc2; ships no file with this licence's text
 - `objc2-audio-toolbox` (Zlib OR Apache-2.0 OR MIT): https://github.com/madsmtm/objc2; ships no file with this licence's text
 - `objc2-avf-audio` (Zlib OR Apache-2.0 OR MIT): https://github.com/madsmtm/objc2; ships no file with this licence's text
@@ -318,13 +398,13 @@ limitations under the License.
 - `once_cell` (MIT OR Apache-2.0): https://github.com/matklad/once_cell
 - `once_cell_polyfill` (MIT OR Apache-2.0): https://github.com/polyfill-rs/once_cell_polyfill
 - `openssl-probe` (MIT OR Apache-2.0): https://github.com/rustls/openssl-probe
-- `owned_ttf_parser` (Apache-2.0): https://github.com/alexheretic/owned-ttf-parser; ships no file with this licence's text
+- `owned_ttf_parser` (Apache-2.0): https://github.com/alexheretic/owned-ttf-parser
 - `parking_lot` (MIT OR Apache-2.0): https://github.com/Amanieu/parking_lot
 - `parking_lot_core` (MIT OR Apache-2.0): https://github.com/Amanieu/parking_lot
 - `percent-encoding` (MIT OR Apache-2.0): https://github.com/servo/rust-url/
-- `pin-project` (Apache-2.0 OR MIT): https://github.com/taiki-e/pin-project; ships no file with this licence's text
-- `pin-project-internal` (Apache-2.0 OR MIT): https://github.com/taiki-e/pin-project; ships no file with this licence's text
-- `pin-project-lite` (Apache-2.0 OR MIT): https://github.com/taiki-e/pin-project-lite; ships no file with this licence's text
+- `pin-project` (Apache-2.0 OR MIT): https://github.com/taiki-e/pin-project
+- `pin-project-internal` (Apache-2.0 OR MIT): https://github.com/taiki-e/pin-project
+- `pin-project-lite` (Apache-2.0 OR MIT): https://github.com/taiki-e/pin-project-lite
 - `pkg-config` (MIT OR Apache-2.0): https://github.com/rust-lang/pkg-config-rs
 - `png` (MIT OR Apache-2.0): https://github.com/image-rs/image-png
 - `polling` (Apache-2.0 OR MIT): https://github.com/smol-rs/polling
@@ -338,14 +418,14 @@ limitations under the License.
   - Copyright 2019-2020 CreepySkeleton <creepy-skeleton@yandex.ru>
 - `proc-macro-error-attr` (MIT OR Apache-2.0): https://gitlab.com/CreepySkeleton/proc-macro-error
   - Copyright 2019-2020 CreepySkeleton <creepy-skeleton@yandex.ru>
-- `proc-macro2` (MIT OR Apache-2.0): https://github.com/dtolnay/proc-macro2; ships no file with this licence's text
+- `proc-macro2` (MIT OR Apache-2.0): https://github.com/dtolnay/proc-macro2
 - `profiling` (MIT OR Apache-2.0): https://github.com/aclysma/profiling; ships no file with this licence's text
 - `pxfm` (BSD-3-Clause OR Apache-2.0): https://github.com/awxkee/pxfm
   - Copyright 2024 Radzivon Bartoshyk
 - `quick-error` (MIT OR Apache-2.0): http://github.com/tailhook/quick-error
-- `quote` (MIT OR Apache-2.0): https://github.com/dtolnay/quote; ships no file with this licence's text
-- `range-alloc` (MIT OR Apache-2.0): https://github.com/gfx-rs/range-alloc; ships no file with this licence's text
-- `raw-window-handle` (MIT OR Apache-2.0 OR Zlib): https://github.com/rust-windowing/raw-window-handle; ships no file with this licence's text
+- `quote` (MIT OR Apache-2.0): https://github.com/dtolnay/quote
+- `range-alloc` (MIT OR Apache-2.0): https://github.com/gfx-rs/range-alloc
+- `raw-window-handle` (MIT OR Apache-2.0 OR Zlib): https://github.com/rust-windowing/raw-window-handle
 - `raw-window-metal` (MIT OR Apache-2.0): https://github.com/rust-windowing/raw-window-metal
 - `rayon` (MIT OR Apache-2.0): https://github.com/rayon-rs/rayon
 - `rayon-core` (MIT OR Apache-2.0): https://github.com/rayon-rs/rayon
@@ -356,7 +436,7 @@ limitations under the License.
 - `regex-syntax` (MIT OR Apache-2.0): https://github.com/rust-lang/regex
 - `renderdoc-sys` (MIT OR Apache-2.0): https://github.com/ebkalderon/renderdoc-rs
 - `roxmltree` (MIT OR Apache-2.0): https://github.com/RazrFalcon/roxmltree
-- `rustc-hash` (Apache-2.0 OR MIT): https://github.com/rust-lang-nursery/rustc-hash, https://github.com/rust-lang/rustc-hash; ships no file with this licence's text
+- `rustc-hash` (Apache-2.0 OR MIT): https://github.com/rust-lang-nursery/rustc-hash, https://github.com/rust-lang/rustc-hash
 - `rustc_version` (MIT OR Apache-2.0): https://github.com/djc/rustc-version-rs
 - `rustix` (Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT): https://github.com/bytecodealliance/rustix
 - `rustls` (Apache-2.0 OR ISC OR MIT): https://github.com/rustls/rustls
@@ -365,26 +445,37 @@ limitations under the License.
   - Copyright 2023 Dirkjan Ochtman
 - `rustls-platform-verifier` (MIT OR Apache-2.0): https://github.com/rustls/rustls-platform-verifier
 - `rustls-platform-verifier-android` (MIT OR Apache-2.0): https://github.com/rustls/rustls-platform-verifier; ships no file with this licence's text
-- `rustversion` (MIT OR Apache-2.0): https://github.com/dtolnay/rustversion; ships no file with this licence's text
+- `rustversion` (MIT OR Apache-2.0): https://github.com/dtolnay/rustversion
 - `scoped-tls` (MIT OR Apache-2.0): https://github.com/alexcrichton/scoped-tls
 - `scopeguard` (MIT OR Apache-2.0): https://github.com/bluss/scopeguard
 - `security-framework` (MIT OR Apache-2.0): https://github.com/kornelski/rust-security-framework
 - `security-framework-sys` (MIT OR Apache-2.0): https://github.com/kornelski/rust-security-framework
 - `self-replace` (Apache-2.0): https://github.com/mitsuhiko/self-replace
-- `semver` (MIT OR Apache-2.0): https://github.com/dtolnay/semver; ships no file with this licence's text
-- `serde` (MIT OR Apache-2.0): https://github.com/serde-rs/serde; ships no file with this licence's text
-- `serde_core` (MIT OR Apache-2.0): https://github.com/serde-rs/serde; ships no file with this licence's text
-- `serde_derive` (MIT OR Apache-2.0): https://github.com/serde-rs/serde; ships no file with this licence's text
-- `serde_json` (MIT OR Apache-2.0): https://github.com/serde-rs/json; ships no file with this licence's text
+- `semver` (MIT OR Apache-2.0): https://github.com/dtolnay/semver
+- `serde` (MIT OR Apache-2.0): https://github.com/serde-rs/serde
+- `serde_core` (MIT OR Apache-2.0): https://github.com/serde-rs/serde
+- `serde_derive` (MIT OR Apache-2.0): https://github.com/serde-rs/serde
+- `serde_json` (MIT OR Apache-2.0): https://github.com/serde-rs/json
 - `serde_spanned` (MIT OR Apache-2.0): https://github.com/toml-rs/toml
   - Copyright Individual contributors
 - `servo_arc` (MIT OR Apache-2.0): https://github.com/servo/stylo
 - `sevenz-rust2` (Apache-2.0): https://github.com/hasenbanck/sevenz-rust
 - `sha2` (MIT OR Apache-2.0): https://github.com/RustCrypto/hashes
-- `shlex` (MIT OR Apache-2.0): https://github.com/comex/rust-shlex; ships no file with this licence's text
 - `simd_cesu8` (Apache-2.0 OR MIT): https://github.com/seancroach/simd_cesu8
-- `simdutf8` (MIT OR Apache-2.0): https://github.com/rusticstuff/simdutf8; ships no file with this licence's text
+- `simdutf8` (MIT OR Apache-2.0): https://github.com/rusticstuff/simdutf8
 - `siphasher` (MIT OR Apache-2.0): https://github.com/jedisct1/rust-siphash
+  - its `COPYING`:
+
+    ````text
+    Copyright 2012-2016 The Rust Project Developers.
+    Copyright 2016-2026 Frank Denis.
+
+    Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
+    http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+    <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
+    option.
+    ````
+
 - `smallvec` (MIT OR Apache-2.0): https://github.com/servo/rust-smallvec
 - `smol_str` (MIT OR Apache-2.0): https://github.com/rust-analyzer/smol_str
 - `spirv` (Apache-2.0): https://github.com/gfx-rs/rspirv; ships no file with this licence's text
@@ -392,18 +483,19 @@ limitations under the License.
 - `static_assertions` (MIT OR Apache-2.0): https://github.com/nvzqz/static-assertions-rs
 - `string_cache` (MIT OR Apache-2.0): https://github.com/servo/string-cache
 - `string_cache_codegen` (MIT OR Apache-2.0): https://github.com/servo/string-cache
-- `syn` (MIT OR Apache-2.0): https://github.com/dtolnay/syn; ships no file with this licence's text
+- `syn` (MIT OR Apache-2.0): https://github.com/dtolnay/syn
 - `sys-locale` (MIT OR Apache-2.0): https://github.com/1Password/sys-locale
 - `system-deps` (MIT OR Apache-2.0): https://github.com/gdesmott/system-deps
 - `tao-macros` (MIT OR Apache-2.0): https://github.com/tauri-apps/tao
+  - PackageCopyrightText: 2020-2023, The Tauri Programme in the Commons Conservancy
 - `tar` (MIT OR Apache-2.0): https://github.com/composefs/tar-rs
 - `tempfile` (MIT OR Apache-2.0): https://github.com/Stebalien/tempfile
 - `tendril` (MIT OR Apache-2.0): https://github.com/servo/html5ever
-- `thiserror` (MIT OR Apache-2.0): https://github.com/dtolnay/thiserror; ships no file with this licence's text
-- `thiserror-impl` (MIT OR Apache-2.0): https://github.com/dtolnay/thiserror; ships no file with this licence's text
-- `time` (MIT OR Apache-2.0): https://github.com/time-rs/time; ships no file with this licence's text
-- `time-core` (MIT OR Apache-2.0): https://github.com/time-rs/time; ships no file with this licence's text
-- `time-macros` (MIT OR Apache-2.0): https://github.com/time-rs/time; ships no file with this licence's text
+- `thiserror` (MIT OR Apache-2.0): https://github.com/dtolnay/thiserror
+- `thiserror-impl` (MIT OR Apache-2.0): https://github.com/dtolnay/thiserror
+- `time` (MIT OR Apache-2.0): https://github.com/time-rs/time
+- `time-core` (MIT OR Apache-2.0): https://github.com/time-rs/time
+- `time-macros` (MIT OR Apache-2.0): https://github.com/time-rs/time
 - `tinyvec` (Zlib OR Apache-2.0 OR MIT): https://github.com/Lokathor/tinyvec
 - `toml` (MIT OR Apache-2.0): https://github.com/toml-rs/toml
   - Copyright Individual contributors
@@ -416,22 +508,94 @@ limitations under the License.
 - `toml_writer` (MIT OR Apache-2.0): https://github.com/toml-rs/toml
   - Copyright Individual contributors
 - `ttf-parser` (MIT OR Apache-2.0): https://github.com/harfbuzz/ttf-parser
-- `typed-path` (MIT OR Apache-2.0): https://github.com/chipsenkbeil/typed-path; ships no file with this licence's text
-- `typeid` (MIT OR Apache-2.0): https://github.com/dtolnay/typeid; ships no file with this licence's text
+- `typed-path` (MIT OR Apache-2.0): https://github.com/chipsenkbeil/typed-path
+- `typeid` (MIT OR Apache-2.0): https://github.com/dtolnay/typeid
 - `typenum` (MIT OR Apache-2.0): https://github.com/paholg/typenum
   - Copyright 2014 Paho Lurie-Gregg
 - `ucd-trie` (MIT OR Apache-2.0): https://github.com/BurntSushi/ucd-generate
-- `unicode-ident` ((MIT OR Apache-2.0) AND Unicode-3.0): https://github.com/dtolnay/unicode-ident; ships no file with this licence's text
+- `unicode-ident` ((MIT OR Apache-2.0) AND Unicode-3.0): https://github.com/dtolnay/unicode-ident
 - `unicode-normalization` ((MIT OR Apache-2.0) AND Unicode-3.0): https://github.com/unicode-rs/unicode-normalization
 - `unicode-segmentation` (MIT OR Apache-2.0): https://github.com/unicode-rs/unicode-segmentation
 - `unicode-width` (MIT OR Apache-2.0): https://github.com/unicode-rs/unicode-width
 - `ureq` (MIT OR Apache-2.0): https://github.com/algesten/ureq
 - `ureq-proto` (MIT OR Apache-2.0): https://github.com/algesten/ureq-proto
 - `url` (MIT OR Apache-2.0): https://github.com/servo/rust-url
-- `utf8-zero` (MIT OR Apache-2.0): https://github.com/algesten/utf8-zero; ships no file with this licence's text
+- `utf8-zero` (MIT OR Apache-2.0): https://github.com/algesten/utf8-zero
 - `utf8_iter` (Apache-2.0 OR MIT): https://github.com/hsivonen/utf8_iter
-- `utf8parse` (Apache-2.0 OR MIT): https://github.com/alacritty/vte; ships no file with this licence's text
+  - its `COPYRIGHT`:
+
+    ````text
+    Copyright Mozilla Foundation
+
+    Licensed under the Apache License (Version 2.0), or the MIT license,
+    (the "Licenses") at your option. You may not use this file except in
+    compliance with one of the Licenses. You may obtain copies of the
+    Licenses at:
+
+       https://www.apache.org/licenses/LICENSE-2.0
+       https://opensource.org/licenses/MIT
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the Licenses is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the Licenses for the specific language governing permissions and
+    limitations under the Licenses.
+
+    --
+
+    Test code is dedicated to the Public Domain when so designated (see
+    the individual files for PD/CC0-dedicated sections).
+
+    --
+
+    The implementation for Utf8CharIndices was adapted from the
+    CharIndices implementation of the Rust standard library at revision
+    ab32548539ec38a939c1b58599249f3b54130026
+    (https://github.com/rust-lang/rust/blob/ab32548539ec38a939c1b58599249f3b54130026/library/core/src/str/iter.rs).
+
+    Excerpt from https://github.com/rust-lang/rust/blob/ab32548539ec38a939c1b58599249f3b54130026/COPYRIGHT ,
+    which refers to
+    https://github.com/rust-lang/rust/blob/ab32548539ec38a939c1b58599249f3b54130026/LICENSE-APACHE
+    and
+    https://github.com/rust-lang/rust/blob/ab32548539ec38a939c1b58599249f3b54130026/LICENSE-MIT
+    :
+
+    For full authorship information, see the version control history or
+    https://thanks.rust-lang.org
+
+    Except as otherwise noted (below and/or in individual files), Rust is
+    licensed under the Apache License, Version 2.0 <LICENSE-APACHE> or
+    <http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+    <LICENSE-MIT> or <http://opensource.org/licenses/MIT>, at your option.
+    ````
+
+- `utf8parse` (Apache-2.0 OR MIT): https://github.com/alacritty/vte
 - `utf_types` (Apache-2.0 OR MIT): https://github.com/hsivonen/utf_types
+  - its `COPYRIGHT`:
+
+    ````text
+    Copyright Mozilla Foundation
+
+    Licensed under the Apache License (Version 2.0), or the MIT license,
+    (the "Licenses") at your option. You may not use this file except in
+    compliance with one of the Licenses. You may obtain copies of the
+    Licenses at:
+
+       https://www.apache.org/licenses/LICENSE-2.0
+       https://opensource.org/licenses/MIT
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the Licenses is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the Licenses for the specific language governing permissions and
+    limitations under the Licenses.
+
+    --
+
+    Test code is dedicated to the Public Domain when so designated (see
+    the individual files for PD/CC0-dedicated sections).
+    ````
+
 - `uuid` (Apache-2.0 OR MIT): https://github.com/uuid-rs/uuid
 - `vec_map` (MIT OR Apache-2.0): https://github.com/contain-rs/vec-map
 - `version_check` (MIT OR Apache-2.0): https://github.com/SergioBenitez/version_check
@@ -440,7 +604,7 @@ limitations under the License.
 - `wasm-bindgen-macro` (MIT OR Apache-2.0): https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/macro
 - `wasm-bindgen-macro-support` (MIT OR Apache-2.0): https://github.com/wasm-bindgen/wasm-bindgen/tree/main/crates/macro-support
 - `wasm-bindgen-shared` (MIT OR Apache-2.0): https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/shared
-- `wasm-streams` (MIT OR Apache-2.0): https://github.com/MattiasBuelens/wasm-streams/; ships no file with this licence's text
+- `wasm-streams` (MIT OR Apache-2.0): https://github.com/MattiasBuelens/wasm-streams/
 - `web-sys` (MIT OR Apache-2.0): https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/web-sys
 - `web-time` (MIT OR Apache-2.0): https://github.com/daxpedda/web-time
   - Copyright 2023 dAxpeDDa
@@ -448,14 +612,14 @@ limitations under the License.
 - `webbrowser` (MIT OR Apache-2.0): https://github.com/amodm/webbrowser-rs
   - Copyright (c) 2015-2022 Amod Malviya
 - `weezl` (MIT OR Apache-2.0): https://github.com/image-rs/weezl
-- `wgpu` (MIT OR Apache-2.0): https://github.com/gfx-rs/wgpu; ships no file with this licence's text
-- `wgpu-core` (MIT OR Apache-2.0): https://github.com/gfx-rs/wgpu; ships no file with this licence's text
-- `wgpu-core-deps-apple` (MIT OR Apache-2.0): https://github.com/gfx-rs/wgpu; ships no file with this licence's text
-- `wgpu-core-deps-wasm` (MIT OR Apache-2.0): https://github.com/gfx-rs/wgpu; ships no file with this licence's text
-- `wgpu-core-deps-windows-linux-android` (MIT OR Apache-2.0): https://github.com/gfx-rs/wgpu; ships no file with this licence's text
-- `wgpu-hal` (MIT OR Apache-2.0): https://github.com/gfx-rs/wgpu; ships no file with this licence's text
-- `wgpu-naga-bridge` (MIT OR Apache-2.0): https://github.com/gfx-rs/wgpu; ships no file with this licence's text
-- `wgpu-types` (MIT OR Apache-2.0): https://github.com/gfx-rs/wgpu; ships no file with this licence's text
+- `wgpu` (MIT OR Apache-2.0): https://github.com/gfx-rs/wgpu
+- `wgpu-core` (MIT OR Apache-2.0): https://github.com/gfx-rs/wgpu
+- `wgpu-core-deps-apple` (MIT OR Apache-2.0): https://github.com/gfx-rs/wgpu
+- `wgpu-core-deps-wasm` (MIT OR Apache-2.0): https://github.com/gfx-rs/wgpu
+- `wgpu-core-deps-windows-linux-android` (MIT OR Apache-2.0): https://github.com/gfx-rs/wgpu
+- `wgpu-hal` (MIT OR Apache-2.0): https://github.com/gfx-rs/wgpu
+- `wgpu-naga-bridge` (MIT OR Apache-2.0): https://github.com/gfx-rs/wgpu
+- `wgpu-types` (MIT OR Apache-2.0): https://github.com/gfx-rs/wgpu
 - `winapi` (MIT OR Apache-2.0): https://github.com/retep998/winapi-rs
 - `windows` (MIT OR Apache-2.0): https://github.com/microsoft/windows-rs
   - Copyright (c) Microsoft Corporation.
@@ -493,6 +657,7 @@ limitations under the License.
   - Copyright (c) Microsoft Corporation.
 - `winit` (Apache-2.0): https://github.com/rust-windowing/winit
 - `wry` (Apache-2.0 OR MIT): https://github.com/tauri-apps/wry
+  - PackageCopyrightText: 2020-2023, The Tauri Programme in the Commons Conservancy
 - `x11rb` (MIT OR Apache-2.0): https://github.com/psychon/x11rb
 - `x11rb-protocol` (MIT OR Apache-2.0): https://github.com/psychon/x11rb
 - `xkeysym` (MIT OR Apache-2.0 OR Zlib): https://github.com/notgull/xkeysym
@@ -505,6 +670,27 @@ limitations under the License.
 - `zeroize_derive` (Apache-2.0 OR MIT): https://github.com/RustCrypto/utils
 - `zune-core` (MIT OR Apache-2.0 OR Zlib): https://github.com/etemesi254/zune-image
 - `zune-jpeg` (MIT OR Apache-2.0 OR Zlib): https://github.com/etemesi254/zune-image/tree/dev/crates/zune-jpeg
+
+## Apache License 2.0 (`Apache-2.0`)
+
+````text
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+````
+
+- `android_system_properties` (MIT OR Apache-2.0): https://github.com/nical/android_system_properties
+  - Copyright 2016 Nicolas Silva
+- `shlex` (MIT OR Apache-2.0): https://github.com/comex/rust-shlex
+  - Copyright 2015 Nicholas Allegra (comex).
 
 ## Apache License 2.0 (`Apache-2.0`)
 
@@ -821,6 +1007,188 @@ limitations under the License.
 
 - `chrono` (MIT OR Apache-2.0): https://github.com/chronotope/chrono
   - Copyright (c) 2014, Kang Seonghoon.
+
+## Apache License 2.0 (`Apache-2.0`)
+
+````text
+                              Apache License
+                        Version 2.0, January 2004
+                     http://www.apache.org/licenses/
+
+TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+1. Definitions.
+
+   "License" shall mean the terms and conditions for use, reproduction,
+   and distribution as defined by Sections 1 through 9 of this document.
+
+   "Licensor" shall mean the copyright owner or entity authorized by
+   the copyright owner that is granting the License.
+
+   "Legal Entity" shall mean the union of the acting entity and all
+   other entities that control, are controlled by, or are under common
+   control with that entity. For the purposes of this definition,
+   "control" means (i) the power, direct or indirect, to cause the
+   direction or management of such entity, whether by contract or
+   otherwise, or (ii) ownership of fifty percent (50%) or more of the
+   outstanding shares, or (iii) beneficial ownership of such entity.
+
+   "You" (or "Your") shall mean an individual or Legal Entity
+   exercising permissions granted by this License.
+
+   "Source" form shall mean the preferred form for making modifications,
+   including but not limited to software source code, documentation
+   source, and configuration files.
+
+   "Object" form shall mean any form resulting from mechanical
+   transformation or translation of a Source form, including but
+   not limited to compiled object code, generated documentation,
+   and conversions to other media types.
+
+   "Work" shall mean the work of authorship, whether in Source or
+   Object form, made available under the License, as indicated by a
+   copyright notice that is included in or attached to the work
+   (an example is provided in the Appendix below).
+
+   "Derivative Works" shall mean any work, whether in Source or Object
+   form, that is based on (or derived from) the Work and for which the
+   editorial revisions, annotations, elaborations, or other modifications
+   represent, as a whole, an original work of authorship. For the purposes
+   of this License, Derivative Works shall not include works that remain
+   separable from, or merely link (or bind by name) to the interfaces of,
+   the Work and Derivative Works thereof.
+
+   "Contribution" shall mean any work of authorship, including
+   the original version of the Work and any modifications or additions
+   to that Work or Derivative Works thereof, that is intentionally
+   submitted to Licensor for inclusion in the Work by the copyright owner
+   or by an individual or Legal Entity authorized to submit on behalf of
+   the copyright owner. For the purposes of this definition, "submitted"
+   means any form of electronic, verbal, or written communication sent
+   to the Licensor or its representatives, including but not limited to
+   communication on electronic mailing lists, source code control systems,
+   and issue tracking systems that are managed by, or on behalf of, the
+   Licensor for the purpose of discussing and improving the Work, but
+   excluding communication that is conspicuously marked or otherwise
+   designated in writing by the copyright owner as "Not a Contribution."
+
+   "Contributor" shall mean Licensor and any individual or Legal Entity
+   on behalf of whom a Contribution has been received by Licensor and
+   subsequently incorporated within the Work.
+
+2. Grant of Copyright License. Subject to the terms and conditions of
+   this License, each Contributor hereby grants to You a perpetual,
+   worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+   copyright license to reproduce, prepare Derivative Works of,
+   publicly display, publicly perform, sublicense, and distribute the
+   Work and such Derivative Works in Source or Object form.
+
+3. Grant of Patent License. Subject to the terms and conditions of
+   this License, each Contributor hereby grants to You a perpetual,
+   worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+   (except as stated in this section) patent license to make, have made,
+   use, offer to sell, sell, import, and otherwise transfer the Work,
+   where such license applies only to those patent claims licensable
+   by such Contributor that are necessarily infringed by their
+   Contribution(s) alone or by combination of their Contribution(s)
+   with the Work to which such Contribution(s) was submitted. If You
+   institute patent litigation against any entity (including a
+   cross-claim or counterclaim in a lawsuit) alleging that the Work
+   or a Contribution incorporated within the Work constitutes direct
+   or contributory patent infringement, then any patent licenses
+   granted to You under this License for that Work shall terminate
+   as of the date such litigation is filed.
+
+4. Redistribution. You may reproduce and distribute copies of the
+   Work or Derivative Works thereof in any medium, with or without
+   modifications, and in Source or Object form, provided that You
+   meet the following conditions:
+
+   (a) You must give any other recipients of the Work or
+       Derivative Works a copy of this License; and
+
+   (b) You must cause any modified files to carry prominent notices
+       stating that You changed the files; and
+
+   (c) You must retain, in the Source form of any Derivative Works
+       that You distribute, all copyright, patent, trademark, and
+       attribution notices from the Source form of the Work,
+       excluding those notices that do not pertain to any part of
+       the Derivative Works; and
+
+   (d) If the Work includes a "NOTICE" text file as part of its
+       distribution, then any Derivative Works that You distribute must
+       include a readable copy of the attribution notices contained
+       within such NOTICE file, excluding those notices that do not
+       pertain to any part of the Derivative Works, in at least one
+       of the following places: within a NOTICE text file distributed
+       as part of the Derivative Works; within the Source form or
+       documentation, if provided along with the Derivative Works; or,
+       within a display generated by the Derivative Works, if and
+       wherever such third-party notices normally appear. The contents
+       of the NOTICE file are for informational purposes only and
+       do not modify the License. You may add Your own attribution
+       notices within Derivative Works that You distribute, alongside
+       or as an addendum to the NOTICE text from the Work, provided
+       that such additional attribution notices cannot be construed
+       as modifying the License.
+
+   You may add Your own copyright statement to Your modifications and
+   may provide additional or different license terms and conditions
+   for use, reproduction, or distribution of Your modifications, or
+   for any such Derivative Works as a whole, provided Your use,
+   reproduction, and distribution of the Work otherwise complies with
+   the conditions stated in this License.
+
+5. Submission of Contributions. Unless You explicitly state otherwise,
+   any Contribution intentionally submitted for inclusion in the Work
+   by You to the Licensor shall be under the terms and conditions of
+   this License, without any additional terms or conditions.
+   Notwithstanding the above, nothing herein shall supersede or modify
+   the terms of any separate license agreement you may have executed
+   with Licensor regarding such Contributions.
+
+6. Trademarks. This License does not grant permission to use the trade
+   names, trademarks, service marks, or product names of the Licensor,
+   except as required for reasonable and customary use in describing the
+   origin of the Work and reproducing the content of the NOTICE file.
+
+7. Disclaimer of Warranty. Unless required by applicable law or
+   agreed to in writing, Licensor provides the Work (and each
+   Contributor provides its Contributions) on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+   implied, including, without limitation, any warranties or conditions
+   of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+   PARTICULAR PURPOSE. You are solely responsible for determining the
+   appropriateness of using or redistributing the Work and assume any
+   risks associated with Your exercise of permissions under this License.
+
+8. Limitation of Liability. In no event and under no legal theory,
+   whether in tort (including negligence), contract, or otherwise,
+   unless required by applicable law (such as deliberate and grossly
+   negligent acts) or agreed to in writing, shall any Contributor be
+   liable to You for damages, including any direct, indirect, special,
+   incidental, or consequential damages of any character arising as a
+   result of this License or out of the use or inability to use the
+   Work (including but not limited to damages for loss of goodwill,
+   work stoppage, computer failure or malfunction, or any and all
+   other commercial damages or losses), even if such Contributor
+   has been advised of the possibility of such damages.
+
+9. Accepting Warranty or Additional Liability. While redistributing
+   the Work or Derivative Works thereof, You may choose to offer,
+   and charge a fee for, acceptance of support, warranty, indemnity,
+   or other liability obligations and/or rights consistent with this
+   License. However, in accepting such obligations, You may act only
+   on Your own behalf and on Your sole responsibility, not on behalf
+   of any other Contributor, and only if You agree to indemnify,
+   defend, and hold each Contributor harmless for any liability
+   incurred by, or claims asserted against, such Contributor by reason
+   of your accepting any such warranty or additional liability.
+````
+
+- `dirs` (MIT OR Apache-2.0): https://codeberg.org/dirs/dirs-rs
+- `dirs-sys` (MIT OR Apache-2.0): https://github.com/dirs-dev/dirs-sys-rs
 
 ## Apache License 2.0 (`Apache-2.0`)
 
@@ -1325,6 +1693,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
 - `ring` (Apache-2.0 AND ISC): https://github.com/briansmith/ring
+  - Copyright 2015-2020 the fiat-crypto authors (see the AUTHORS file)
 
 ## Apache License 2.0 (`Apache-2.0`)
 
@@ -1964,6 +2333,16 @@ CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ````
 
 - `ring` (Apache-2.0 AND ISC): https://github.com/briansmith/ring
+  - Copyright (c) 2014, Google Inc.
+  - Copyright (c) 2015, Google Inc.
+  - Copyright (c) 2019, Google Inc.
+  - Portions Copyright (c) 2016, Google Inc.
+  - Portions Copyright (c) 2014, Google Inc.
+  - Portions Copyright (c) 2014, 2015, Google Inc.
+  - Copyright (c) 2014, Intel Corporation.
+  - Copyright 2016 David Judd.
+  - Copyright 2016 Simon Sapin.
+  - Copyright 2018 Trent Clarke.
 
 ## ISC License (`ISC`)
 
@@ -2041,8 +2420,10 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
   - Copyright (c) 2020 Mikhail Lappo
 - `atk` (MIT): https://github.com/gtk-rs/gtk3-rs
 - `atk-sys` (MIT): https://github.com/gtk-rs/gtk3-rs
-- `blake2s_simd` (MIT): https://github.com/oconnor663/blake2_simd; ships no file with this licence's text; authors: Jack O'Connor
-- `block2` (MIT): https://github.com/madsmtm/objc2; ships no file with this licence's text; authors: Mads Marquart <mads@marquart.dk>, Steven Sheldon
+- `blake2s_simd` (MIT): https://github.com/oconnor663/blake2_simd; ships no file with this licence's text; authors: Jack O'Connor; the licence file in its repository (not in the crate) has:
+  - Copyright (c) 2018 Jack O'Connor
+- `block2` (MIT): https://github.com/madsmtm/objc2; ships no file with this licence's text; authors: Mads Marquart <mads@marquart.dk>, Steven Sheldon; the licence file in its repository (not in the crate) has:
+  - Copyright (c) Steven Sheldon
 - `byteorder-lite` (Unlicense OR MIT): https://github.com/image-rs/byteorder-lite
   - Copyright (c) 2015 Andrew Gallant
 - `bytes` (MIT): https://github.com/tokio-rs/bytes
@@ -2066,7 +2447,41 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 - `dispatch` (MIT): http://github.com/SSheldon/rust-dispatch; ships no file with this licence's text; authors: Steven Sheldon
 - `dlib` (MIT): https://github.com/elinorbgr/dlib
   - Copyright (c) 2015 Victor Berger
-- `dpi` (Apache-2.0 AND MIT): https://github.com/rust-windowing/winit; ships no file with this licence's text; authors: none named (see its repository)
+- `dpi` (Apache-2.0 AND MIT): https://github.com/rust-windowing/winit
+  - from its `LICENSE-LIBM-MIT`:
+
+    ````text
+    This Rust library contains the following copyrights:
+
+        Copyright (c) 2018 Jorge Aparicio
+
+    Portions of this software are derived from third-party works licensed under
+    terms compatible with the above MIT license:
+
+    * musl libc https://www.musl-libc.org/. This library contains the following
+      copyright:
+
+          Copyright © 2005-2020 Rich Felker, et al.
+
+    * The CORE-MATH project https://core-math.gitlabpages.inria.fr/. CORE-MATH
+      routines are available under the MIT license on a per-file basis.
+
+    The musl libc COPYRIGHT file also includes the following notice relevant to
+    math portions of the library:
+
+    ------------------------------------------------------------------------------
+    Much of the math library code (src/math/* and src/complex/*) is
+    Copyright © 1993,2004 Sun Microsystems or
+    Copyright © 2003-2011 David Schultz or
+    Copyright © 2003-2009 Steven G. Kargl or
+    Copyright © 2003-2009 Bruce D. Evans or
+    Copyright © 2008 Stephen L. Moshier or
+    Copyright © 2017-2018 Arm Limited
+    and labelled as such in comments in the individual source files. All
+    have been licensed under extremely permissive terms.
+    ------------------------------------------------------------------------------
+    ````
+
 - `extended` (MIT): https://github.com/depp/extended-rs
   - Copyright 2022 Dietrich Epp
 - `fontconfig-parser` (MIT): https://github.com/Riey/fontconfig-parser
@@ -2090,8 +2505,10 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 - `gtk` (MIT): https://github.com/gtk-rs/gtk3-rs
 - `gtk-sys` (MIT): https://github.com/gtk-rs/gtk3-rs
 - `gtk3-macros` (MIT): https://github.com/gtk-rs/gtk3-rs
-- `include_dir` (MIT): https://github.com/Michael-F-Bryan/include_dir; ships no file with this licence's text; authors: Michael Bryan <michaelfbryan@gmail.com>
-- `include_dir_macros` (MIT): https://github.com/Michael-F-Bryan/include_dir; ships no file with this licence's text; authors: Michael Bryan <michaelfbryan@gmail.com>
+- `include_dir` (MIT): https://github.com/Michael-F-Bryan/include_dir; ships no file with this licence's text; authors: Michael Bryan <michaelfbryan@gmail.com>; the licence file in its repository (not in the crate) has:
+  - Copyright (c) 2017 Michael Bryan
+- `include_dir_macros` (MIT): https://github.com/Michael-F-Bryan/include_dir; ships no file with this licence's text; authors: Michael Bryan <michaelfbryan@gmail.com>; the licence file in its repository (not in the crate) has:
+  - Copyright (c) 2017 Michael Bryan
 - `javascriptcore-rs` (MIT): https://github.com/tauri-apps/javascriptcore-rs
   - Copyright (c) 2013-2021, The Gtk-rs Project Developers.
   - Copyright (c) 2021, Tauri Programme within The Commons Conservancy.
@@ -2103,27 +2520,133 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
   - Copyright (c) 2015 Andrew Gallant
 - `json5` (MIT): https://github.com/callum-oakley/json5-rs
   - Copyright (c) 2025 Callum Oakley
-- `libm` (MIT): https://github.com/rust-lang/compiler-builtins; ships no file with this licence's text; authors: Alex Crichton <alex@alexcrichton.com>, Amanieu d'Antras <amanieu@gmail.com>, Jorge Aparicio <japaricious@gmail.com>, Trevor Gross <tg@trevorgross.com>
+- `libm` (MIT): https://github.com/rust-lang/compiler-builtins
+  - from its `LICENSE.txt`:
+
+    ````text
+    This Rust library contains the following copyrights:
+
+        Copyright (c) 2018 Jorge Aparicio
+
+    Portions of this software are derived from third-party works licensed under
+    terms compatible with the above MIT license:
+
+    * musl libc https://www.musl-libc.org/. This library contains the following
+      copyright:
+
+          Copyright © 2005-2020 Rich Felker, et al.
+
+    * The CORE-MATH project https://core-math.gitlabpages.inria.fr/. CORE-MATH
+      routines are available under the MIT license on a per-file basis.
+
+    The musl libc COPYRIGHT file also includes the following notice relevant to
+    math portions of the library:
+
+    ------------------------------------------------------------------------------
+    Much of the math library code (src/math/* and src/complex/*) is
+    Copyright © 1993,2004 Sun Microsystems or
+    Copyright © 2003-2011 David Schultz or
+    Copyright © 2003-2009 Steven G. Kargl or
+    Copyright © 2003-2009 Bruce D. Evans or
+    Copyright © 2008 Stephen L. Moshier or
+    Copyright © 2017-2018 Arm Limited
+    and labelled as such in comments in the individual source files. All
+    have been licensed under extremely permissive terms.
+    ------------------------------------------------------------------------------
+
+    Copyright notices are retained in src/* files where relevant.
+    ````
+
 - `libudev-sys` (MIT): https://github.com/dcuddeback/libudev-sys
   - Copyright (c) 2015 David Cuddeback
-- `lua-src` (MIT): https://github.com/mlua-rs/lua-src-rs; ships no file with this licence's text; authors: Aleksandr Orlenko <zxteam@protonmail.com>
+- `lua-src` (MIT): https://github.com/mlua-rs/lua-src-rs
+  - Copyright © 1994–2017 Lua.org, PUC-Rio.
+  - Copyright (c) 2020 Aleksandr Orlenko
 - `luajit-src` (MIT): https://github.com/mlua-rs/luajit-src-rs
   - Copyright (c) 2020-2025 Aleksandr Orlenko
+  - its `luajit2/COPYRIGHT`:
+
+    ````text
+    ===============================================================================
+    LuaJIT -- a Just-In-Time Compiler for Lua. https://luajit.org/
+
+    Copyright (C) 2005-2026 Mike Pall. All rights reserved.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+    THE SOFTWARE.
+
+    [ MIT license: https://www.opensource.org/licenses/mit-license.php ]
+
+    ===============================================================================
+    [ LuaJIT includes code from Lua 5.1/5.2, which has this license statement: ]
+
+    Copyright (C) 1994-2012 Lua.org, PUC-Rio.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+    THE SOFTWARE.
+
+    ===============================================================================
+    [ LuaJIT includes code from dlmalloc, which has this license statement: ]
+
+    This is a version (aka dlmalloc) of malloc/free/realloc written by
+    Doug Lea and released to the public domain, as explained at
+    https://creativecommons.org/licenses/publicdomain
+
+    ===============================================================================
+    ````
+
 - `memchr` (Unlicense OR MIT): https://github.com/BurntSushi/memchr
   - Copyright (c) 2015 Andrew Gallant
 - `memoffset` (MIT): https://github.com/Gilnaa/memoffset
   - Copyright (c) 2017 Gilad Naaman
-- `mlua-sys` (MIT): https://github.com/mlua-rs/mlua; ships no file with this licence's text; authors: Aleksandr Orlenko <zxteam@pm.me>
+- `mlua-sys` (MIT): https://github.com/mlua-rs/mlua; ships no file with this licence's text; authors: Aleksandr Orlenko <zxteam@pm.me>; the licence file in its repository (not in the crate) has:
+  - Copyright (c) 2019-2021 A. Orlenko
+  - Copyright (c) 2017 rlua
 - `new_debug_unreachable` (MIT): https://github.com/mbrubeck/rust-debug-unreachable
   - Copyright (c) 2015 Jonathan Reem
 - `nix` (MIT): https://github.com/nix-rust/nix
   - Copyright (c) 2015 Carl Lerche + nix-rust Authors
-- `objc-sys` (MIT): https://github.com/madsmtm/objc2; ships no file with this licence's text; authors: Mads Marquart <mads@marquart.dk>
-- `objc2` (MIT): https://github.com/madsmtm/objc2; ships no file with this licence's text; authors: Mads Marquart <mads@marquart.dk>, Steven Sheldon
-- `objc2-app-kit` (MIT): https://github.com/madsmtm/objc2; ships no file with this licence's text; authors: none named (see its repository)
+- `objc-sys` (MIT): https://github.com/madsmtm/objc2; ships no file with this licence's text; authors: Mads Marquart <mads@marquart.dk>; the licence file in its repository (not in the crate) has:
+  - Copyright (c) Steven Sheldon
+- `objc2` (MIT): https://github.com/madsmtm/objc2; ships no file with this licence's text; authors: Mads Marquart <mads@marquart.dk>, Steven Sheldon; the licence file in its repository (not in the crate) has:
+  - Copyright (c) Steven Sheldon
+- `objc2-app-kit` (MIT): https://github.com/madsmtm/objc2; ships no file with this licence's text; authors: none named; the licence file in its repository (not in the crate) has:
+  - Copyright (c) Steven Sheldon
 - `objc2-encode` (MIT): https://github.com/madsmtm/objc2; ships no file with this licence's text; authors: Mads Marquart <mads@marquart.dk>
-- `objc2-foundation` (MIT): https://github.com/madsmtm/objc2; ships no file with this licence's text; authors: none named (see its repository)
-- `objc2-ui-kit` (MIT): https://github.com/madsmtm/objc2; ships no file with this licence's text; authors: none named (see its repository)
+- `objc2-foundation` (MIT): https://github.com/madsmtm/objc2; ships no file with this licence's text; authors: none named; the licence file in its repository (not in the crate) has:
+  - Copyright (c) Steven Sheldon
+- `objc2-ui-kit` (MIT): https://github.com/madsmtm/objc2; ships no file with this licence's text; authors: none named; the licence file in its repository (not in the crate) has:
+  - Copyright (c) Steven Sheldon
 - `ordered-float` (MIT): https://github.com/reem/rust-ordered-float
   - Copyright (c) 2015 Jonathan Reem
 - `pango` (MIT): https://github.com/gtk-rs/gtk-rs-core
@@ -2208,9 +2731,12 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
   - Copyright (c) 2021, Tauri Programme within The Commons Conservancy
 - `webkit2gtk-sys` (MIT): https://github.com/tauri-apps/webkit2gtk-rs
   - Copyright (c) 2016 Boucher, Antoni <bouanto@zoho.com>
-- `webview2-com` (MIT): https://github.com/wravery/webview2-rs; ships no file with this licence's text; authors: none named (see its repository)
-- `webview2-com-macros` (MIT): https://github.com/wravery/webview2-rs; ships no file with this licence's text; authors: none named (see its repository)
-- `webview2-com-sys` (MIT): https://github.com/wravery/webview2-rs; ships no file with this licence's text; authors: none named (see its repository)
+- `webview2-com` (MIT): https://github.com/wravery/webview2-rs; ships no file with this licence's text; authors: none named; the licence file in its repository (not in the crate) has:
+  - Copyright (c) 2021 Bill Avery
+- `webview2-com-macros` (MIT): https://github.com/wravery/webview2-rs; ships no file with this licence's text; authors: none named; the licence file in its repository (not in the crate) has:
+  - Copyright (c) 2021 Bill Avery
+- `webview2-com-sys` (MIT): https://github.com/wravery/webview2-rs; ships no file with this licence's text; authors: none named; the licence file in its repository (not in the crate) has:
+  - Copyright (c) 2021 Bill Avery
 - `which` (MIT): https://github.com/harryfei/which-rs.git
   - Copyright (c) 2015 fangyuanziti
 - `winapi-util` (Unlicense OR MIT): https://github.com/BurntSushi/winapi-util
@@ -3166,7 +3692,7 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
 ````
 
 - `option-ext` (MPL-2.0): https://crates.io/crates/option-ext, https://github.com/soc/option-ext.git
-- `selectors` (MPL-2.0): https://crates.io/crates/selectors, https://github.com/servo/stylo
+- `selectors` (MPL-2.0): https://crates.io/crates/selectors, https://github.com/servo/stylo; ships no file with this licence's text
 
 ## Unicode License v3 (`Unicode-3.0`)
 
@@ -3288,20 +3814,48 @@ authorization of the copyright holder.
 ## zlib License (`Zlib`)
 
 ````text
-zlib License
+This software is provided 'as-is', without any express or implied
+ warranty.  In no event will the author be held liable for any damages
+ arising from the use of this software.
 
-This software is provided 'as-is', without any express or implied warranty.  In no event will the authors be held liable for any damages arising from the use of this software.
+ Permission is granted to anyone to use this software for any purpose,
+ including commercial applications, and to alter it and redistribute it
+ freely, subject to the following restrictions:
 
-Permission is granted to anyone to use this software for any purpose, including commercial applications, and to alter it and redistribute it freely, subject to the following restrictions:
-
-     1. The origin of this software must not be misrepresented; you must not claim that you wrote the original software. If you use this software in a product, an acknowledgment in the product documentation would be appreciated but is not required.
-
-     2. Altered source versions must be plainly marked as such, and must not be misrepresented as being the original software.
-
-     3. This notice may not be removed or altered from any source distribution.
+ 1. The origin of this software must not be misrepresented; you must not
+    claim that you wrote the original software. If you use this software
+    in a product, an acknowledgment in the product documentation would be
+    appreciated but is not required.
+ 2. Altered source versions must be plainly marked as such, and must not be
+    misrepresented as being the original software.
+ 3. This notice may not be removed or altered from any source distribution.
 ````
 
-- `crc-turbo` ((MIT OR Apache-2.0) AND Zlib): https://github.com/scryer-media/crc-turbo; ships no file with this licence's text
+- `crc-turbo` ((MIT OR Apache-2.0) AND Zlib): https://github.com/scryer-media/crc-turbo
+  - Copyright (C) 2015 Mark Adler
+
+## zlib License (`Zlib`)
+
+````text
+This software is provided 'as-is', without any express or implied warranty. In
+no event will the authors be held liable for any damages arising from the use of
+this software.
+
+Permission is granted to anyone to use this software for any purpose, including
+commercial applications, and to alter it and redistribute it freely, subject to
+the following restrictions:
+
+ 1. The origin of this software must not be misrepresented; you must not claim
+    that you wrote the original software. If you use this software in a product,
+    an acknowledgment in the product documentation would be appreciated but is
+    not required.
+
+ 2. Altered source versions must be plainly marked as such, and must not be
+    misrepresented as being the original software.
+
+ 3. This notice may not be removed or altered from any source distribution.
+````
+
 - `foldhash` (Zlib): https://github.com/orlp/foldhash
   - Copyright (c) 2024 Orson Peters
 - `slotmap` (Zlib): https://github.com/orlp/slotmap

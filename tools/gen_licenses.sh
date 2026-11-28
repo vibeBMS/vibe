@@ -43,6 +43,13 @@ cd "$root"
 cargo fetch --locked --quiet
 "$about" generate --frozen --workspace --fail --format json -c about.toml -o "$tmp/about.json" 2> "$tmp/about.log" ||
   { cat "$tmp/about.log" >&2; exit 1; }
+# a warning is a clarification in about.toml whose file no longer has its
+# checksum (cargo-about then reads the crate as if it had none) or worse
+if grep -q 'WARN\|ERROR' "$tmp/about.log"; then
+  cat "$tmp/about.log" >&2
+  echo "cargo-about warned: read the file it names and update about.toml" >&2
+  exit 1
+fi
 python3 -I tools/gen_licenses.py "$tmp/about.json" > "$tmp/THIRD_PARTY_LICENSES.md"
 
 if [ -z "$check" ]; then

@@ -1,0 +1,345 @@
+# What a crate carries beside its licence text that THIRD_PARTY_LICENSES.md
+# must have, and cargo-about does not read (tools/gen_licenses.py prints it;
+# about.toml has the licence texts). Every file is named here, and checked:
+# a file that is gone or changed stops the generation, for a person to read
+# it again.
+#
+# [[files.<crate>]]: a notice file of the crate (a COPYRIGHT, a third party's
+# notice), or the part of one from `start` to `end` (as about.toml's clarify
+# reads them), printed under the crate in the section of `license`; checksum:
+# sha256 of what is printed. Read and left out: notice files that only point at
+# the crate's licences (gtk-rs's, rustix's, linux-raw-sys's, the unicode-*
+# crates', core-graphics's, memchr's and the other COPYING files), notices of
+# code a release does not have (crossbeam-channel's LICENSE-THIRD-PARTY: its
+# tests and examples; security-framework's THIRD_PARTY: its documentation),
+# and credits that are no notice (crc-turbo's and ppmd-turbo's CONTRIBUTORS.md,
+# ppmd-turbo's ATTRIBUTION.md: public-domain and CC0 sources).
+#
+# [[upstream]]: a crate that ships no licence file, whose repository has one
+# with its holders: that file at the commit each version was published from
+# (its .cargo_vcs_info.json), by its checksum, and its notices printed under
+# the crate. Each names the versions it is for: a new version stops the
+# generation until someone reads the file at that version's commit.
+
+# its only notice file is the Rust project's COPYRIGHT (its UTF-8 code comes from
+# Rust's standard library); the rest of that file is about other parts of Rust
+[[files.cesu8]]
+path = "COPYRIGHT-RUST.txt"
+license = "Apache-2.0"
+start = "The Rust Project is copyright 2014"
+end = "according to those terms."
+checksum = "7c48423c173554d2f21378bda00dd7ad7a078c02d598d0dead0926823bed7965"
+
+# the holder of the Zlib-licensed code in src/combine.rs (its licence: about.toml)
+[[files.crc-turbo]]
+path = "src/combine.rs"
+license = "Zlib"
+start = "Copyright (C) 2015 Mark Adler"
+end = "Mark Adler"
+checksum = "98067e2f62fd86814ddc6a2d28cf0f6b62f76c8e3da8804883f27aa0e44b7f4e"
+
+# libm's notices and musl's, after libm's MIT text (about.toml)
+[[files.dpi]]
+path = "LICENSE-LIBM-MIT"
+license = "MIT"
+start = "This Rust library contains the following copyrights:"
+checksum = "0b8015c46601d956a9098a2d9228fc18c35d1f22d8d39857412963996ac249fa"
+
+[[files.encoding_rs]]
+path = "COPYRIGHT"
+license = "Apache-2.0"
+checksum = "11789f45bb180841cd362a5eee6789c68ddb573a11105e30768c308a6add0190"
+
+# the SDL_GameControllerDB mappings it builds in, under Zlib
+[[files.gilrs]]
+path = "SDL_GameControllerDB/LICENSE"
+license = "Apache-2.0"
+checksum = "97f35b302b361680ec1e891e95d2d52097bb95abff361434916d99dc1305f127"
+
+# its notices and musl's, after its MIT and Apache-2.0 texts (about.toml)
+[[files.libm]]
+path = "LICENSE.txt"
+license = "MIT"
+start = "This Rust library contains the following copyrights:"
+checksum = "7bc919f41e5dea1eef9cfacd3b9dd0f649cdbd03b99253aef5127dbfe557e27b"
+
+# LuaJIT's own (the crate's LICENSE is the build crate's)
+[[files.luajit-src]]
+path = "luajit2/COPYRIGHT"
+license = "MIT"
+checksum = "6cda3076a8c09b31bb1f90da614ea89e7ee194589626eeac613e522849604e47"
+
+[[files.multiversion_no_op]]
+path = "COPYRIGHT"
+license = "Apache-2.0"
+checksum = "d2a809eafabba137f508bea16a1b93d8ff24df7da6f38129d830db9bc118bdfe"
+
+# ring's LICENSE: code from BoringSSL is under Apache-2.0 or ISC, "the license info is at
+# the top of the file"; Apache-2.0 asks for no notice beside a program, ISC for its notice in all
+# copies: these are the holders the ISC-licensed files name besides Brian Smith (in
+# LICENSE-other-bits), and fiat-crypto's line (third_party/fiat/LICENSE)
+[[files.ring]]
+path = "crypto/poly1305/poly1305.c"
+license = "ISC"
+start = "Copyright (c) 2014, Google Inc."
+end = "Google Inc."
+checksum = "4c590f2310eedc86013da60493879b2c6bdab88dfa1e21e90817eda3366214d4"
+
+[[files.ring]]
+path = "crypto/fipsmodule/ec/ecp_nistz.h"
+license = "ISC"
+start = "Copyright (c) 2015, Google Inc."
+end = "Google Inc."
+checksum = "2a3b64fb34349a640f7f6ec7c699997cab88905323477ef42696627448cf3929"
+
+[[files.ring]]
+path = "crypto/fipsmodule/aes/aes_nohw.c"
+license = "ISC"
+start = "Copyright (c) 2019, Google Inc."
+end = "Google Inc."
+checksum = "dd3a8033481f1aa393560193a8a572275680b37464ef83751be6bae77413db0f"
+
+[[files.ring]]
+path = "src/aead/chacha.rs"
+license = "ISC"
+start = "Portions Copyright (c) 2016, Google Inc."
+end = "Google Inc."
+checksum = "986ca001f1447ed09d814990dddb4b27744a2385523f05065aab888d53e0ac45"
+
+[[files.ring]]
+path = "src/aead/chacha/fallback.rs"
+license = "ISC"
+start = "Portions Copyright (c) 2014, Google Inc."
+end = "Google Inc."
+checksum = "8a0681889675aca69ae305e3c6017a513d97ae1b504045739d357bcf61a0fd48"
+
+[[files.ring]]
+path = "src/aead/poly1305/ffi_fallback.rs"
+license = "ISC"
+start = "Portions Copyright (c) 2014, 2015, Google Inc."
+end = "Google Inc."
+checksum = "3625b9b89796bb25fbbd504b8232c02e7dd5a2a15a0cdec1a694a1304f0dc6f8"
+
+[[files.ring]]
+path = "crypto/fipsmodule/ec/ecp_nistz.c"
+license = "ISC"
+start = "Copyright (c) 2014, Intel Corporation."
+end = "Intel Corporation."
+checksum = "d11fb7489339b5e6878fcf6eb77c747fc3c3cb7a0d2aa8643aad4aac61a2cf0f"
+
+[[files.ring]]
+path = "src/limb.rs"
+license = "ISC"
+start = "Copyright 2016 David Judd."
+end = "David Judd."
+checksum = "54ac2d50eb50f50a1fd2edf362280235483a56d1aa6ebff1f862934045fdc7ab"
+
+[[files.ring]]
+path = "src/digest/sha1.rs"
+license = "ISC"
+start = "Copyright 2016 Simon Sapin."
+end = "Simon Sapin."
+checksum = "3df12004d56150c423d9dc3dadbf3a882998c8c464da3c27b4b75dbc5b9c6f86"
+
+[[files.ring]]
+path = "src/debug.rs"
+license = "ISC"
+start = "Copyright 2018 Trent Clarke."
+end = "Trent Clarke."
+checksum = "c9092834a7781019e6170a5d95c4ac86f8b2fdf673dd50a50e52378b6376a1f0"
+
+[[files.ring]]
+path = "third_party/fiat/LICENSE"
+license = "Apache-2.0"
+start = "Copyright 2015-2020 the fiat-crypto authors"
+end = "(see the AUTHORS file)"
+checksum = "aa1168b2fcbd33c6f0772a6be03b2c428cf455d1f771b6817a8d3157e7c992a1"
+
+[[files.siphasher]]
+path = "COPYING"
+license = "Apache-2.0"
+checksum = "c962ee4d1d05ddc138b202b2540219ebc57893fcf97b364852094a9a94ce1365"
+
+# its SPDX file's copyright line
+[[files.tao-macros]]
+path = "LICENSE.spdx"
+license = "Apache-2.0"
+start = "PackageCopyrightText:"
+end = "Conservancy"
+checksum = "d369173fbef7a9d7e3f333930b4eac54dd6c00f2a869917cf41a3ac3765abfde"
+
+[[files.utf8_iter]]
+path = "COPYRIGHT"
+license = "Apache-2.0"
+checksum = "c30152c94a6d75e021adbc52b3a52470366a46edb917e17deae3259251af244c"
+
+[[files.utf_types]]
+path = "COPYRIGHT"
+license = "Apache-2.0"
+checksum = "3210be7332b5bdf48eb24a945258b9f38616a2cceb0dfc06e3c3c7e9740475a0"
+
+# its SPDX file's copyright line
+[[files.wry]]
+path = "LICENSE.spdx"
+license = "Apache-2.0"
+start = "PackageCopyrightText:"
+end = "Conservancy"
+checksum = "d369173fbef7a9d7e3f333930b4eac54dd6c00f2a869917cf41a3ac3765abfde"
+
+# objc2's repository before its 0.6 crates: LICENSE.txt
+[[upstream]]
+license = "MIT"
+checksum = "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5"
+text = '''
+MIT License
+
+Copyright (c) Steven Sheldon
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+'''
+[upstream.crates]
+"block2@0.5.1" = "https://github.com/madsmtm/objc2/blob/4fc083f1c6d6784577e38b0ee8dbd344481e2fd2/LICENSE.txt"
+"objc-sys@0.3.5" = "https://github.com/madsmtm/objc2/blob/4fc083f1c6d6784577e38b0ee8dbd344481e2fd2/LICENSE.txt"
+"objc2-app-kit@0.2.2" = "https://github.com/madsmtm/objc2/blob/e282618be4c3a3b9542957e0c8540e9588472ce8/LICENSE.txt"
+"objc2-foundation@0.2.2" = "https://github.com/madsmtm/objc2/blob/e282618be4c3a3b9542957e0c8540e9588472ce8/LICENSE.txt"
+"objc2-ui-kit@0.2.2" = "https://github.com/madsmtm/objc2/blob/e282618be4c3a3b9542957e0c8540e9588472ce8/LICENSE.txt"
+"objc2@0.5.3" = "https://github.com/madsmtm/objc2/blob/5237cbf081d04ef75a1f6a207b4018e7c1ae7438/LICENSE.txt"
+
+[[upstream]]
+license = "MIT"
+checksum = "27e0387973d6b8507cb15f825f6f26e0278d4d5857082c1f56b49a7b39a90183"
+text = '''
+MIT License
+
+Copyright (c) 2018 Jack O'Connor
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+'''
+[upstream.crates]
+"blake2s_simd@1.0.5" = "https://github.com/oconnor663/blake2_simd/blob/47714dc3c424e82213d7f2eb4a833e3843017be5/LICENSE"
+
+[[upstream]]
+license = "MIT"
+checksum = "9369f62987b3a116111f2edfdc4cc72633e44ddc94d5d0c68659cf537b76a31f"
+text = '''
+MIT License
+
+Copyright (c) 2017 Michael Bryan
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+'''
+[upstream.crates]
+"include_dir@0.7.4" = "https://github.com/Michael-F-Bryan/include_dir/blob/d742c6fffce99ee89da91b934e7ce6fb2a82680c/LICENSE"
+"include_dir_macros@0.7.4" = "https://github.com/Michael-F-Bryan/include_dir/blob/d742c6fffce99ee89da91b934e7ce6fb2a82680c/LICENSE"
+
+[[upstream]]
+license = "MIT"
+checksum = "63b61a30d3e3abcfcb1bda4b99f4eea9fdb7d6ab05fbc513461fef6cf89baf29"
+text = '''
+Both mlua and rlua are distributed under the MIT license, which is reproduced
+below:
+
+MIT License
+
+Copyright (c) 2019-2021 A. Orlenko
+Copyright (c) 2017 rlua
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+'''
+[upstream.crates]
+"mlua-sys@0.14.0" = "https://github.com/mlua-rs/mlua/blob/cbd45a79ffdcf424314eaf43b51dcb6807ef5297/LICENSE"
+
+[[upstream]]
+license = "MIT"
+checksum = "0dcf41516e608bbcb6cdc5229feb7b86fe4a643b85e7df251133c93408fdac73"
+text = '''
+MIT License
+
+Copyright (c) 2021 Bill Avery
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+'''
+[upstream.crates]
+"webview2-com-macros@0.8.1" = "https://github.com/wravery/webview2-rs/blob/dffa41a8a46d3f5565eefbff2de57d38d399f158/LICENSE"
+"webview2-com-sys@0.39.1" = "https://github.com/wravery/webview2-rs/blob/edc2caf886175ccaebe86078c9cfe1ae2a187328/LICENSE"
+"webview2-com@0.39.1" = "https://github.com/wravery/webview2-rs/blob/edc2caf886175ccaebe86078c9cfe1ae2a187328/LICENSE"
