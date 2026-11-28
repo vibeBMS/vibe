@@ -549,6 +549,11 @@ charts; choosing it queues them all.
 - The queue downloads as for a chart chosen alone (its links, the other links known for it, the song before its
   separate chart), two at a time, so hosts are not hammered. A chart whose song another of its charts is downloading
   waits for it.
+- Downloads running together (the queue's, and a chart chosen alone meanwhile) share what they bring: a pack holding
+  several queued charts is downloaded once (the others wait for it, then show DONE, already in its folder), and a
+  download that starts after another brought its song fetches only the chart, even before the library has been read
+  again. A file whose download failed fails the others that wanted it at once, without trying it again; one cancelled
+  while others wait for it is downloaded by one of them.
 - DOWNLOADS at the root (while the queue is not empty) lists every chart as QUEUED, DOWNLOADING, DONE, FAILED (with
   why), PAGE ONLY or CANCELLED, after CANCEL, RETRY FAILED and CLEAR FINISHED.
 - PAGE ONLY: its links lead only to a page; choosing it opens the page. The queue never opens pages.

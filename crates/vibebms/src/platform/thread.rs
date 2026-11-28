@@ -193,6 +193,12 @@ impl<T> Job<T> {
         out
     }
 
+    /// Whether the work has ended and all it sent has been read (a work
+    /// that ended without sending: it panicked).
+    pub fn is_over(&self) -> bool {
+        self.over
+    }
+
     pub fn progress(&self) -> &Arc<Progress> {
         &self.progress
     }

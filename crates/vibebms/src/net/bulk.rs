@@ -3,7 +3,9 @@
 //! through the single-song path (`songfetch`, bmseeker's install), with
 //! what became of each (queued, downloading, done, failed), retry and
 //! cancel. Politeness: at most `AT_ONCE` downloads at a time, and a new one
-//! started `SPACING` after the last.
+//! started `SPACING` after the last. The downloads share the library and
+//! each file (`songfetch`'s run): a pack holding several queued charts is
+//! downloaded once, the queue's charts wanted by all of them.
 
 use crate::net::songfetch::{Outcome, SongFetch, Wanted};
 use crate::platform::{Duration, Instant};
@@ -67,8 +69,10 @@ pub struct Bulk {
 pub trait Downloader {
     /// The chart's song downloads already (another of its charts).
     fn busy(&self, w: &Wanted) -> bool;
-    /// Start its download: false when it has no link to try.
-    fn start(&mut self, w: &Wanted) -> bool;
+    /// Start its download (`queue`: the list, whose charts queued or
+    /// downloading are wanted by the downloads together): false when it
+    /// has no link to try.
+    fn start(&mut self, w: &Wanted, queue: &[Item]) -> bool;
 }
 
 /// The counts of the queue: queued, downloading, done, failed (failed,
@@ -216,7 +220,9 @@ impl Bulk {
             if dl.busy(&i.want) {
                 continue;
             }
-            i.state = if dl.start(&i.want) {
+            let started = dl.start(&self.items[k].want, &self.items);
+            let i = &mut self.items[k];
+            i.state = if started {
                 downloading += 1;
                 self.last_start = Some(now);
                 State::Downloading
@@ -243,7 +249,10 @@ impl Downloader for Fetch<'_> {
         self.fetch.is_busy(&w.title, &w.artist)
     }
 
-    fn start(&mut self, w: &Wanted) -> bool {
+    fn start(&mut self, w: &Wanted, queue: &[Item]) -> bool {
+        let wanted = queue.iter().filter(|i| i.state.active());
+        let md5s = wanted.map(|i| i.want.md5.clone());
+        (self.fetch).want(self.root, self.songs, self.hosts, md5s);
         let entry = crate::net::songfetch::entry(self.known, w, Vec::new());
         (self.fetch).start(self.root, self.songs, self.hosts, entry, Vec::new(), true)
     }
@@ -298,7 +307,7 @@ mod tests {
             self.busy.contains(&w.title.as_str())
         }
 
-        fn start(&mut self, w: &Wanted) -> bool {
+        fn start(&mut self, w: &Wanted, _: &[Item]) -> bool {
             self.started.push(w.title.clone());
             self.links
         }
