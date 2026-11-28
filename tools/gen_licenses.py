@@ -33,6 +33,7 @@ import json
 import os
 import re
 import sys
+import textwrap
 import tomllib
 
 HEADER = """\
@@ -204,7 +205,7 @@ def excerpt(d, entry, who):
     text = text[a:b]
     if hashlib.sha256(text.encode()).hexdigest() != entry["checksum"]:
         sys.exit(f"licence-notices.toml: {who}'s {entry['path']} changed: read it, then update its checksum")
-    return norm(text)
+    return norm(textwrap.dedent(text))
 
 
 def main(path):
@@ -285,8 +286,10 @@ def main(path):
         for e in entries:
             texts = {excerpt(d, e, name) for d in dirs}
             label = ("from its" if "start" in e or "end" in e else "its") + f" `{e['path']}`"
-            for crate in under(name, e["license"], e["path"]):
-                crate["extra"] += [(label, t) for t in sorted(texts) if (label, t) not in crate["extra"]]
+            # once: under the text the crate's own notices are under, where it is under several
+            found = under(name, e["license"], e["path"])
+            crate = next((c for c in found if c["notices"]), found[0])
+            crate["extra"] += [(label, t) for t in sorted(texts) if (label, t) not in crate["extra"]]
     for e in extra.get("upstream", []):
         if hashlib.sha256(e["text"].encode()).hexdigest() != e["checksum"]:
             sys.exit("licence-notices.toml: an upstream text is not the file its checksum is of")

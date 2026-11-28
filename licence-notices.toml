@@ -6,8 +6,9 @@
 #
 # [[files.<crate>]]: a notice file of the crate (a COPYRIGHT, a third party's
 # notice), or the part of one from `start` to `end` (as about.toml's clarify
-# reads them), printed under the crate in the section of `license`; checksum:
-# sha256 of what is printed. Read and left out: notice files that only point at
+# reads them), printed under the crate in the section of `license` (once: where
+# the crate is under several texts of it, with its own notices); checksum:
+# sha256 of that part (it is printed without the indent its lines share). Read and left out: notice files that only point at
 # the crate's licences (gtk-rs's, rustix's, linux-raw-sys's, the unicode-*
 # crates', core-graphics's, memchr's and the other COPYING files), notices of
 # code a release does not have (crossbeam-channel's LICENSE-THIRD-PARTY: its
@@ -177,6 +178,18 @@ checksum = "c30152c94a6d75e021adbc52b3a52470366a46edb917e17deae3259251af244c"
 path = "COPYRIGHT"
 license = "Apache-2.0"
 checksum = "3210be7332b5bdf48eb24a945258b9f38616a2cceb0dfc06e3c3c7e9740475a0"
+
+# it declares MIT (its own code), and its bindings are generated at build time
+# from KDE's plasma-wayland-protocols descriptions, each with its own notice;
+# winit (Linux builds) uses the blur protocol, whose description is under
+# LGPL-2.1-or-later: its notice (the licence's text: THIRD_PARTY_NOTICES.md,
+# which names this file too; change both together)
+[[files.wayland-protocols-plasma]]
+path = "plasma-wayland-protocols/src/protocols/blur.xml"
+license = "MIT"
+start = "    SPDX-FileCopyrightText: 2015 Martin Gräßlin"
+end = "SPDX-License-Identifier: LGPL-2.1-or-later"
+checksum = "f64baf3ed01e2a340caac165054a20844778f504f92f64b04b6199e27475c6e6"
 
 # its SPDX file's copyright line
 [[files.wry]]

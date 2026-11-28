@@ -2719,6 +2719,15 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
   - Copyright (c) 2015 Elinor Berger
 - `wayland-protocols-plasma` (MIT): https://github.com/smithay/wayland-rs
   - Copyright (c) 2015 Elinor Berger
+  - from its `plasma-wayland-protocols/src/protocols/blur.xml`:
+
+    ````text
+    SPDX-FileCopyrightText: 2015 Martin Gräßlin
+    SPDX-FileCopyrightText: 2015 Marco Martin
+
+    SPDX-License-Identifier: LGPL-2.1-or-later
+    ````
+
 - `wayland-protocols-wlr` (MIT): https://github.com/smithay/wayland-rs
   - Copyright (c) 2015 Elinor Berger
 - `wayland-scanner` (MIT): https://github.com/smithay/wayland-rs
