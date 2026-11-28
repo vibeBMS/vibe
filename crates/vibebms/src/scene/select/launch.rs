@@ -326,6 +326,7 @@ impl SelectScene {
                             title: w.title,
                             artist: w.artist,
                             md5: w.md5,
+                            sha256: w.sha256,
                             org_md5: w.org_md5,
                             level: w.level,
                             url: w.url,
@@ -358,6 +359,7 @@ impl SelectScene {
             title,
             artist,
             md5,
+            sha256,
             org_md5,
             more,
             addons,
@@ -385,6 +387,13 @@ impl SelectScene {
             ctx.toast(tr!("{title}: being added to the library", title = title));
             return;
         }
+        if ctx.net.song_fetch.held() {
+            ctx.toast(tr!(
+                "{title}: waiting for the downloads running to end",
+                title = title
+            ));
+            return;
+        }
         let root = ctx.paths.root.clone();
         // its own links, then the others known for the chart; its separate
         // chart's links; add-ons each after
@@ -392,6 +401,7 @@ impl SelectScene {
             title: title.clone(),
             artist: artist.clone(),
             md5: md5.clone(),
+            sha256,
             org_md5,
             url: url.clone(),
             url_diff: url_diff.clone(),

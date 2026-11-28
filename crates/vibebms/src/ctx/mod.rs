@@ -542,13 +542,12 @@ impl Ctx {
         }
         if std::mem::take(&mut self.lib.scan_again) {
             self.start_scan();
-        } else {
-            // what was downloaded before it started is in now
+        } else if self.lib.prefetch.is_none() {
+            // what was downloaded before it started is in now (not while
+            // charts it could not read are read in: the scan after has them)
             self.net.song_fetch.scanned();
-            if self.lib.prefetch.is_none() {
-                // web: the charts kept in memory for this scan leave it
-                crate::platform::vfs::release_charts();
-            }
+            // web: the charts kept in memory for this scan leave it
+            crate::platform::vfs::release_charts();
         }
     }
 
@@ -935,6 +934,30 @@ mod tests {
         assert_eq!(ctx.lib.version, v + 1);
         ctx.poll_jobs();
         assert_eq!(ctx.lib.version, v + 1);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// A scan that ended with charts left unread, which are read in for
+    /// another scan: what the downloads brought is not taken to be read
+    /// until that one ends.
+    #[test]
+    fn a_scan_followed_by_another_owes_the_downloads() {
+        let root = std::env::temp_dir().join(format!("vibebms-owed-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        let done = || {
+            let p = ScanProgress::default();
+            p.done.store(true, Ordering::Release);
+            Some(Arc::new(p))
+        };
+        *ctx.net.song_fetch.owed() = true;
+        ctx.lib.scan = done();
+        ctx.lib.prefetch = Some(crate::platform::vfs::Prefetch::files(Vec::new()));
+        ctx.finish_scan(true);
+        assert!(*ctx.net.song_fetch.owed());
+        ctx.lib.prefetch = None;
+        ctx.lib.scan = done();
+        ctx.finish_scan(true);
+        assert!(!*ctx.net.song_fetch.owed());
         std::fs::remove_dir_all(&root).ok();
     }
 }

@@ -154,6 +154,7 @@ impl Missing {
             title: self.title.clone(),
             artist: self.artist.clone(),
             md5: self.md5.clone(),
+            sha256: self.sha256.clone(),
             org_md5: self.org_md5.clone(),
             level: self.level.clone(),
             url: self.url.clone(),
@@ -180,6 +181,8 @@ pub(crate) struct Missing {
     pub artist: String,
     /// The chart's (for its other links).
     pub md5: String,
+    /// (a table may give it alone)
+    pub sha256: String,
     /// The song's own charts a table names (where a separate chart goes).
     pub org_md5: Vec<String>,
     /// More links for the song, after `url` (an event work's other links,
@@ -594,6 +597,7 @@ impl SelectScene {
                             title: e.title.clone(),
                             artist: e.artist.clone(),
                             md5: e.md5.clone(),
+                            sha256: e.sha256.clone(),
                             org_md5: e.org_md5.clone(),
                             level: table.label(&e.level),
                             url: e.url.clone(),

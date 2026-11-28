@@ -294,6 +294,7 @@ Using them is your own responsibility: follow each site's terms and respect the 
 "{title}: queued again" = "{title}: queued again"
 "no such event" = "no such event"
 "{title}: being added to the library" = "{title}: being added to the library"
+"{title}: waiting for the downloads running to end" = "{title}: waiting for the downloads running to end"
 "Downloading {title}… (choose it again to cancel)" = "Downloading {title}… (choose it again to cancel)"
 "{title}: the song is in the library, but this chart has no download link" = "{title}: the song is in the library, but this chart has no download link"
 "Download {title} in the browser window" = "Download {title} in the browser window"

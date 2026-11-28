@@ -16,6 +16,9 @@ use std::sync::{Arc, Mutex};
 
 type Done<O> = Box<dyn FnOnce(O) + Send>;
 
+/// How often a wait looks whether its download was cancelled.
+const SLEEP_TICK: std::time::Duration = std::time::Duration::from_millis(100);
+
 /// What a job's effects are done with: the progress its files report to,
 /// the refusals they keep to (none for a table's load: vibeBMS's own).
 #[derive(Clone, Default)]
@@ -187,7 +190,19 @@ fn perform(effect: Effect, net: Net, then: impl FnOnce(Fed) + Send + 'static) {
                 },
             )
         }
-        Effect::Sleep(d) => super::thread::after(d, move || then(Fed::Woke)),
+        // (ended early by a cancel, as natively)
+        Effect::Sleep(d) => {
+            let end = super::Instant::now() + d;
+            let mut then = Some(then);
+            super::thread::every(SLEEP_TICK.min(d), move || {
+                let cancelled = progress.as_ref().is_some_and(|p| p.cancelled());
+                let over = cancelled || super::Instant::now() >= end;
+                if let Some(then) = then.take_if(|_| over) {
+                    then(Fed::Woke);
+                }
+                !over
+            })
+        }
     }
 }
 
@@ -365,5 +380,32 @@ mod tests {
         let got = rx.recv_timeout(Duration::from_secs(10)).unwrap();
         assert!(got[..3].iter().all(|g| g.contains("Refused")), "{got:?}");
         assert_eq!(got[3], "woke");
+    }
+
+    /// A job that waits ten minutes.
+    struct Waits;
+
+    impl Job for Waits {
+        type Output = ();
+        fn start(&mut self) -> Step<()> {
+            Step::Do(Effect::Sleep(Duration::from_secs(600)))
+        }
+        fn feed(&mut self, _: Fed) -> Step<()> {
+            Step::Done(())
+        }
+    }
+
+    /// The page's driver ends a wait when its download is cancelled.
+    #[test]
+    fn a_wait_in_the_page_ends_on_cancel() {
+        let p = Progress::new();
+        let cx = Context::default().with_progress(p.clone());
+        let (tx, rx) = std::sync::mpsc::channel();
+        in_page(Waits, &cx, move |()| {
+            let _ = tx.send(());
+        });
+        p.cancel();
+        // (a bound only for a failure: the wait is ten minutes)
+        assert!(rx.recv_timeout(Duration::from_secs(60)).is_ok());
     }
 }

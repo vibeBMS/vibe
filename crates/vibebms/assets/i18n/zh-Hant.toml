@@ -920,6 +920,7 @@ _untranslated = [
 "{title} has its {n} stages" = "{title} 已有 {n} 首"
 "{title}: already installed ({folder})" = "{title}：已安裝（{folder}）"
 "{title}: being added to the library" = "{title}：正在新增到曲庫"
+"{title}: waiting for the downloads running to end" = "{title}：正在等待進行中的下載結束"
 "{title}: cancelled" = "{title}：已取消"
 "{title}: download failed ({e})" = "{title}：下載失敗（{e}）"
 "{title}: no answer ({why})" = "{title}：無響應（{why}）"

@@ -5,7 +5,10 @@
 //! cancel. Politeness: at most `AT_ONCE` downloads at a time, and a new one
 //! started `SPACING` after the last. The downloads share the library and
 //! each file (`songfetch`'s run): a pack holding several queued charts is
-//! downloaded once, the queue's charts wanted by all of them.
+//! downloaded once, the queue's charts wanted by all of them. Each time
+//! the player asks for downloads (a table or level queued, RETRY FAILED, a
+//! chart queued again) the next download starts a new round of the run:
+//! what failed in it is tried again.
 
 use crate::net::songfetch::{Outcome, SongFetch, Wanted};
 use crate::platform::{Duration, Instant};
@@ -63,12 +66,18 @@ pub struct Item {
 pub struct Bulk {
     pub items: Vec<Item>,
     last_start: Option<Instant>,
+    /// The player asked for downloads since the last start: the next
+    /// starts a new round ([`Downloader::again`]).
+    again: bool,
 }
 
 /// What starts the downloads.
 pub trait Downloader {
-    /// The chart's song downloads already (another of its charts).
+    /// The chart's song downloads already (another of its charts), or no
+    /// download may start now.
     fn busy(&self, w: &Wanted) -> bool;
+    /// What failed before is tried again by the downloads started next.
+    fn again(&mut self);
     /// Start its download (`queue`: the list, whose charts queued or
     /// downloading are wanted by the downloads together): false when it
     /// has no link to try.
@@ -83,11 +92,13 @@ impl Bulk {
     /// `wanted` queued (a chart queued or downloading already is left as
     /// it is; one that ended is queued again). How many were queued.
     pub fn queue(&mut self, wanted: impl IntoIterator<Item = Wanted>) -> usize {
+        self.again = true;
         let mut n = 0;
         for w in wanted {
-            let same = |i: &Item| {
-                (!w.md5.is_empty() && i.want.md5 == w.md5)
-                    || (w.md5.is_empty() && i.want.title == w.title && i.want.artist == w.artist)
+            let same = |i: &Item| match (w.md5.is_empty(), w.sha256.is_empty()) {
+                (false, _) => i.want.md5 == w.md5,
+                (true, false) => i.want.sha256 == w.sha256,
+                (true, true) => i.want.title == w.title && i.want.artist == w.artist,
             };
             match self.items.iter_mut().find(|i| same(i)) {
                 Some(i) if i.state.active() => {}
@@ -127,6 +138,7 @@ impl Bulk {
             i.state = State::Queued;
             n += 1;
         }
+        self.again = true;
         n
     }
 
@@ -143,7 +155,10 @@ impl Bulk {
                 fetch.cancel(&i.want.title, &i.want.artist);
             }
             State::Done(_) => return false,
-            _ => i.state = State::Queued,
+            _ => {
+                i.state = State::Queued;
+                self.again = true;
+            }
         }
         true
     }
@@ -220,6 +235,9 @@ impl Bulk {
             if dl.busy(&i.want) {
                 continue;
             }
+            if std::mem::take(&mut self.again) {
+                dl.again();
+            }
             let started = dl.start(&self.items[k].want, &self.items);
             let i = &mut self.items[k];
             i.state = if started {
@@ -246,13 +264,17 @@ struct Fetch<'a> {
 
 impl Downloader for Fetch<'_> {
     fn busy(&self, w: &Wanted) -> bool {
-        self.fetch.is_busy(&w.title, &w.artist)
+        self.fetch.held() || self.fetch.is_busy(&w.title, &w.artist)
+    }
+
+    fn again(&mut self) {
+        self.fetch.again();
     }
 
     fn start(&mut self, w: &Wanted, queue: &[Item]) -> bool {
+        // (all the queue's: a separate charts' archive keeps them waiting)
         let wanted = queue.iter().filter(|i| i.state.active());
-        let md5s = wanted.map(|i| i.want.md5.clone());
-        (self.fetch).want(self.root, self.songs, self.hosts, md5s);
+        (self.fetch).want(self.root, wanted.map(|i| i.want.md5.clone()));
         let entry = crate::net::songfetch::entry(self.known, w, Vec::new());
         (self.fetch).start(self.root, self.songs, self.hosts, entry, Vec::new(), true)
     }
@@ -278,8 +300,9 @@ pub fn tick(
     if ended.is_empty() && !bulk.items.iter().any(|i| i.state == State::Queued) {
         return false;
     }
+    let same = |a: &str, b: &str| !a.is_empty() && a.eq_ignore_ascii_case(b);
     let have =
-        |w: &Wanted| !w.md5.is_empty() && songs.iter().any(|s| s.md5.eq_ignore_ascii_case(&w.md5));
+        |w: &Wanted| (songs.iter()).any(|s| same(&w.md5, &s.md5) || same(&w.sha256, &s.sha256));
     let mut dl = Fetch {
         fetch,
         root,
@@ -298,6 +321,7 @@ mod tests {
     #[derive(Default)]
     struct Mock {
         busy: Vec<&'static str>,
+        /// What was started, a new round marked `again`.
         started: Vec<String>,
         links: bool,
     }
@@ -305,6 +329,10 @@ mod tests {
     impl Downloader for Mock {
         fn busy(&self, w: &Wanted) -> bool {
             self.busy.contains(&w.title.as_str())
+        }
+
+        fn again(&mut self) {
+            self.started.push("again".into());
         }
 
         fn start(&mut self, w: &Wanted, _: &[Item]) -> bool {
@@ -336,7 +364,8 @@ mod tests {
         };
         let have = |w: &Wanted| w.title == "b";
         assert!(b.tick(t0, Vec::new(), have, &mut dl));
-        // a started, then the spacing
+        // a started (a new round: the player asked), then the spacing
+        dl.started.retain(|s| s != "again");
         assert_eq!(dl.started, ["a"]);
         assert_eq!(b.items[1].state, State::Queued);
         let t1 = t0 + SPACING;
@@ -371,5 +400,84 @@ mod tests {
         dl.links = false;
         b.tick(t1 + SPACING * 9, Vec::new(), have, &mut dl);
         assert_eq!(b.items[1].state, State::Failed("no download link".into()));
+    }
+
+    /// Each time the player asks for downloads (a table queued, RETRY
+    /// FAILED, a chart queued again), the next download starts a new
+    /// round; the queue going on by itself does not.
+    #[test]
+    fn the_player_asking_starts_a_new_round() {
+        let mut b = Bulk::default();
+        let mut dl = Mock {
+            links: true,
+            ..Default::default()
+        };
+        let never = |_: &Wanted| false;
+        let mut t = Instant::now();
+        let mut step = |b: &mut Bulk, dl: &mut Mock, ended| {
+            t += SPACING;
+            b.tick(t, ended, never, dl);
+        };
+        b.queue(["a", "b", "c"].map(want));
+        for _ in 0..3 {
+            step(&mut b, &mut dl, Vec::new());
+        }
+        assert_eq!(dl.started, ["again", "a", "b"]);
+        let ended = |t: &str| vec![(t.to_string(), String::new(), Outcome::Failed("404".into()))];
+        step(&mut b, &mut dl, ended("a"));
+        assert_eq!(dl.started, ["again", "a", "b", "c"]);
+        step(&mut b, &mut dl, ended("b"));
+        step(&mut b, &mut dl, ended("c"));
+        // RETRY FAILED
+        assert_eq!(b.retry_failed(), 3);
+        dl.started.clear();
+        step(&mut b, &mut dl, Vec::new());
+        step(&mut b, &mut dl, Vec::new());
+        assert_eq!(dl.started, ["again", "a", "b"]);
+        step(&mut b, &mut dl, ended("a"));
+        step(&mut b, &mut dl, ended("b"));
+        step(&mut b, &mut dl, ended("c"));
+        // one queued again, then a table whose rows failed queued again
+        let mut fetch = SongFetch::default();
+        assert!(b.toggle(0, &mut fetch));
+        dl.started.clear();
+        step(&mut b, &mut dl, Vec::new());
+        assert_eq!(dl.started, ["again", "a"]);
+        assert_eq!(b.queue(["b", "c"].map(want)), 2);
+        step(&mut b, &mut dl, Vec::new());
+        assert_eq!(dl.started, ["again", "a", "again", "b"]);
+    }
+
+    /// A chart the library holds by its SHA-256 (a table that gives it
+    /// alone) is done at once.
+    #[test]
+    fn a_chart_held_by_its_sha256() {
+        let sha = "ab".repeat(32);
+        let songs = std::sync::Arc::new(vec![crate::library::Song {
+            sha256: sha.to_uppercase(),
+            ..Default::default()
+        }]);
+        let mut b = Bulk::default();
+        b.queue([Wanted {
+            title: "held".into(),
+            sha256: sha,
+            ..Default::default()
+        }]);
+        let (mut fetch, cx) = (
+            SongFetch::default(),
+            crate::net::hosts::context(&Default::default()),
+        );
+        let known = crate::net::links::LinkLists::default();
+        let root = std::path::Path::new("/nowhere");
+        assert!(tick(
+            &mut b,
+            &mut fetch,
+            root,
+            &songs,
+            &cx,
+            &known,
+            Instant::now()
+        ));
+        assert_eq!(b.items[0].state, State::Done("in the library".into()));
     }
 }
