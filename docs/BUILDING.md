@@ -123,17 +123,18 @@ without wasm-opt, plus the CJK fonts (see Reproducible builds).
   makes. The committed files are made with Pillow 12.3.0 and Inter 4.0, as CI's check uses: other versions draw other
   pixels.
 - Third-party licences: `THIRD_PARTY_LICENSES.md` has the licence texts of the crates the releases are built from
-  (every target's; not the tests'), each text once with the crates under it, without versions. `tools/gen_licenses.sh`
-  makes it with cargo-about (its version and hash are pinned in the script; `about.toml` names the licences accepted,
-  and a crate under any other stops it). CI's cross-check job runs `tools/gen_licenses.sh --check`, which fails when the
-  committed file is not what Cargo.lock gives: a version bump leaves it as it is, but an update that adds or removes
-  a crate or changes a licence text fails CI, Dependabot's too (and is not merged), until someone runs
-  `tools/gen_licenses.sh`, reads what changed and commits the file (on a Dependabot pull request that commit is not
-  Dependabot's, so it is then merged by hand). No package carries the files beside the program (bare executables,
-  .app / .dmg, Flatpak, APK, IPA, the web build), so the program shows them itself: `LICENSE-MIT`, `LICENSE-APACHE`,
-  `THIRD_PARTY_NOTICES.md`, the font's `OFL.txt` and this file are compiled in (`include_str!` in
-  `crates/vibebms/src/scene/settings/licences.rs`: what is shown is what CI checked) and read in SETTINGS › SYSTEM ›
-  Licences. They add some 640 KB to every build; a regenerated file is shown by the next build as it is.
+  (every target's; not the tests'), each text once with the crates under it (each with the copyright notices its own
+  file has), without versions. `tools/gen_licenses.sh` makes it with cargo-about (its version and hash are pinned in the
+  script; `about.toml` names the licences accepted, and a crate under any other stops it). CI's cross-check job runs
+  `tools/gen_licenses.sh --check`, which fails when the committed file is not what Cargo.lock gives: a version bump
+  leaves it as it is, but an update that adds or removes a crate or changes a licence text fails CI, Dependabot's too
+  (and is not merged), until someone runs `tools/gen_licenses.sh`, reads what changed and commits the file (on a
+  Dependabot pull request that commit is not Dependabot's, so it is then merged by hand). No package carries the files
+  beside the program (bare executables, .app / .dmg, Flatpak, APK, IPA, the web build), so the program shows them
+  itself: `LICENSE-MIT`, `LICENSE-APACHE`, `THIRD_PARTY_NOTICES.md`, the font's `OFL.txt` and this file are compiled in
+  (`include_str!` in `crates/vibebms/src/scene/settings/licences.rs`: what is shown is what CI checked) and read in
+  SETTINGS › SYSTEM › Licences. They add some 215 KB to every build; a regenerated file is shown by the next build as it
+  is.
 - How the app's code is layered: each module of `crates/vibebms/src` is in a layer of `tools/check_layers.py`'s table
   (lowest first: the file formats and the UI's text, `platform`, the library, the settings, drawing and input, skins,
   sound, the services, the state the scenes share, `ctx/`, the widgets, the in-app browser, the scenes, and the shell,
