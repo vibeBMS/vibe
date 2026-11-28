@@ -17,10 +17,23 @@ text of its own. The text printed for several is the licence's standard text
 when one of the crates has no file (cargo-about uses it for those), else the
 form most of their files have (the first in sorted order on a tie), without
 its notices.
+
+What cargo-about cannot read is in about.toml (clarify: the crate's own
+licence file where cargo-about does not recognise it) and in
+licence-notices.toml (files: a crate's notices that are no licence text,
+printed under it as the crate has them; upstream: the licence file of a crate
+that ships none, from its repository). Every file named there is checked
+against its checksum, and a crate that uses a licence's standard text while
+it has a licence file of its own stops it: a person reads the file and says
+what it is in one of the two. (A crate with no licence file at all whose
+standard text is another crate's file is listed as shipping none.)
 """
+import hashlib
 import json
+import os
 import re
 import sys
+import tomllib
 
 HEADER = """\
 # Third-party licences
@@ -31,9 +44,13 @@ licence text is here once, then the crates under it, each with the copyright
 notices its own licence file has (files that differ only in white space,
 letter case, a title line, `http`/`https` or the Apache licence's appendix are
 one text). A crate that offers a choice (`MIT OR Apache-2.0`) is listed under
-the licence used; its own expression is beside its name. Code vibeBMS took or
-derived directly (Lua, the BeMusicSeeker fork, the fonts, UnRAR) is in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+the licence used; its own expression is beside its name. Each crate ships the
+text it is under, with the copyright notices listed under it (none: its file
+has none) or, for a text printed as the files have it, in it, unless its line
+says that it ships no file with that text. A crate's notice files that are
+not a licence text (a `COPYRIGHT`, a third party's notice) are under it as the
+crate has them. Code vibeBMS took or derived directly (Lua, the BeMusicSeeker
+fork, the fonts, UnRAR) is in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Made by `tools/gen_licenses.sh` with cargo-about, from Cargo.lock and
 about.toml: do not edit it (CI checks that it is current).
@@ -153,10 +170,53 @@ def joined(values):
     return ", ".join(sorted(v for v in values if v))
 
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# a file at a crate's root that is a licence text: one cargo-about used, or one
+# about.toml says what it is
+LICENCE_FILE = re.compile(r"(LICEN[CS]E|COPYING|UNLICEN[CS]E)([._-].*)?", re.I)
+
+
+def licence_files(d):
+    """the licence files in a crate's folder and the folders in it"""
+    found = []
+    for name in sorted(os.listdir(d)):
+        p = os.path.join(d, name)
+        if os.path.isdir(p):
+            found += [f"{name}/{f}" for f in sorted(os.listdir(p))
+                      if LICENCE_FILE.fullmatch(f) and os.path.isfile(os.path.join(p, f))]
+        elif LICENCE_FILE.fullmatch(name):
+            found.append(name)
+    return found
+
+
+def excerpt(d, entry, who):
+    """an entry's file (path, from start to end if given, as cargo-about's
+    clarify reads them), checked against its checksum"""
+    p = os.path.join(d, entry["path"])
+    if not os.path.isfile(p):
+        sys.exit(f"licence-notices.toml: {who} has no {entry['path']}: read what it has now and say so there")
+    with open(p, encoding="utf-8", newline="") as f:
+        text = f.read()
+    a = text.find(entry["start"]) if "start" in entry else 0
+    b = text.find(entry["end"], max(a, 0)) + len(entry["end"]) if "end" in entry else len(text)
+    if a < 0 or b < len(entry.get("end", "")):
+        sys.exit(f"licence-notices.toml: {who}'s {entry['path']} has no longer the part named: read it")
+    text = text[a:b]
+    if hashlib.sha256(text.encode()).hexdigest() != entry["checksum"]:
+        sys.exit(f"licence-notices.toml: {who}'s {entry['path']} changed: read it, then update its checksum")
+    return norm(text)
+
+
 def main(path):
     with open(path, encoding="utf-8") as f:
         about = json.load(f)
+    with open(os.path.join(ROOT, "about.toml"), "rb") as f:
+        clarified = {k: v["clarify"] for k, v in tomllib.load(f).items() if isinstance(v, dict) and "clarify" in v}
+    with open(os.path.join(ROOT, "licence-notices.toml"), "rb") as f:
+        extra = tomllib.load(f)
     names_of = {lic["id"]: lic["name"] for lic in about["licenses"]}
+    # (name, version) -> {"dir", "expr", "standard": licences of standard text, "file": licences from a file}
+    shipped = {}
     # key -> {"forms": printed text -> (crates, the standard text?), "crates": name -> its fields}
     groups = {}
     # sorted, so that a crate's notices from several versions' files come in the same order every time
@@ -176,14 +236,70 @@ def main(path):
         form = g["forms"].setdefault(text, [set(), False])
         form[1] |= generic
         for c in users:
+            v = shipped.setdefault((c["name"], c["version"]), {"dir": os.path.dirname(c["manifest_path"]),
+                                                               "expr": c["license"], "standard": set(),
+                                                               "file": set()})
+            v["standard" if generic else "file"].add(lic["id"])
             form[0].add(c["name"])
             crate = g["crates"].setdefault(c["name"], {"expr": set(), "repo": set(), "authors": set(),
-                                                       "notices": [], "no file": False})
+                                                       "notices": [], "no file": False, "extra": [],
+                                                       "upstream": []})
             crate["expr"].add(c["license"] or "")
             crate["repo"].add(c["repository"] or "")
             crate["authors"].update(c["authors"])
             crate["notices"] += [n for n in notices if n not in crate["notices"]]
             crate["no file"] |= generic
+
+    names = {n for n, _ in shipped}
+    for name, c in sorted(clarified.items()):
+        if name not in names:
+            sys.exit(f"about.toml clarifies {name}, which no release has now: take it out")
+        exprs = {v["expr"] for (n, _), v in shipped.items() if n == name} - {None}
+        if exprs - {c["license"]}:
+            sys.exit(f"about.toml says {name} is {c['license']}, its Cargo.toml {', '.join(sorted(exprs))}: read why")
+    for (name, version), v in sorted(shipped.items()):
+        if name in clarified:
+            continue
+        files = licence_files(v["dir"])
+        if v["standard"] and [f for f in files if "/" not in f]:
+            sys.exit(f"{name} {version} has {', '.join(f for f in files if '/' not in f)}, which cargo-about did not"
+                     f" take for its {', '.join(sorted(v['standard']))} text: read them and clarify {name} in"
+                     " about.toml")
+        if v["file"] and not files:
+            # the standard text, equal to another crate's file, whose entry it is in
+            for k, g in groups.items():
+                if k[0] in v["file"] and name in g["crates"]:
+                    g["crates"][name]["no file"] = True
+
+    def under(name, lid, what):
+        """the crate's entries in the groups of that licence"""
+        found = [g["crates"][name] for k, g in groups.items() if k[0] == lid and name in g["crates"]]
+        if not found:
+            sys.exit(f"licence-notices.toml: {what} is for {name} under {lid}, which it is not now")
+        return found
+
+    for name, entries in sorted(extra.get("files", {}).items()):
+        dirs = sorted({v["dir"] for (n, _), v in shipped.items() if n == name})
+        if not dirs:
+            sys.exit(f"licence-notices.toml names {name}, which no release has now: take it out")
+        for e in entries:
+            texts = {excerpt(d, e, name) for d in dirs}
+            label = ("from its" if "start" in e or "end" in e else "its") + f" `{e['path']}`"
+            for crate in under(name, e["license"], e["path"]):
+                crate["extra"] += [(label, t) for t in sorted(texts) if (label, t) not in crate["extra"]]
+    for e in extra.get("upstream", []):
+        if hashlib.sha256(e["text"].encode()).hexdigest() != e["checksum"]:
+            sys.exit("licence-notices.toml: an upstream text is not the file its checksum is of")
+        for at in sorted(e["crates"]):
+            name, version = at.split("@")
+            if (name, version) not in shipped:
+                sys.exit(f"licence-notices.toml: {name} is not at {version} now: read the licence file in its"
+                         " repository at the new version's commit and update the entry")
+            if e["license"] not in shipped[(name, version)]["standard"]:
+                sys.exit(f"licence-notices.toml: {name} {version} has its own {e['license']} file now: take its"
+                         " upstream entry out")
+            for crate in under(name, e["license"], "an upstream text"):
+                crate["upstream"] += [n for n in split(e["text"])[1] if n not in crate["upstream"]]
 
     def printed(g):
         forms = g["forms"]
@@ -227,9 +343,18 @@ def main(path):
             if c["no file"] and not whole_generic:
                 line += "; ships no file with this licence's text"
             if c["no file"] and placeholder:
-                line += f"; authors: {joined(c['authors']) or 'none named (see its repository)'}"
+                unnamed = "none named" + ("" if c["upstream"] else " (see its repository)")
+                line += f"; authors: {joined(c['authors']) or unnamed}"
+            if c["upstream"]:
+                line += "; the licence file in its repository (not in the crate) has:"
             out.append(line)
-            out.extend("  - " + n.replace("\n", "\n    ") for n in c["notices"])
+            out.extend("  - " + n.replace("\n", "\n    ") for n in c["notices"] + c["upstream"])
+            for label, t in c["extra"]:
+                if "\n" not in t:
+                    out.append(f"  - {t}")
+                else:
+                    body = "\n".join(("    " + x).rstrip() for x in t.split("\n"))
+                    out.append(f"  - {label}:\n\n    ````text\n{body}\n    ````\n")
         out.append("")
     sys.stdout.write("\n".join(out).rstrip("\n") + "\n")
 

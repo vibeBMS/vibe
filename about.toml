@@ -69,3 +69,314 @@ license = "Apache-2.0"
 [[unrar-rs.clarify.files]]
 path = "LICENSE"
 checksum = "97dfd1950dfb0901afbf6e51cae496e12281e97f670fdb2a2aab3252d2561086"
+
+# The crates below ship their licence's text in a file cargo-about does not
+# recognise (most: Apache-2.0's terms without its appendix), or in parts of one:
+# each names the file, so that the text and the notices printed are the
+# crate's own. A clarification is checked by its checksum (tools/gen_licenses.sh
+# stops when cargo-about reports one that does not match, and
+# tools/gen_licenses.py when its expression is not the crate's); a crate that
+# uses a standard text while it has a licence file stops it too. What is not a
+# licence text (COPYRIGHT files, third parties' notices, the licence file of a
+# crate's repository) is in licence-notices.toml.
+
+[ab_glyph.clarify]
+license = "Apache-2.0"
+files = [{ path = "LICENSE", checksum = "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9" }]
+
+[ab_glyph_rasterizer.clarify]
+license = "Apache-2.0"
+files = [{ path = "LICENSE", checksum = "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9" }]
+
+[allocator-api2.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "20fe7b00e904ed690e3b9fd6073784d3fc428141dbd10b81c01fd143d0797f58" }]
+
+[alsa.clarify]
+license = "Apache-2.0 OR MIT"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594" }]
+
+[android-activity.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9" }]
+
+# android_system_properties and shlex ship, as LICENSE-APACHE, the licence's
+# short notice (their holder, and where the licence is), not its terms
+[android_system_properties.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "216486f29671a4262efe32af6d84a75bef398127f8c5f369b5c8305983887a06" }]
+
+[constant_time_eq.clarify]
+license = "CC0-1.0 OR MIT-0 OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a" }]
+
+# its Zlib-licensed code (Mark Adler's crccomb.c) has its licence in its source
+# file, src/combine.rs, and no file of its own (the holder: licence-notices.toml)
+[crc-turbo.clarify]
+license = "(MIT OR Apache-2.0) AND Zlib"
+files = [
+    { path = "LICENSE-Apache", license = "Apache-2.0", checksum = "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4" },
+    { path = "src/combine.rs", license = "Zlib", start = "This software is provided 'as-is'", end = "any source distribution.", checksum = "9562f6577770256f780970075f3bbedb1db44ab0fc43a05a670301697768dce6" },
+]
+
+[dirs.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "d3174ad63e721d4c9dccb8ad4320848992d314369bc46319720b5802c9153fe9" }]
+
+[dirs-sys.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "d3174ad63e721d4c9dccb8ad4320848992d314369bc46319720b5802c9153fe9" }]
+
+[document-features.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff" }]
+
+# its licence files are the Apache-2.0 text and libm's MIT text with the notices
+# of libm and musl after it (those: licence-notices.toml)
+[dpi.clarify]
+license = "Apache-2.0 AND MIT"
+files = [
+    { path = "LICENSE", license = "Apache-2.0", checksum = "6dc0e068dcf3a5bc8e054205b85b7720e1d49265bbc64bf515d2cf79197df69a" },
+    { path = "LICENSE-LIBM-MIT", license = "MIT", start = "Permission is hereby granted", end = "OTHER DEALINGS IN THE\nSOFTWARE.", checksum = "21a2121221d2a35df2d8d333d00a61ed240446b6107092741ff996941acdc919" },
+]
+
+[dtoa.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a" }]
+
+# dunce ships the CC0-1.0 text (its LICENSE) and is used under Apache-2.0, the
+# first of its licences accepted, whose standard text is used
+[dunce.clarify]
+license = "CC0-1.0 OR MIT-0 OR Apache-2.0"
+files = [{ path = "LICENSE", license = "CC0-1.0", checksum = "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499" }]
+
+[erased-serde.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a" }]
+
+[fdeflate.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594" }]
+
+[field-offset.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9" }]
+
+[half.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9" }]
+
+[image.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594" }]
+
+[image-webp.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594" }]
+
+[itoa.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a" }]
+
+[libc.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a" }]
+
+# LICENSE.txt is the MIT text, the Apache-2.0 text contributions are also under, and
+# the notices of libm and musl (those: licence-notices.toml); the MIT text is the licence
+[libm.clarify]
+license = "MIT"
+files = [{ path = "LICENSE.txt", start = "Permission is hereby granted", end = "OTHER DEALINGS IN THE\nSOFTWARE.", checksum = "21a2121221d2a35df2d8d333d00a61ed240446b6107092741ff996941acdc919" }]
+
+[litrs.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a" }]
+
+# LICENSE is two MIT texts, the crate's and Lua's, one after the other
+[lua-src.clarify]
+license = "MIT"
+files = [
+    { path = "LICENSE", start = "MIT License", end = "OTHER DEALINGS IN THE\nSOFTWARE.", checksum = "0bf6b79c0bd9dd384cc9b92057646c972c352b0d6a84590fb9c4b3097aa8c553" },
+    { path = "LICENSE", start = "Copyright © 1994", end = "OTHER DEALINGS IN THE\nSOFTWARE.", checksum = "00701e8a49a4a2e5e64c7c37779095d0e25fc821a199564af036d9868971f151" },
+]
+
+[mach2.clarify]
+license = "BSD-2-Clause OR MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a" }]
+
+[miniz_oxide.clarify]
+license = "MIT OR Zlib OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE.md", license = "Apache-2.0", checksum = "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594" }]
+
+[naga.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE.APACHE", license = "Apache-2.0", checksum = "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9" }]
+
+[naga-types.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE.APACHE", license = "Apache-2.0", checksum = "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9" }]
+
+[num-conv.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-Apache", license = "Apache-2.0", checksum = "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594" }]
+
+[num_enum.clarify]
+license = "BSD-3-Clause OR MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a" }]
+
+[num_enum_derive.clarify]
+license = "BSD-3-Clause OR MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a" }]
+
+[owned_ttf_parser.clarify]
+license = "Apache-2.0"
+files = [{ path = "LICENSE", checksum = "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9" }]
+
+[pin-project.clarify]
+license = "Apache-2.0 OR MIT"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594" }]
+
+[pin-project-internal.clarify]
+license = "Apache-2.0 OR MIT"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594" }]
+
+[pin-project-lite.clarify]
+license = "Apache-2.0 OR MIT"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594" }]
+
+[proc-macro2.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a" }]
+
+[quote.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a" }]
+
+[range-alloc.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE.APACHE", license = "Apache-2.0", checksum = "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9" }]
+
+[raw-window-handle.clarify]
+license = "MIT OR Apache-2.0 OR Zlib"
+files = [{ path = "LICENSE-APACHE.md", license = "Apache-2.0", checksum = "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594" }]
+
+[rustc-hash.clarify]
+license = "Apache-2.0 OR MIT"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", start = "Apache License", end = "END OF TERMS AND CONDITIONS", checksum = "85ad950cce8752f716dbf49be95b2639172cb49f291336d57f1fdc9989e38179" }]
+
+[rustversion.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a" }]
+
+[semver.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a" }]
+
+[serde.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a" }]
+
+[serde_core.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a" }]
+
+[serde_derive.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a" }]
+
+[serde_json.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a" }]
+
+[shlex.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "553fffcd9b1cb158bc3e9edc35da85ca5c3b3d7d2e61c883ebcfa8a65814b583" }]
+
+[simdutf8.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-Apache", license = "Apache-2.0", checksum = "0cec06e0e55fbc3dc5cee4fca9b607f66cb8f4e4dbcf3b3c013594dd156732e9" }]
+
+[syn.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", start = "Apache License", end = "END OF TERMS AND CONDITIONS", checksum = "85ad950cce8752f716dbf49be95b2639172cb49f291336d57f1fdc9989e38179" }]
+
+[thiserror.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a" }]
+
+[thiserror-impl.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a" }]
+
+[time.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-Apache", license = "Apache-2.0", checksum = "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594" }]
+
+[time-core.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-Apache", license = "Apache-2.0", checksum = "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594" }]
+
+[time-macros.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-Apache", license = "Apache-2.0", checksum = "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594" }]
+
+[typed-path.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a" }]
+
+[typeid.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a" }]
+
+# its Apache-2.0 file is the terms without the appendix; and the Unicode data's
+# licence
+[unicode-ident.clarify]
+license = "(MIT OR Apache-2.0) AND Unicode-3.0"
+files = [
+    { path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a" },
+    { path = "LICENSE-UNICODE", license = "Unicode-3.0", checksum = "f7db81051789b729fea528a63ec4c938fdcb93d9d61d97dc8cc2e9df6d47f2a1" },
+]
+
+[utf8-zero.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a" }]
+
+[utf8parse.clarify]
+license = "Apache-2.0 OR MIT"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a" }]
+
+[wasm-streams.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a" }]
+
+[wgpu.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE.APACHE", license = "Apache-2.0", checksum = "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9" }]
+
+[wgpu-core.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE.APACHE", license = "Apache-2.0", checksum = "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9" }]
+
+[wgpu-core-deps-apple.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE.APACHE", license = "Apache-2.0", checksum = "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9" }]
+
+[wgpu-core-deps-wasm.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE.APACHE", license = "Apache-2.0", checksum = "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9" }]
+
+[wgpu-core-deps-windows-linux-android.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE.APACHE", license = "Apache-2.0", checksum = "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9" }]
+
+[wgpu-hal.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE.APACHE", license = "Apache-2.0", checksum = "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9" }]
+
+[wgpu-naga-bridge.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE.APACHE", license = "Apache-2.0", checksum = "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9" }]
+
+[wgpu-types.clarify]
+license = "MIT OR Apache-2.0"
+files = [{ path = "LICENSE.APACHE", license = "Apache-2.0", checksum = "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9" }]
