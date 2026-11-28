@@ -6,6 +6,7 @@ mod hit;
 mod list;
 mod notice;
 mod ok_cancel;
+mod reader;
 mod text_input;
 
 pub use confirm::Armed;
@@ -14,6 +15,7 @@ pub use hit::HitMap;
 pub use list::ListView;
 pub use notice::Notice;
 pub use ok_cancel::OkCancel;
+pub use reader::{Read, Reader};
 pub use text_input::{TextEvent, TextInput};
 
 use crate::gfx::text::{Align, TextStyle};

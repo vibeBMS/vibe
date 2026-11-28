@@ -325,7 +325,6 @@ Using them is your own responsibility: follow each site's terms and respect the 
 # scene/select/reader.rs
 "READ TEXT" = "READ TEXT"
 "OPEN (O)" = "OPEN (O)"
-"Reading…" = "Reading…"
 "{title}: no text files" = "{title}: no text files"
 
 # scene/settings/controls.rs
@@ -1065,6 +1064,9 @@ Using them is your own responsibility: follow each site's terms and respect the 
 "Finding the file… ({at})" = "Finding the file… ({at})"
 "Unpacking…" = "Unpacking…"
 "Adding to the library…" = "Adding to the library…"
+
+# ui/reader.rs
+"Reading…" = "Reading…"
 
 # ui/text_input.rs
 "(Enter = OK, Esc = cancel)" = "(Enter = OK, Esc = cancel)"
