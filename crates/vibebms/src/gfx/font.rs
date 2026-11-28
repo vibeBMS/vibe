@@ -109,17 +109,26 @@ impl Font {
     }
 
     /// The glyph `c` is drawn with, 0 (none) when the font lacks it. As
-    /// fontdue maps characters: the last character map table that has it.
+    /// fontdue maps characters: the last character map table that has it,
+    /// of those that map Unicode. A table of another encoding (Apple's
+    /// Japanese fonts end with a Shift-JIS one, which answers any character
+    /// by its low byte: `z` for 発, U+767A) is asked for ASCII alone, which
+    /// those encodings share, and after the Unicode ones.
     fn glyph_of(face: &Face, c: char) -> u16 {
         let Some(cmap) = face.tables().cmap else {
             return 0;
         };
         let glyphs = face.number_of_glyphs();
-        (0..cmap.subtables.len())
-            .rev()
-            .filter_map(|i| cmap.subtables.get(i))
-            // (not a glyph the font has: as missing)
-            .find_map(|t| t.glyph_index(c as u32).filter(|g| g.0 != 0 && g.0 < glyphs))
+        let find = |unicode: bool| {
+            (0..cmap.subtables.len())
+                .rev()
+                .filter_map(|i| cmap.subtables.get(i))
+                .filter(|t| t.is_unicode() == unicode)
+                // (not a glyph the font has: as missing)
+                .find_map(|t| t.glyph_index(c as u32).filter(|g| g.0 != 0 && g.0 < glyphs))
+        };
+        find(true)
+            .or_else(|| find(false).filter(|_| c.is_ascii()))
             .map_or(0, |g| g.0)
     }
 
@@ -353,6 +362,92 @@ mod tests {
             b[head + 18..head + 20].copy_from_slice(&units.to_be_bytes());
         }
         Font::new(Arc::new(Bytes::Owned(b)), 0).unwrap()
+    }
+
+    /// `font` with one more character map table after its own: for
+    /// `platform` and `encoding`, of format 2 (by high byte, as Shift-JIS
+    /// tables are), every byte a single-byte code drawn as Inter's `z`.
+    fn with_byte_table(font: &[u8], platform: u16, encoding: u16, alone: bool) -> Vec<u8> {
+        let mut b = font.to_vec();
+        let tables = u16::from_be_bytes([b[4], b[5]]) as usize;
+        let record = (0..tables)
+            .map(|i| 12 + 16 * i)
+            .find(|&r| &b[r..r + 4] == b"cmap")
+            .unwrap();
+        let at = |b: &[u8], i: usize| u32::from_be_bytes(b[i..i + 4].try_into().unwrap()) as usize;
+        let (cmap, len) = (at(&b, record + 8), at(&b, record + 12));
+        let old = b[cmap..cmap + len].to_vec();
+        let n = u16::from_be_bytes([old[2], old[3]]) as usize;
+        let z = Face::parse(font, 0).unwrap().glyph_index('z').unwrap().0;
+        // format, length, language; 256 keys (all: sub-header 0); one
+        // sub-header (first code 0, 256 codes, delta 0, the glyphs follow);
+        // 256 glyphs
+        let mut sub = Vec::new();
+        for v in [2u16, 6 + 512 + 8 + 512, 0] {
+            sub.extend(v.to_be_bytes());
+        }
+        sub.extend([0u8; 512]);
+        for v in [0u16, 256, 0, 2] {
+            sub.extend(v.to_be_bytes());
+        }
+        for _ in 0..256 {
+            sub.extend(z.to_be_bytes());
+        }
+        // its own tables' records (their data 8 bytes further on), or none
+        let kept = if alone { 0 } else { n };
+        let mut new = Vec::new();
+        new.extend(0u16.to_be_bytes());
+        new.extend((kept as u16 + 1).to_be_bytes());
+        for i in 0..kept {
+            let r = 4 + 8 * i;
+            new.extend(&old[r..r + 4]);
+            new.extend((at(&old, r + 4) as u32 + 8).to_be_bytes());
+        }
+        new.extend(platform.to_be_bytes());
+        new.extend(encoding.to_be_bytes());
+        new.extend((4 + 8 * (kept as u32 + 1) + (len - 4 - 8 * n) as u32).to_be_bytes());
+        new.extend(&old[4 + 8 * n..]);
+        new.extend(sub);
+        let end = b.len() as u32;
+        b[record + 8..record + 12].copy_from_slice(&end.to_be_bytes());
+        b[record + 12..record + 16].copy_from_slice(&(new.len() as u32).to_be_bytes());
+        b.extend(new);
+        b
+    }
+
+    /// A table that maps another encoding's codes is not asked for Unicode
+    /// characters: the font has what its Unicode tables have, drawn as they
+    /// say.
+    #[test]
+    fn a_table_of_another_encoding_is_not_read_as_unicode() {
+        let plain = inter(None);
+        assert!(plain.has('\u{17a}') && !plain.has('発') && !plain.has('\u{ff78}'));
+        // Macintosh, Japanese: the last table of Apple's Japanese fonts
+        let font = with_byte_table(INTER, 1, 1, false);
+        let font = Font::new(Arc::new(Bytes::Owned(font)), 0).unwrap();
+        // 発 is U+767A, ▸ U+25B8 and ↻ U+21BB: `z`, ｸ and ｻ by their low bytes
+        for c in ['発', '\u{ff78}', '\u{4e7a}'] {
+            assert!(!font.has(c), "{c:?}");
+        }
+        for c in ['z', 'A', '\u{17a}', '\u{25b8}', '\u{21bb}', '発'] {
+            assert_eq!(font.has(c), plain.has(c), "{c:?}");
+            assert_eq!(font.rasterize(c, 32.0), plain.rasterize(c, 32.0), "{c:?}");
+        }
+        assert_ne!(font.rasterize('\u{17a}', 32.0), font.rasterize('z', 32.0));
+    }
+
+    /// A font with no Unicode table at all still draws ASCII (which the
+    /// other encodings share), and nothing else.
+    #[test]
+    fn a_font_of_another_encoding_alone_draws_ascii() {
+        let plain = inter(None);
+        let font = with_byte_table(INTER, 1, 1, true);
+        let font = Font::new(Arc::new(Bytes::Owned(font)), 0).unwrap();
+        assert!(font.has('A') && font.has('z'));
+        assert_eq!(font.rasterize('A', 32.0), plain.rasterize('z', 32.0));
+        for c in ['発', '\u{17a}', '\u{e9}', '\u{25b8}'] {
+            assert!(!font.has(c), "{c:?}");
+        }
     }
 
     #[test]
