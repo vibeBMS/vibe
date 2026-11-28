@@ -171,7 +171,8 @@ Difficulty tables, song downloads, unpacking and placing separate charts come fr
 `MIT OR Apache-2.0` (LICENSE-MIT, LICENSE-APACHE). The embedded Inter font is SIL OFL 1.1; the logo's letters are
 Inter converted to outlines. Lua's pattern matcher (ported) and the BeMusicSeeker fork's rules are MIT. RAR files are
 unpacked with unrar-rs, under the UnRAR licence restriction. These notices are in full in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); the licences of the Rust crates it is built from, generated from
+Cargo.lock, in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 
 The judging, gauge and skin rules follow the documented behaviour of beatoraja, LR2oraja and LR2
 ([docs/RULES.md](docs/RULES.md)), but no code is taken from these players: the judge engine, gauges, chart metrics,

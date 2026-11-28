@@ -122,6 +122,14 @@ without wasm-opt, plus the CJK fonts (see Reproducible builds).
   Edit the script and run it to make them again; CI checks with `--check` that the committed files are what it
   makes. The committed files are made with Pillow 12.3.0 and Inter 4.0, as CI's check uses: other versions draw other
   pixels.
+- Third-party licences: `THIRD_PARTY_LICENSES.md` has the licence texts of the crates the releases are built from
+  (every target's; not the tests'), each text once with the crates under it, without versions. `tools/gen_licenses.sh`
+  makes it with cargo-about (its version and hash are pinned in the script; `about.toml` names the licences accepted,
+  and a crate under any other stops it). CI's test job runs `tools/gen_licenses.sh --check`, which fails when the
+  committed file is not what Cargo.lock gives: a version bump leaves it as it is, but an update that adds or removes
+  a crate or changes a licence text fails CI, Dependabot's too (and is not merged), until someone runs
+  `tools/gen_licenses.sh`, reads what changed and commits the file (on a Dependabot pull request that commit is not
+  Dependabot's, so it is then merged by hand).
 - How the app's code is layered: each module of `crates/vibebms/src` is in a layer of `tools/check_layers.py`'s table
   (lowest first: the file formats and the UI's text, `platform`, the library, the settings, drawing and input, skins,
   sound, the services, the state the scenes share, `ctx/`, the widgets, the in-app browser, the scenes, and the shell,
