@@ -172,7 +172,8 @@ Difficulty tables, song downloads, unpacking and placing separate charts come fr
 Inter converted to outlines. Lua's pattern matcher (ported) and the BeMusicSeeker fork's rules are MIT. RAR files are
 unpacked with unrar-rs, under the UnRAR licence restriction. These notices are in full in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); the licences of the Rust crates it is built from, generated from
-Cargo.lock, in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+Cargo.lock, in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md). The program shows these files and its own licence
+itself, compiled in, on every platform (SETTINGS › SYSTEM › Licences): no package carries them beside it.
 
 The judging, gauge and skin rules follow the documented behaviour of beatoraja, LR2oraja and LR2
 ([docs/RULES.md](docs/RULES.md)), but no code is taken from these players: the judge engine, gauges, chart metrics,

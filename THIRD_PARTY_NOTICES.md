@@ -4,7 +4,9 @@ vibeBMS (`MIT OR Apache-2.0`, see LICENSE-MIT and LICENSE-APACHE) includes or is
 derived in part from the works below. The Rust crates it is built from keep their
 own licences, listed with their texts in THIRD_PARTY_LICENSES.md (made by
 `tools/gen_licenses.sh`; the MPL-2.0 crates symphonia, cssparser, selectors,
-dtoa-short and option-ext are used unmodified, source on crates.io).
+dtoa-short and option-ext are used unmodified, source on crates.io). The program
+shows this file, its own licence and THIRD_PARTY_LICENSES.md itself, compiled in
+(SETTINGS › SYSTEM › Licences).
 
 ## Lua 5.4
 

@@ -9,7 +9,7 @@ Contents: [Data folder](#data-folder) · [Command line](#command-line) · [Contr
 [Touch controls](#touch-controls) · [Charts and formats](#charts-and-formats) ·
 [Songs in archives](#songs-in-archives) · [Display](#display) · [Audio](#audio) ·
 [Phones and tablets](#phones-and-tablets) · [BGA and images](#bga-and-images) · [Play extras](#play-extras) ·
-[Target and rivals](#target-and-rivals) · [Profiles](#profiles) · [Languages](#languages) ·
+[Target and rivals](#target-and-rivals) · [Profiles](#profiles) · [Languages](#languages) · [Licences](#licences) ·
 [Difficulty tables and downloads](#difficulty-tables-and-downloads) · [Bulk downloads](#bulk-downloads) ·
 [Third-party sources](#third-party-sources) · [Event mirror](#event-mirror) ·
 [Replays and ghosts](#replays-and-ghosts) · [Practice](#practice) · [G-BATTLE](#g-battle) · [VS](#vs) · [IR](#ir) ·
@@ -515,6 +515,15 @@ Linux), the browser's language on the web; any other language is English. The se
 - Fonts: the desktop puts the language's own CJK system font first (Noto Sans CJK KR / SC / TC, Malgun Gothic,
   Microsoft YaHei / JhengHei, PingFang SC / TC); the web build loads Noto Sans SC / TC only while the UI is in that
   Chinese. Glyphs are read from the font file as they are drawn, so a font takes memory for the characters on screen.
+
+## Licences
+
+`SETTINGS › SYSTEM › UPDATES › Licences` shows the licence vibeBMS is under (`LICENSE-MIT`, `LICENSE-APACHE`), the
+notices of the works it takes code from (`THIRD_PARTY_NOTICES.md`, with the Inter font's licence) and the licences of
+the Rust crates it is built from (`THIRD_PARTY_LICENSES.md`), in that order: the repository's files, compiled into the
+program, the same on the desktop, Android, iOS and the web. ↑↓ (the turntable), Page Up / Down, Home / End, the wheel
+and a drag scroll; Esc, another key, × or a tap outside the text closes it. The Markdown is shown as plain text, long
+lines wrapped; nothing in it is opened or fetched.
 
 ## Difficulty tables and downloads
 
