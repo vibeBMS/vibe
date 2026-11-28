@@ -919,6 +919,7 @@ _untranslated = [
 "{title} has its {n} stages" = "{title} はすでに {n} ステージあります"
 "{title}: already installed ({folder})" = "{title}：インストール済み（{folder}）"
 "{title}: being added to the library" = "{title}：ライブラリに追加中"
+"{title}: waiting for the downloads running to end" = "{title}：実行中のダウンロードの終了を待っています"
 "{title}: cancelled" = "{title}：キャンセルしました"
 "{title}: download failed ({e})" = "{title}：ダウンロード失敗（{e}）"
 "{title}: no answer ({why})" = "{title}：応答なし（{why}）"

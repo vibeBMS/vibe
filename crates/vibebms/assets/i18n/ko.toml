@@ -919,6 +919,7 @@ _untranslated = [
 "{title} has its {n} stages" = "{title}에는 이미 {n}스테이지가 있음"
 "{title}: already installed ({folder})" = "{title}: 이미 설치됨 ({folder})"
 "{title}: being added to the library" = "{title}: 라이브러리에 추가하는 중"
+"{title}: waiting for the downloads running to end" = "{title}: 진행 중인 다운로드가 끝나기를 기다리는 중"
 "{title}: cancelled" = "{title}: 취소함"
 "{title}: download failed ({e})" = "{title}: 다운로드 실패 ({e})"
 "{title}: no answer ({why})" = "{title}: 응답 없음 ({why})"

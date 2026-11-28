@@ -389,7 +389,7 @@ dependencies = [
 [[package]]
 name = "bmseeker"
 version = "0.1.0-dev"
-source = "git+https://github.com/vibeBMS/BMSeeker#82a61f1538c69e9e1c1e6bd1ed2f2d7a4635b1a8"
+source = "git+https://github.com/vibeBMS/BMSeeker#3c6d731f0ab387e98edda36d5040785d69860542"
 dependencies = [
  "aes",
  "delharc",
