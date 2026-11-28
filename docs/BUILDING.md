@@ -125,7 +125,7 @@ without wasm-opt, plus the CJK fonts (see Reproducible builds).
 - Third-party licences: `THIRD_PARTY_LICENSES.md` has the licence texts of the crates the releases are built from
   (every target's; not the tests'), each text once with the crates under it, without versions. `tools/gen_licenses.sh`
   makes it with cargo-about (its version and hash are pinned in the script; `about.toml` names the licences accepted,
-  and a crate under any other stops it). CI's test job runs `tools/gen_licenses.sh --check`, which fails when the
+  and a crate under any other stops it). CI's cross-check job runs `tools/gen_licenses.sh --check`, which fails when the
   committed file is not what Cargo.lock gives: a version bump leaves it as it is, but an update that adds or removes
   a crate or changes a licence text fails CI, Dependabot's too (and is not merged), until someone runs
   `tools/gen_licenses.sh`, reads what changed and commits the file (on a Dependabot pull request that commit is not

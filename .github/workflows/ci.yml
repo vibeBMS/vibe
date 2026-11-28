@@ -170,10 +170,6 @@ jobs:
       - run: python3 tools/check_layers_test.py
       - run: python3 .github/dependabot_merge_test.py
       - run: python3 .github/update_signing_test.py
-      # THIRD_PARTY_LICENSES.md is what Cargo.lock gives: a crate that comes
-      # or goes, or a new licence text, waits for it to be made again
-      # (cargo-about, pinned in the script by version and hash)
-      - run: tools/gen_licenses.sh --check
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
@@ -192,6 +188,11 @@ jobs:
           components: clippy
           cache-key: cross-check-${{ needs.pins.outputs.key-android }}
           stamp: "false"
+      # THIRD_PARTY_LICENSES.md is what Cargo.lock gives: a crate that comes
+      # or goes, or a new licence text, waits for it to be made again
+      # (cargo-about, pinned in the script by version and hash). Here, off
+      # the path the builds wait on
+      - run: tools/gen_licenses.sh --check
       # Lua is compiled from C for the web: clang with the WebAssembly target
       - run: clang --version
       # the runner may have only versioned llvm-ar-NN
