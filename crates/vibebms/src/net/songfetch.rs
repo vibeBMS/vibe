@@ -61,15 +61,30 @@ pub struct SongFetch {
     adding: Vec<(SongId, Arc<Progress>)>,
     /// The quiet downloads that ended, until taken.
     ended: Vec<(String, String, Outcome)>,
-    /// The library as bmseeker sees it, built from the player's songs (of
-    /// that list, below that folder) for the downloads running: each takes
-    /// a clone, which shares its records until something comes in.
-    lib: Option<(
-        std::sync::Weak<Vec<Song>>,
-        std::path::PathBuf,
-        bmseeker::library::Library,
-    )>,
+    /// What the downloads share ([`Run`]), while one runs or the library
+    /// has not been read again for what they brought.
+    run: Option<Run>,
+    /// The run's downloads brought what the library is to be read again
+    /// for (a [`Polled::Rescan`] since the last [`SongFetch::scanned`]).
+    owed: bool,
 }
+
+/// The downloads into one library that share it: the library as bmseeker
+/// sees it (built from the player's songs when the first started, what
+/// came in since added) and each file once (`bmseeker::install::Session`).
+/// A download started while the run lasts sees what the others brought,
+/// even before the library is read again; the next run starts from the
+/// library as then read, which has it.
+struct Run {
+    root: std::path::PathBuf,
+    session: bmseeker::install::Session,
+    /// The charts told to the session as wanted (MD5s, lower case).
+    wanted: std::collections::HashSet<String>,
+}
+
+/// What a download whose work ended without its outcome (it panicked)
+/// came to.
+const STOPPED: &str = "the download stopped unexpectedly";
 
 /// What a song's download came to, in a word.
 #[derive(Clone, Debug, PartialEq)]
@@ -219,18 +234,76 @@ impl SongFetch {
         }
     }
 
-    /// The library has been read again: the songs added are in it.
+    /// The library has been read again: the songs added are in it (the
+    /// next run starts from it).
     pub fn scanned(&mut self) {
         self.adding.clear();
+        self.owed = false;
+        self.settle();
+    }
+
+    /// The run ended when no download runs and none brought what the
+    /// library has not been read again for.
+    fn settle(&mut self) {
+        if self.jobs.is_empty() && !self.owed {
+            self.run = None;
+        }
+    }
+
+    /// The run's session for the library of `songs` below `root`: the
+    /// one running, else one made now (its sources from `cx`'s settings).
+    fn session(
+        &mut self,
+        root: &Path,
+        songs: &[Song],
+        cx: &crate::net::hosts::Context,
+    ) -> &mut Run {
+        if self.run.as_ref().is_none_or(|r| r.root != root) {
+            let session = bmseeker::install::Session::new(
+                Arc::new(crate::platform::Vfs),
+                root.join("downloads"),
+                crate::net::placement::library(root, songs),
+                bmseeker::sources::Sources::from_config(&cx.config, Vec::new()),
+            );
+            self.run = Some(Run {
+                root: root.to_path_buf(),
+                session,
+                wanted: Default::default(),
+            });
+        }
+        self.run.as_mut().expect("made above")
+    }
+
+    /// The charts a bulk download wants (MD5s; those told before passed
+    /// by): a separate charts' archive keeps those it holds waiting for
+    /// their songs. Told to the run (made now if none: [`Self::start`]
+    /// takes it).
+    pub fn want(
+        &mut self,
+        root: &Path,
+        songs: &[Song],
+        cx: &crate::net::hosts::Context,
+        md5s: impl IntoIterator<Item = String>,
+    ) {
+        let run = self.session(root, songs, cx);
+        let new: Vec<String> = (md5s.into_iter())
+            .map(|m| m.to_ascii_lowercase())
+            .filter(|m| !m.is_empty() && run.wanted.insert(m.clone()))
+            .collect();
+        if !new.is_empty() {
+            run.session.want(new);
+        }
     }
 
     /// Download the table's entry `e` (a chart, its song, their links:
     /// each its own first, then the others known for the chart), then the
-    /// add-ons `addons`, into the library as the player read it (`songs`):
-    /// `bmseeker::install::EntryJob` (natively on a thread; on the web
-    /// through the vibeBMS proxy, unpacked / placed in memory). False when
-    /// there is nothing to try. `quiet` (a bulk download): no messages and
-    /// no pages opened, its outcome kept for [`Self::take_ended`].
+    /// add-ons `addons`, into the library as the player read it (`songs`)
+    /// and what the run's other downloads brought ([`Run`]):
+    /// `bmseeker::install::Session::job` (natively on a thread; on the web
+    /// through the vibeBMS proxy, unpacked / placed in memory; its steps
+    /// made there, from the library as it is then). False when there is
+    /// nothing to try. `quiet` (a bulk download): no messages and no pages
+    /// opened, its outcome kept for [`Self::take_ended`].
     pub fn start(
         &mut self,
         root: &Path,
@@ -240,55 +313,32 @@ impl SongFetch {
         addons: Vec<String>,
         quiet: bool,
     ) -> bool {
-        use bmseeker::install::job::Installed;
         if self.is_busy(&e.want.title, &e.want.artist) {
             return false;
         }
         let id = SongId::new(&e.want.title, &e.want.artist);
-        let lib = self.library(root, songs);
+        let session = self.session(root, songs, cx).session.clone();
         let mut started = false;
         let job = Job::start(|tx, progress| {
             // the settings and hosts, reporting to (and cancelled by) this
             // song's progress
             let cx = cx.with_progress(progress.clone());
-            let sources = bmseeker::sources::Sources::from_config(&cx.config, Vec::new());
-            let store = Arc::new(crate::platform::Vfs);
-            let job = bmseeker::install::EntryJob::new(
-                store,
-                root.join("downloads"),
-                lib,
-                e,
-                sources,
-                &cx,
-            )
-            .addons(addons);
+            let job = session.job(e, &cx).addons(addons);
             if job.is_empty() {
                 return;
             }
             started = true;
             progress.set_stage(Stage::Finding);
-            crate::platform::run_job(job, &cx, move |out: Installed| {
-                let _ = tx.send(out.done);
+            crate::platform::run_job(job, &cx, move |done: Vec<Done>| {
+                let _ = tx.send(done);
             });
         });
         if started {
             self.jobs.push((id, job, quiet));
+        } else {
+            self.settle();
         }
         started
-    }
-
-    /// The library of `songs` below `root`, as bmseeker sees it: the one
-    /// built for them, else built now.
-    fn library(&mut self, root: &Path, songs: &Arc<Vec<Song>>) -> bmseeker::library::Library {
-        let built = Arc::downgrade(songs);
-        match &self.lib {
-            Some((s, r, lib)) if s.ptr_eq(&built) && r == root => lib.clone(),
-            _ => {
-                let lib = crate::net::placement::library(root, songs);
-                self.lib = Some((built, root.to_path_buf(), lib.clone()));
-                lib
-            }
-        }
     }
 
     /// The quiet downloads that ended since the last call: song title,
@@ -299,16 +349,23 @@ impl SongFetch {
 
     /// What the songs that finished since the last call brought.
     pub fn poll(&mut self) -> Vec<Polled> {
-        let mut done = Vec::new();
-        self.jobs.retain_mut(|(id, job, quiet)| match job.poll() {
-            Some(d) => {
-                done.push((std::mem::take(id), job.progress().clone(), d, *quiet));
-                false
-            }
-            None => true,
+        let (mut done, mut stopped) = (Vec::new(), false);
+        self.jobs.retain_mut(|(id, job, quiet)| {
+            let d = match job.poll() {
+                Some(d) => d,
+                None if job.is_over() => {
+                    stopped = true;
+                    vec![Done::Failed(Failure::Other(STOPPED.into()))]
+                }
+                None => return true,
+            };
+            done.push((std::mem::take(id), job.progress().clone(), d, *quiet));
+            false
         });
-        if self.jobs.is_empty() {
-            self.lib = None;
+        // (a download that panicked may have lost the run's library: the
+        // next download starts a run of its own)
+        if stopped {
+            self.run = None;
         }
         let mut out = Vec::new();
         for (id, p, d, quiet) in done {
@@ -328,6 +385,8 @@ impl SongFetch {
             }
             out.extend(d.into_iter().flat_map(|d| events(&id.title, d)));
         }
+        self.owed |= out.contains(&Polled::Rescan);
+        self.settle();
         out
     }
 }
@@ -635,6 +694,246 @@ mod tests {
             }
         }
         let _ = std::fs::remove_dir_all(&r);
+    }
+
+    /// A context whose downloads may reach this machine's test servers.
+    fn local() -> crate::net::hosts::Context {
+        crate::net::hosts::Context::new(bmseeker::config::Config {
+            local_hosts: true,
+            ..Default::default()
+        })
+    }
+
+    fn pack_chart(n: u8) -> String {
+        format!("#TITLE Pack [{n}]\n#ARTIST p\n#WAV01 01.wav\n")
+    }
+
+    /// One song's archive holding two table entries' charts.
+    fn pack() -> Vec<u8> {
+        let (one, two) = (pack_chart(1), pack_chart(2));
+        zip(&[
+            ("Pack/1.bms", one.as_str()),
+            ("Pack/2.bms", two.as_str()),
+            ("Pack/01.wav", "RIFF"),
+        ])
+    }
+
+    /// The entry of the pack's chart `n`, its song at `url`.
+    fn pack_entry(n: u8, url: &str) -> bmseeker::install::Entry {
+        bmseeker::install::Entry {
+            md5: bmseeker::install::md5_hex(pack_chart(n).as_bytes()),
+            want: bmseeker::hosts::Want {
+                title: format!("Pack [{n}]"),
+                artist: "p".into(),
+            },
+            song: vec![url.into()],
+            ..Default::default()
+        }
+    }
+
+    /// The quiet downloads' outcomes, once none runs.
+    fn ended(f: &mut SongFetch) -> Vec<(String, Outcome)> {
+        while !f.jobs.is_empty() {
+            f.poll();
+            std::thread::yield_now();
+        }
+        let mut out: Vec<_> = (f.take_ended().into_iter())
+            .map(|(title, _, o)| (title, o))
+            .collect();
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
+    }
+
+    fn owns(f: &SongFetch, md5: &str) -> bool {
+        let run = f.run.as_ref().expect("a run");
+        run.session.with_library(|l| l.owns(md5))
+    }
+
+    /// Two queued charts in one pack, downloading at once: the pack is
+    /// downloaded once, and both are in the library.
+    #[test]
+    fn a_shared_pack_downloaded_once() {
+        let server =
+            bmseeker::testkit::serve(vec![("/pack.zip", bmseeker::testkit::Reply::ok(pack()))]);
+        let url = format!("{}/pack.zip", server.url);
+        let r = root("pack");
+        let (cx, songs) = (local(), Arc::new(Vec::new()));
+        let mut f = SongFetch::default();
+        let md5s = [1, 2].map(|n| pack_entry(n, &url).md5);
+        f.want(&r, &songs, &cx, md5s.clone());
+        for n in [1, 2] {
+            assert!(f.start(&r, &songs, &cx, pack_entry(n, &url), Vec::new(), true));
+        }
+        let out = ended(&mut f);
+        assert!(
+            matches!(&out[..], [(_, Outcome::Got(_)), (_, Outcome::Got(_))]),
+            "{out:?}"
+        );
+        assert_eq!(server.asked(), ["/pack.zip"]);
+        assert!(md5s.iter().all(|m| owns(&f, m)));
+        let _ = std::fs::remove_dir_all(&r);
+    }
+
+    /// The run lasts while a download runs (a scan meanwhile does not end
+    /// it) and until the library is read again for what came: a download
+    /// started then sees it (the pack not downloaded again). The next run
+    /// starts from the library as read then.
+    #[test]
+    fn a_run_lasts_until_the_library_is_read_again() {
+        let server =
+            bmseeker::testkit::serve(vec![("/pack.zip", bmseeker::testkit::Reply::ok(pack()))]);
+        let url = format!("{}/pack.zip", server.url);
+        let r = root("run");
+        let (cx, songs) = (local(), Arc::new(Vec::new()));
+        let mut f = SongFetch::default();
+        assert!(f.start(&r, &songs, &cx, pack_entry(1, &url), Vec::new(), true));
+        // (a scan that had begun before it ended)
+        f.scanned();
+        assert!(f.run.is_some());
+        assert!(matches!(&ended(&mut f)[..], [(_, Outcome::Got(_))]));
+        assert!(f.run.is_some(), "what came is not read yet");
+        let two = pack_entry(2, &url);
+        assert!(f.start(&r, &songs, &cx, two.clone(), Vec::new(), true));
+        let out = ended(&mut f);
+        assert!(
+            matches!(&out[..], [(_, Outcome::Got(how))] if how.starts_with("already in")),
+            "{out:?}"
+        );
+        assert_eq!(server.asked(), ["/pack.zip"]);
+        f.scanned();
+        assert!(f.run.is_none());
+        // the next run: from the library as read (which has the chart)
+        let chart = walk(&r.join("bms"))
+            .into_iter()
+            .find(|p| p.ends_with("2.bms"));
+        let read = Arc::new(vec![Song {
+            path: chart
+                .expect("the chart on disk")
+                .to_string_lossy()
+                .into_owned(),
+            md5: two.md5.clone(),
+            title: "Pack [2]".into(),
+            artist: "p".into(),
+            ..Default::default()
+        }]);
+        assert!(f.start(&r, &read, &cx, two, Vec::new(), true));
+        let out = ended(&mut f);
+        assert!(
+            matches!(&out[..], [(_, Outcome::Got(how))] if how.starts_with("already in")),
+            "{out:?}"
+        );
+        assert_eq!(server.asked(), ["/pack.zip"]);
+        let _ = std::fs::remove_dir_all(&r);
+    }
+
+    /// The files below `dir`.
+    fn walk(dir: &Path) -> Vec<std::path::PathBuf> {
+        let mut out = Vec::new();
+        for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            match e.path() {
+                p if p.is_dir() => out.extend(walk(&p)),
+                p => out.push(p),
+            }
+        }
+        out
+    }
+
+    /// A server of `body` that answers each request only once `release`
+    /// is set, telling `connected` of each.
+    fn held(
+        body: Vec<u8>,
+    ) -> (
+        String,
+        Arc<std::sync::atomic::AtomicBool>,
+        std::sync::mpsc::Receiver<()>,
+    ) {
+        use std::io::{Read, Write};
+        use std::sync::atomic::Ordering;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let release = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, connected) = std::sync::mpsc::channel();
+        let r = release.clone();
+        std::thread::spawn(move || {
+            for mut c in listener.incoming().flatten() {
+                let (r, tx, body) = (r.clone(), tx.clone(), body.clone());
+                std::thread::spawn(move || {
+                    let mut asked = Vec::new();
+                    let mut b = [0; 1024];
+                    while !asked.windows(4).any(|w| w == b"\r\n\r\n") {
+                        match c.read(&mut b) {
+                            Ok(0) | Err(_) => return,
+                            Ok(n) => asked.extend_from_slice(&b[..n]),
+                        }
+                    }
+                    let _ = tx.send(());
+                    while !r.load(Ordering::Relaxed) {
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                    }
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = c.write_all(head.as_bytes());
+                    let _ = c.write_all(&body);
+                });
+            }
+        });
+        (url, release, connected)
+    }
+
+    /// One of two downloads sharing a pack cancelled while the pack comes
+    /// (whichever of them is downloading it): the other gets it.
+    #[test]
+    fn one_of_two_sharing_a_pack_cancelled() {
+        let (base, release, connected) = held(pack());
+        let url = format!("{base}/pack.zip");
+        let r = root("cancel");
+        let (cx, songs) = (local(), Arc::new(Vec::new()));
+        let mut f = SongFetch::default();
+        for n in [1, 2] {
+            assert!(f.start(&r, &songs, &cx, pack_entry(n, &url), Vec::new(), true));
+        }
+        connected
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .unwrap();
+        assert!(f.cancel("Pack [1]", "p"));
+        // (the cancelled one has ended, or ends on the answer)
+        release.store(true, std::sync::atomic::Ordering::Relaxed);
+        let out = ended(&mut f);
+        assert!(
+            matches!(&out[..], [(_, Outcome::Cancelled), (_, Outcome::Got(_))]),
+            "{out:?}"
+        );
+        assert!(owns(&f, &pack_entry(2, &url).md5));
+        let _ = std::fs::remove_dir_all(&r);
+    }
+
+    /// A download whose work panicked (it may have lost the run's
+    /// library): it ends failed, is not left downloading, and the next
+    /// download starts a run of its own.
+    #[test]
+    fn a_download_that_panicked_ends() {
+        let (cx, songs) = (local(), Arc::new(Vec::new()));
+        let mut f = SongFetch::default();
+        f.want(Path::new("/r"), &songs, &cx, ["a".repeat(32)]);
+        assert!(f.run.is_some());
+        let job = Job::spawn("test", |_| -> Vec<Done> { panic!("a step that panics") });
+        f.jobs.push((SongId::new("Aurora", "alpha"), job, true));
+        while !f.jobs.is_empty() {
+            f.poll();
+            std::thread::yield_now();
+        }
+        assert!(!f.is_busy("Aurora", "alpha"));
+        assert!(f.run.is_none());
+        assert_eq!(
+            f.take_ended(),
+            [(
+                "Aurora".to_string(),
+                "alpha".to_string(),
+                Outcome::Failed(STOPPED.into())
+            )]
+        );
     }
 
     /// Two songs of one title are two downloads.
