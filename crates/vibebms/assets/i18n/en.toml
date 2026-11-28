@@ -675,6 +675,9 @@ Using them is your own responsibility: follow each site's terms and respect the 
 "1 chart" = "1 chart"
 "{on} tables" = "{on} tables"
 
+# scene/settings/licences.rs
+"LICENCES" = "LICENCES"
+
 # scene/settings/mod.rs
 "GAMEPLAY" = "GAMEPLAY"
 "CONTROLS" = "CONTROLS"
@@ -1001,6 +1004,9 @@ Using them is your own responsibility: follow each site's terms and respect the 
 "Profile {name} made: choose it to switch to it" = "Profile {name} made: choose it to switch to it"
 "Profile {name} deleted" = "Profile {name} deleted"
 "Version" = "Version"
+"Licences" = "Licences"
+"read ↵" = "read ↵"
+"vibeBMS's licence and the notices of the works it is built from." = "vibeBMS's licence and the notices of the works it is built from."
 "A local build: only the nightly builds update themselves" = "A local build: only the nightly builds update themselves"
 "Check for updates on start" = "Check for updates on start"
 "Nightly builds only." = "Nightly builds only."
