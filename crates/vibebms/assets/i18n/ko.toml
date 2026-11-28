@@ -1008,3 +1008,9 @@ _untranslated = [
 "Event list {list}: {n} events left out" = "이벤트 목록 {list}: 이벤트 {n}개 제외됨"
 "Event list {list}: more than {n} events, not read" = "이벤트 목록 {list}: 이벤트가 {n}개를 넘어 읽지 않음"
 "Event index {index}: more than {n} works, not read" = "이벤트 색인 {index}: 작품이 {n}개를 넘어 읽지 않음"
+
+# Licences
+"Licences" = "라이선스"
+"read ↵" = "읽기 ↵"
+"vibeBMS's licence and the notices of the works it is built from." = "vibeBMS의 라이선스와 vibeBMS가 사용하는 저작물의 고지."
+"LICENCES" = "라이선스"

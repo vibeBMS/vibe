@@ -42,6 +42,8 @@ pub(super) enum Act {
     Restart,
     /// Ask first (a dialog over the settings); OK does what it asks.
     Ask(Ask),
+    /// Read the licences (a reader over the settings).
+    Licences,
 }
 
 impl Act {

@@ -985,3 +985,234 @@ fn a_held_key_goes_only_to_an_address_entered_here() {
     assert!(crate::ir::IrService::new(&ctx.paths, 0).has_key(a));
     std::fs::remove_dir_all(&root).ok();
 }
+
+/// What drawing the open licences gives: the triangles of their text, and
+/// the rightmost glyph's edge.
+fn draw_licences(s: &mut SettingsScene, ctx: &Ctx, f: &mut Frame) -> (usize, f32) {
+    // the whole screen once (the rows under the reader too)
+    f.draw(|d| s.draw(ctx, d, Instant::now()));
+    let r = s.reader.as_mut().expect("the licences are open");
+    f.draw(|d| r.draw(ctx, d, None));
+    let white = |uv: [f32; 2]| {
+        (crate::gfx::WHITE_UV[0]..=crate::gfx::WHITE_UV[2]).contains(&uv[0])
+            && (crate::gfx::WHITE_UV[1]..=crate::gfx::WHITE_UV[3]).contains(&uv[1])
+    };
+    let (mut glyphs, mut right) = (0, 0.0f32);
+    for (tex, vs) in f.batch.draws() {
+        for tri in vs.chunks(3) {
+            if tex == crate::gfx::ATLAS && !tri.iter().all(|v| white(v.uv)) {
+                glyphs += 1;
+                right = tri.iter().fold(right, |m, v| m.max(v.pos[0]));
+            }
+        }
+    }
+    (glyphs, right)
+}
+
+struct Frame {
+    gfx: crate::gfx::Gfx,
+    text: crate::gfx::text::Text,
+    batch: crate::gfx::Batch,
+}
+
+impl Frame {
+    fn new() -> Frame {
+        crate::i18n::set(crate::i18n::Lang::En);
+        Frame {
+            gfx: crate::gfx::Gfx::without_gpu(),
+            text: crate::gfx::text::Text::built_in(),
+            batch: crate::gfx::Batch::default(),
+        }
+    }
+
+    fn draw(&mut self, f: impl FnOnce(&mut Draw)) {
+        self.batch.clear();
+        let mut d = Draw {
+            gfx: &self.gfx,
+            text: &mut self.text,
+            b: &mut self.batch,
+            pointer: None,
+            text_input: false,
+        };
+        f(&mut d);
+    }
+}
+
+/// SYSTEM's Licences row opens a reader of vibeBMS's licence, the notices
+/// and the crates' licences, in that order; Esc closes it (the page
+/// stays), and so does a tap outside it.
+#[test]
+fn the_licences_row_opens_them() {
+    let (root, mut ctx) = setup("licences");
+    let mut s = SettingsScene::at(&mut ctx, Page::System);
+    let i = s.rows.iter().position(|r| r.id == "info.licences").unwrap();
+    assert_eq!(s.rows[i].section, "UPDATES");
+    s.list.select(i);
+    s.input(&mut ctx, &key(KeyCode::Enter));
+    let lines: Vec<String> = s
+        .reader
+        .as_ref()
+        .unwrap()
+        .lines()
+        .unwrap()
+        .iter()
+        .map(|l| l.to_string())
+        .collect();
+    assert_eq!(lines[..2], ["\u{2014} LICENSE-MIT \u{2014}", "MIT License"]);
+    let at = |text: &str| lines.iter().position(|l| l.contains(text));
+    let order = [
+        at("\u{2014} LICENSE-APACHE \u{2014}"),
+        // the notices: Lua's copyright
+        at("Lua.org, PUC-Rio"),
+        at("\u{2014} THIRD_PARTY_LICENSES.md \u{2014}"),
+        // the generated file: its heading, a crate under its licence
+        at("# Third-party licences"),
+        lines.iter().position(|l| l.starts_with("- `serde` (")),
+    ];
+    assert!(order.iter().all(Option::is_some), "{order:?}");
+    assert!(order.is_sorted(), "{order:?}");
+    s.input(&mut ctx, &key(KeyCode::Escape));
+    assert!(s.reader.is_none());
+    assert_eq!(s.view, View::Page(Page::System));
+    // a tap on the row; one outside the box closes it
+    s.list.sel = 0;
+    let mut f = Frame::new();
+    f.draw(|d| s.draw(&ctx, d, Instant::now()));
+    let i = s.rows.iter().position(|r| r.id == "info.licences").unwrap();
+    tap_on(&mut s, &mut ctx, |l| l.pos[i]);
+    assert!(s.reader.is_some());
+    f.draw(|d| s.draw(&ctx, d, Instant::now()));
+    tap(&mut s, &mut ctx, (2.0, 2.0));
+    assert!(s.reader.is_none());
+    // search finds it by the American spelling too
+    s.input(&mut ctx, &key(KeyCode::Slash));
+    s.input(&mut ctx, &typed("license"));
+    assert!(s.rows.iter().any(|r| r.id == "info.licences"));
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// The licences drawn without a GPU, in landscape and on a phone held
+/// upright: at the start, after scrolling (keys, the wheel, the
+/// turntable, a drag) and at the end, which shows the last line. Each
+/// frame draws a screenful of glyphs, wrapped inside the box (lines of
+/// 100 columns and long addresses on the phone). The numbers are ranges:
+/// the generated file changes when a crate is added.
+#[test]
+fn the_licences_are_drawn_a_screen_at_a_time() {
+    let (root, mut ctx) = setup("licences-draw");
+    let mut f = Frame::new();
+    for (w, h) in [(1280.0, 720.0), (720.0, 1280.0)] {
+        ctx.view.width = w;
+        ctx.view.height = h;
+        let mut s = SettingsScene::at(&mut ctx, Page::System);
+        s.list
+            .select(s.rows.iter().position(|r| r.id == "info.licences").unwrap());
+        s.input(&mut ctx, &key(KeyCode::Enter));
+        let edge = w - 24.0 * ctx.ui();
+        let frame = |s: &mut SettingsScene, ctx: &Ctx, f: &mut Frame| {
+            let (glyphs, right) = draw_licences(s, ctx, f);
+            assert!(
+                (100..=16_000).contains(&glyphs),
+                "{w}x{h}: {glyphs} glyph triangles"
+            );
+            assert!(
+                right <= edge,
+                "{w}x{h}: a glyph at {right}, the box ends at {edge}"
+            );
+            s.reader.as_ref().unwrap().shown()
+        };
+        let top = frame(&mut s, &ctx, &mut f);
+        assert_eq!(top.0, 0);
+        let at = |s: &SettingsScene| s.reader.as_ref().unwrap().top();
+        let mut last = (at(&s), top);
+        let mut scrolled = |s: &mut SettingsScene, ctx: &mut Ctx, f: &mut Frame, ev: InputEv| {
+            s.input(ctx, &ev);
+            let shown = frame(s, ctx, f);
+            let now = (at(s), shown);
+            assert!(
+                now.0 > last.0,
+                "{w}x{h}: {ev:?} did not scroll ({last:?} to {now:?})"
+            );
+            last = now;
+        };
+        scrolled(&mut s, &mut ctx, &mut f, key(KeyCode::PageDown));
+        scrolled(&mut s, &mut ctx, &mut f, InputEv::Wheel { dy: -5.0 });
+        let axis = |value| InputEv::Axis {
+            id: 7,
+            value,
+            time: Instant::now(),
+        };
+        ctx.config.keys.any_axis_is_scratch = true;
+        s.input(&mut ctx, &axis(0.0));
+        for k in 1..4 {
+            scrolled(&mut s, &mut ctx, &mut f, axis(k as f32 * 0.1));
+        }
+        let ptr = |phase, y| InputEv::Pointer {
+            id: 3,
+            phase,
+            x: w * 0.5,
+            y,
+            time: Instant::now(),
+            touch: true,
+        };
+        s.input(&mut ctx, &ptr(Phase::Down, h * 0.8));
+        scrolled(&mut s, &mut ctx, &mut f, ptr(Phase::Move, h * 0.3));
+        s.input(&mut ctx, &ptr(Phase::Up, h * 0.3));
+        assert!(s.reader.is_some(), "a drag's lift keeps it open");
+        scrolled(&mut s, &mut ctx, &mut f, key(KeyCode::End));
+        let n = s.reader.as_ref().unwrap().lines().unwrap().len();
+        assert_eq!(last.1 .1, n - 1, "{w}x{h}: the end shows the last line");
+        s.input(&mut ctx, &key(KeyCode::Home));
+        assert_eq!(frame(&mut s, &ctx, &mut f), top);
+    }
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// What opening the licences and drawing a frame of the screen while they
+/// scroll through the whole text take, in this build:
+/// `cargo test -p vibebms --lib licences_cost -- --ignored --nocapture`.
+#[test]
+#[ignore = "a measurement: run it alone, see its comment"]
+fn licences_cost() {
+    let (root, mut ctx) = setup("licences-cost");
+    let mut f = Frame::new();
+    for (w, h) in [(1280.0, 720.0), (720.0, 1280.0)] {
+        ctx.view.width = w;
+        ctx.view.height = h;
+        let mut s = SettingsScene::at(&mut ctx, Page::System);
+        s.list
+            .select(s.rows.iter().position(|r| r.id == "info.licences").unwrap());
+        let t = std::time::Instant::now();
+        s.input(&mut ctx, &key(KeyCode::Enter));
+        let open = t.elapsed();
+        let t = std::time::Instant::now();
+        draw_licences(&mut s, &ctx, &mut f);
+        let first = t.elapsed();
+        let mut worst = std::time::Duration::ZERO;
+        let mut total = std::time::Duration::ZERO;
+        let frames = 600;
+        for k in 0..frames {
+            let ev = match k % 60 {
+                0 => key(KeyCode::PageDown),
+                _ => InputEv::Wheel { dy: -7.0 },
+            };
+            s.input(&mut ctx, &ev);
+            let t = std::time::Instant::now();
+            f.draw(|d| s.draw(&ctx, d, Instant::now()));
+            let e = t.elapsed();
+            worst = worst.max(e);
+            total += e;
+        }
+        let reached = s.reader.as_ref().unwrap().top_line();
+        let t = std::time::Instant::now();
+        s.input(&mut ctx, &key(KeyCode::Home));
+        f.draw(|d| s.draw(&ctx, d, Instant::now()));
+        let home = t.elapsed();
+        println!(
+            "{w}x{h}: open {open:?}, first frame {first:?}, scrolling: {:?} a frame on average, \
+             {worst:?} at worst ({frames} frames, to line {reached}), Home {home:?}",
+            total / frames,
+        );
+    }
+    std::fs::remove_dir_all(&root).ok();
+}

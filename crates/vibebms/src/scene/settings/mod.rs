@@ -17,6 +17,7 @@ mod display;
 mod draw;
 mod gameplay;
 mod library;
+mod licences;
 mod online;
 mod per_play;
 mod play_extras;
@@ -486,6 +487,8 @@ pub struct SettingsScene {
     edit: Option<(TextField, TextInput)>,
     /// A row's question, waiting for OK or Cancel.
     ask: Option<(Ask, ui::Notice)>,
+    /// The licences, being read.
+    reader: Option<ui::Reader>,
     learn: Learn,
     armed: Armed<Confirm>,
     /// What was drawn where (the last frame).
@@ -513,6 +516,7 @@ impl SettingsScene {
             search: None,
             edit: None,
             ask: None,
+            reader: None,
             learn: Learn::default(),
             armed: Armed::default(),
             hits: ui::HitMap::default(),
@@ -736,6 +740,10 @@ impl SettingsScene {
             }
             Act::Ask(q) => {
                 self.ask = Some((q, ui::Notice::default()));
+                return;
+            }
+            Act::Licences => {
+                self.reader = Some(licences::reader());
                 return;
             }
         }
@@ -1042,6 +1050,12 @@ impl SettingsScene {
     }
 
     fn input_inner(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {
+        if let Some(r) = self.reader.as_mut() {
+            if r.input(ctx, ev) == ui::Read::Closed {
+                self.reader = None;
+            }
+            return Next::Stay;
+        }
         if self.learn.on() {
             self.learn_input(ctx, ev);
             return Next::Stay;

@@ -227,6 +227,18 @@ fn updates(v: &mut Rows) {
     v.push(
         Row::note("info.version", tr!("Version"), format!("vibeBMS {VERSION}")).keys("about build"),
     );
+    v.push(
+        Row::new(
+            "info.licences",
+            tr!("Licences"),
+            tr!("read ↵"),
+            Act::Licences,
+        )
+        .desc(tr!(
+            "vibeBMS's licence and the notices of the works it is built from."
+        ))
+        .keys("about license licenses copyright notices open source third party credits"),
+    );
     if !SUPPORTED {
         return;
     }

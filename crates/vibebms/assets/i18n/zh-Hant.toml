@@ -1009,3 +1009,9 @@ _untranslated = [
 "Event list {list}: {n} events left out" = "活動列表 {list}：已略去 {n} 個活動"
 "Event list {list}: more than {n} events, not read" = "活動列表 {list}：活動超過 {n} 個，未讀取"
 "Event index {index}: more than {n} works, not read" = "活動索引 {index}：作品超過 {n} 個，未讀取"
+
+# Licences
+"Licences" = "授權條款"
+"read ↵" = "閱讀 ↵"
+"vibeBMS's licence and the notices of the works it is built from." = "vibeBMS 的授權條款，以及它所使用的作品的聲明。"
+"LICENCES" = "授權條款"

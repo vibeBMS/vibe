@@ -325,7 +325,6 @@ Using them is your own responsibility: follow each site's terms and respect the 
 # scene/select/reader.rs
 "READ TEXT" = "READ TEXT"
 "OPEN (O)" = "OPEN (O)"
-"Reading…" = "Reading…"
 "{title}: no text files" = "{title}: no text files"
 
 # scene/settings/controls.rs
@@ -676,6 +675,9 @@ Using them is your own responsibility: follow each site's terms and respect the 
 "1 chart" = "1 chart"
 "{on} tables" = "{on} tables"
 
+# scene/settings/licences.rs
+"LICENCES" = "LICENCES"
+
 # scene/settings/mod.rs
 "GAMEPLAY" = "GAMEPLAY"
 "CONTROLS" = "CONTROLS"
@@ -1002,6 +1004,9 @@ Using them is your own responsibility: follow each site's terms and respect the 
 "Profile {name} made: choose it to switch to it" = "Profile {name} made: choose it to switch to it"
 "Profile {name} deleted" = "Profile {name} deleted"
 "Version" = "Version"
+"Licences" = "Licences"
+"read ↵" = "read ↵"
+"vibeBMS's licence and the notices of the works it is built from." = "vibeBMS's licence and the notices of the works it is built from."
 "A local build: only the nightly builds update themselves" = "A local build: only the nightly builds update themselves"
 "Check for updates on start" = "Check for updates on start"
 "Nightly builds only." = "Nightly builds only."
@@ -1065,6 +1070,9 @@ Using them is your own responsibility: follow each site's terms and respect the 
 "Finding the file… ({at})" = "Finding the file… ({at})"
 "Unpacking…" = "Unpacking…"
 "Adding to the library…" = "Adding to the library…"
+
+# ui/reader.rs
+"Reading…" = "Reading…"
 
 # ui/text_input.rs
 "(Enter = OK, Esc = cancel)" = "(Enter = OK, Esc = cancel)"
